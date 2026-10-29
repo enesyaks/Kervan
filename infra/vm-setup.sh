@@ -49,6 +49,9 @@ KERVAN_PORT=7420
 KERVAN_DATA_DIR=/var/lib/kervan
 EOF
 fi
+if ! grep -q '^KERVAN_TOKEN=' /etc/kervan/env; then
+  echo "KERVAN_TOKEN=$(openssl rand -hex 32)" >> /etc/kervan/env
+fi
 chown root:"$KERVAN_USER" /etc/kervan/env
 chmod 640 /etc/kervan/env
 

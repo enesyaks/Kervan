@@ -3,7 +3,7 @@ import { log } from "./log.ts";
 import { createKervanServer, VERSION } from "./server.ts";
 
 const config = loadConfig();
-const server = createKervanServer();
+const server = createKervanServer({ token: config.token });
 
 server.listen(config.port, config.host, () => {
   log("info", "kervan listening", { host: config.host, port: config.port, version: VERSION });

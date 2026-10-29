@@ -1,19 +1,20 @@
 import assert from "node:assert/strict";
-import type { AddressInfo } from "node:net";
 import { after, before, describe, it } from "node:test";
 import { loadConfig } from "../src/config.ts";
-import { createKervanServer, VERSION } from "../src/server.ts";
+import { VERSION } from "../src/server.ts";
+import { TEST_TOKEN, startServer } from "./helpers.ts";
 
 describe("http server", () => {
-  const server = createKervanServer();
   let base = "";
+  let stop: () => Promise<void>;
 
   before(async () => {
-    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const started = await startServer();
+    base = `http://127.0.0.1:${started.port}`;
+    stop = started.stop;
   });
 
-  after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  after(() => stop());
 
   it("GET /health returns ok with version", async () => {
     const res = await fetch(`${base}/health`);
@@ -32,11 +33,21 @@ describe("http server", () => {
 });
 
 describe("loadConfig", () => {
-  it("uses defaults", () => {
-    assert.deepEqual(loadConfig({}), { host: "127.0.0.1", port: 7420, dataDir: "./data" });
+  it("uses defaults when the token is set", () => {
+    assert.deepEqual(loadConfig({ KERVAN_TOKEN: TEST_TOKEN }), {
+      host: "127.0.0.1",
+      port: 7420,
+      dataDir: "./data",
+      token: TEST_TOKEN,
+    });
+  });
+
+  it("requires a token", () => {
+    assert.throws(() => loadConfig({}), /KERVAN_TOKEN/);
+    assert.throws(() => loadConfig({ KERVAN_TOKEN: "short" }), /KERVAN_TOKEN/);
   });
 
   it("rejects an invalid port", () => {
-    assert.throws(() => loadConfig({ KERVAN_PORT: "abc" }), /KERVAN_PORT/);
+    assert.throws(() => loadConfig({ KERVAN_TOKEN: TEST_TOKEN, KERVAN_PORT: "abc" }), /KERVAN_PORT/);
   });
 });

@@ -8,12 +8,16 @@
   },
   "scripts": {
     "start": "node src/main.ts",
-    "dev": "node --watch src/main.ts",
+    "dev": "KERVAN_TOKEN=${KERVAN_TOKEN:-local-dev-token-not-secret} node --watch src/main.ts",
     "test": "node --test \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "@types/ws": "^8.18.2",
     "typescript": "^5.9.0"
+  },
+  "dependencies": {
+    "ws": "^8.22.0"
   }
 }

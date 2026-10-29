@@ -11,6 +11,7 @@ rsync -az --delete --exclude node_modules --exclude data "$ROOT/server/" "$TARGE
 
 ssh "$TARGET" '
   set -e
+  cd /opt/kervan/server && npm ci --omit=dev --no-audit --no-fund --loglevel=error
   sudo -n /usr/bin/systemctl restart kervan
   sleep 1
   curl -fsS http://127.0.0.1:7420/health && echo

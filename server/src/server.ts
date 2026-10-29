@@ -1,7 +1,15 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { log } from "./log.ts";
+import { VERSION } from "./version.ts";
+import { attachWebSocket } from "./ws.ts";
 
-export const VERSION = "0.1.0";
+export { VERSION };
+
+export interface ServerOptions {
+  token: string;
+  startedAt?: number;
+  heartbeatMs?: number;
+}
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   const payload = JSON.stringify(body);
@@ -12,8 +20,8 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(payload);
 }
 
-export function createKervanServer(startedAt = Date.now()): Server {
-  return createServer((req: IncomingMessage, res: ServerResponse) => {
+export function createKervanServer({ token, startedAt = Date.now(), heartbeatMs }: ServerOptions): Server {
+  const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? "/", "http://localhost");
 
     if (req.method === "GET" && url.pathname === "/health") {
@@ -28,4 +36,7 @@ export function createKervanServer(startedAt = Date.now()): Server {
     log("debug", "not found", { method: req.method, path: url.pathname });
     sendJson(res, 404, { error: "not_found" });
   });
+
+  attachWebSocket(server, token, heartbeatMs);
+  return server;
 }

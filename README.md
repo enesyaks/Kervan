@@ -3,8 +3,8 @@
 Uzak bir sunucuda (Proxmox VM) birden çok AI ajan CLI'ını çalıştırıp native bir Mac uygulamasından yönetmek için.
 
 ```
-mac/       SwiftUI istemci            (M1'de eklenecek)
-protocol/  Mac ↔ sunucu mesaj şeması  (M1'de eklenecek)
+mac/       SwiftUI istemci (Swift package, Xcode gerekmez)
+protocol/  Mac ↔ sunucu mesaj şeması (v1.md)
 server/    Gateway daemon (Node 24, TypeScript)
 infra/     VM kurulumu, systemd, deploy
 ```
@@ -15,8 +15,20 @@ infra/     VM kurulumu, systemd, deploy
 cd server
 npm install
 npm test
-npm run dev        # http://127.0.0.1:7420/health
+npm run dev        # http://127.0.0.1:7420/health, ws://127.0.0.1:7420/v1/ws
 ```
+
+Mac uygulaması:
+
+```bash
+cd mac
+swift test
+scripts/bundle.sh                     # mac/build/Kervan.app
+open build/Kervan.app
+```
+
+Yerel sunucuya Keychain'e dokunmadan bağlanmak için:
+`KERVAN_SERVER=localhost KERVAN_TOKEN=local-dev-token-not-secret build/Kervan.app/Contents/MacOS/Kervan`
 
 ## VM kurulumu (bir kez)
 
@@ -42,7 +54,7 @@ Mac'ten kontrol: `curl http://kervan:7420/health`
 | Yol | İçerik |
 |---|---|
 | `/opt/kervan/server` | Uygulama kodu |
-| `/etc/kervan/env` | Ortam değişkenleri (`KERVAN_HOST`, `KERVAN_PORT`, `KERVAN_DATA_DIR`) |
+| `/etc/kervan/env` | Ortam değişkenleri (`KERVAN_HOST`, `KERVAN_PORT`, `KERVAN_DATA_DIR`, `KERVAN_TOKEN`) |
 | `/var/lib/kervan` | SQLite veritabanı (konuşma geçmişi, M3'ten itibaren) |
 | `/srv/kervan/workspaces` | Oturum / takım çalışma klasörleri |
 

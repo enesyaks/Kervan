@@ -9,3 +9,6 @@ node_modules/
 mac/**/xcuserdata/
 mac/**/DerivedData/
 mac/**/.build/
+
+# Mac app bundle
+mac/build/
