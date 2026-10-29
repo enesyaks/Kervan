@@ -69,6 +69,7 @@ struct NewSessionSheet: View {
                 }
             }
             .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
 
             HStack {
                 SettingsLink {
@@ -97,6 +98,7 @@ struct NewSessionSheet: View {
             .padding(16)
         }
         .frame(width: 460, height: 560)
+        .background(Color.kervanCanvas)
         .navigationTitle("Yeni oturum")
         .task { await loadSkills() }
     }

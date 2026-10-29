@@ -27,6 +27,7 @@ struct NodesSection: View {
                     Circle()
                         .fill(node.connected ? Color.kervanOasis : Color.secondary.opacity(0.5))
                         .frame(width: 7, height: 7)
+        .background(Color.kervanCanvas)
                     Text(node.name).font(.body.monospaced())
                     Text(node.connected ? "bağlı" : "bağlı değil").foregroundStyle(.secondary)
                     Spacer()
@@ -154,6 +155,7 @@ private struct AddNodeSheet: View {
                 }
             }
             .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
 
             HStack(spacing: 8) {
                 if connected {
@@ -179,6 +181,7 @@ private struct AddNodeSheet: View {
             .padding(16)
         }
         .frame(width: 540, height: 420) // fits under the Settings window; the form scrolls
+        .background(Color.kervanCanvas)
         .onDisappear { installer.stop() }
     }
 

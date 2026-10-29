@@ -117,6 +117,7 @@ struct NewTeamSheet: View {
                 }
             }
             .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
 
             HStack {
                 SettingsLink { Text("Rolleri düzenle…") }.buttonStyle(.link)
@@ -134,6 +135,7 @@ struct NewTeamSheet: View {
             .padding(16)
         }
         .frame(width: 460, height: 480)
+        .background(Color.kervanCanvas)
     }
 }
 
@@ -151,9 +153,6 @@ struct RolesSettings: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             List {
-                if model.store.roles.isEmpty {
-                    Text("Henüz rol yok").foregroundStyle(.secondary)
-                }
                 ForEach(model.store.roles) { role in
                     HStack(alignment: .firstTextBaseline) {
                         VStack(alignment: .leading, spacing: 2) {
@@ -170,7 +169,12 @@ struct RolesSettings: View {
                     }
                 }
             }
-            .listStyle(.bordered)
+            .softList()
+            .overlay {
+                if model.store.roles.isEmpty {
+                    EmptyCard(symbol: "theatermasks", title: "Henüz rol yok", text: "Bir rol, takımdaki görevi anlatır: hangi ajan, ne talimatla, hangi araçlarla.")
+                }
+            }
 
             HStack {
                 Spacer()
@@ -178,10 +182,12 @@ struct RolesSettings: View {
                     isNew = true
                     editing = Role(id: "", name: "", agent: model.store.agents.first?.id ?? "")
                 }
+                .buttonStyle(.borderedProminent)
                 .disabled(!model.connection.state.isConnected)
             }
         }
         .padding(20)
+        .settingsPage()
         .sheet(item: $editing) { role in
             RoleEditor(role: role, isNew: isNew)
         }
@@ -244,6 +250,7 @@ private struct RoleEditor: View {
                 }
             }
             .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
 
             HStack {
                 Spacer()
@@ -259,6 +266,7 @@ private struct RoleEditor: View {
             .padding(16)
         }
         .frame(width: 500, height: 440) // fits under the Settings window; the form scrolls
+        .background(Color.kervanCanvas)
         .task { skills = (try? await model.fileClient?.listSkills()) ?? [] }
     }
 

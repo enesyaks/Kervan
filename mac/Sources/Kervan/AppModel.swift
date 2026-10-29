@@ -22,6 +22,8 @@ final class AppModel {
     var showNewTeam = false
     /// The opening animation, once per launch; KERVAN_NO_INTRO=1 skips it for development.
     var showIntro = ProcessInfo.processInfo.environment["KERVAN_NO_INTRO"] == nil
+        && (UserDefaults.standard.object(forKey: AppModel.introKey) as? Bool ?? true)
+    static let introKey = "showIntro"
     /// A message to scroll to and flash, set by picking a search hit; ChatView clears it.
     var focus: (sessionID: String, seq: Int)?
 

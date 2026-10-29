@@ -6,6 +6,8 @@ import SwiftUI
 struct SettingsView: View {
     var body: some View {
         TabView {
+            GeneralSettings()
+                .tabItem { Label("Genel", systemImage: "gearshape") }
             SkillsSettings()
                 .tabItem { Label("Skill'ler", systemImage: "book.closed") }
             McpSettings()
@@ -15,7 +17,74 @@ struct SettingsView: View {
             RolesSettings()
                 .tabItem { Label("Roller", systemImage: "theatermasks") }
         }
-        .frame(width: 560, height: 420)
+        .frame(width: 620, height: 480)
+        .fontDesign(.rounded)
+    }
+}
+
+/// Settings › Genel: how the app looks and opens, and which server it is on.
+private struct GeneralSettings: View {
+    @Environment(AppModel.self) private var model
+    @AppStorage(Appearance.key) private var appearance = Appearance.light.rawValue
+    @AppStorage(AppModel.introKey) private var showIntro = true
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                SettingsCard(title: "Görünüm", footer: "Açık görünüm varsayılandır. Sistem, macOS'un ayarını izler.") {
+                    Picker("Görünüm", selection: $appearance) {
+                        ForEach(Appearance.allCases) { Text($0.label).tag($0.rawValue) }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                }
+
+                SettingsCard(title: "Açılış", footer: "Uygulama açılırken kervanın vahaya yürüdüğü kısa animasyon. Tıklayınca geçilir.") {
+                    Toggle("Açılışta introyu göster", isOn: $showIntro)
+                    Button("Introyu şimdi oynat") { model.showIntro = true }
+                        .buttonStyle(.link)
+                }
+
+                SettingsCard(title: "Sunucu") {
+                    LabeledContent("Adres") {
+                        Text(model.activeAddress?.host ?? model.serverInput)
+                            .font(.body.monospaced())
+                            .textSelection(.enabled)
+                    }
+                    LabeledContent("Durum") {
+                        HStack(spacing: 6) {
+                            StatusDot(color: model.connection.state.tint, size: 7)
+                            Text(model.connection.state.shortLabel)
+                        }
+                    }
+                }
+            }
+            .padding(20)
+        }
+        .settingsPage()
+    }
+}
+
+/// A titled group of settings on a soft card, with an optional note under it.
+struct SettingsCard<Content: View>: View {
+    let title: String
+    var footer: String?
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(.headline)
+            VStack(alignment: .leading, spacing: 12) { content }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .softSurface()
+            if let footer {
+                Text(footer)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 }
 
@@ -29,13 +98,11 @@ private struct SkillsSettings: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Skill'ler, ajanın belirli bir işi nasıl yapacağını anlatan klasörlerdir (içinde SKILL.md). Yeni oturum açarken hangilerinin kullanılacağını seçersiniz.")
+                .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             List {
-                if skills.isEmpty {
-                    Text("Henüz skill yok").foregroundStyle(.secondary)
-                }
                 ForEach(skills) { skill in
                     HStack(alignment: .firstTextBaseline) {
                         VStack(alignment: .leading, spacing: 2) {
@@ -51,7 +118,12 @@ private struct SkillsSettings: View {
                     }
                 }
             }
-            .listStyle(.bordered)
+            .softList()
+            .overlay {
+                if skills.isEmpty {
+                    EmptyCard(symbol: "book.closed", title: "Henüz skill yok", text: "İçinde SKILL.md olan bir klasör ekleyin; yeni oturum açarken seçebilirsiniz.")
+                }
+            }
 
             HStack {
                 if let error {
@@ -59,10 +131,13 @@ private struct SkillsSettings: View {
                 }
                 Spacer()
                 if busy { ProgressView().controlSize(.small) }
-                Button("Skill klasörü ekle…", action: addSkill).disabled(busy || model.fileClient == nil)
+                Button("Skill klasörü ekle…", action: addSkill)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(busy || model.fileClient == nil)
             }
         }
         .padding(20)
+        .settingsPage()
         .task { await reload() }
         .confirmationDialog(
             "\(removing?.name ?? "") skill'i silinsin mi?",
@@ -128,13 +203,11 @@ private struct McpSettings: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("MCP sunucuları ajanlara yeni araçlar verir (GitHub, veritabanı, tarayıcı…). Gizli değerler yalnızca sunucuda tutulur; burada sadece adları görünür.")
+                .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             List {
-                if model.store.mcpServers.isEmpty {
-                    Text("Henüz MCP sunucusu yok").foregroundStyle(.secondary)
-                }
                 ForEach(model.store.mcpServers) { server in
                     HStack(alignment: .firstTextBaseline) {
                         VStack(alignment: .leading, spacing: 2) {
@@ -147,15 +220,22 @@ private struct McpSettings: View {
                     }
                 }
             }
-            .listStyle(.bordered)
+            .softList()
+            .overlay {
+                if model.store.mcpServers.isEmpty {
+                    EmptyCard(symbol: "point.3.connected.trianglepath.dotted", title: "Henüz MCP sunucusu yok", text: "GitHub, veritabanı ya da tarayıcı gibi araçları ajanlara buradan verirsiniz.")
+                }
+            }
 
             HStack {
                 Spacer()
                 Button("MCP sunucusu ekle…") { editing = McpDraft() }
+                    .buttonStyle(.borderedProminent)
                     .disabled(!model.connection.state.isConnected)
             }
         }
         .padding(20)
+        .settingsPage()
         .sheet(item: $editing) { draft in
             McpEditor(draft: draft) { input in
                 Task { await model.store.saveMcp(input) }
@@ -277,6 +357,7 @@ private struct McpEditor: View {
                 }
             }
             .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
 
             HStack {
                 Spacer()
@@ -293,6 +374,7 @@ private struct McpEditor: View {
             .padding(16)
         }
         .frame(width: 500, height: 420) // fits under the Settings window; the form scrolls
+        .background(Color.kervanCanvas)
     }
 }
 
@@ -304,6 +386,7 @@ private struct AgentsSettings: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Sunucunun çalıştırabildiği ajanlar. Eklediğiniz ajan, kaydedilmeden önce sunucuda bir kez denenir; çalışmazsa eklenmez.")
+                .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -334,17 +417,19 @@ private struct AgentsSettings: View {
                     }
                 }
             }
-            .listStyle(.bordered)
+            .softList()
 
             NodesSection()
 
             HStack {
                 Spacer()
                 Button("Ajan ekle…") { editing = AgentDraft() }
+                    .buttonStyle(.borderedProminent)
                     .disabled(!model.connection.state.isConnected)
             }
         }
         .padding(20)
+        .settingsPage()
         .task { await model.store.loadAgentConfigs() }
         .sheet(item: $editing) { draft in
             AgentEditor(draft: draft, nodes: model.store.nodes)
@@ -505,6 +590,7 @@ private struct AgentEditor: View {
                 }
             }
             .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
             .disabled(saving)
 
             HStack {
@@ -535,5 +621,28 @@ private struct AgentEditor: View {
             .padding(16)
         }
         .frame(width: 520, height: 440) // fits under the Settings window; the form scrolls
+        .background(Color.kervanCanvas)
+    }
+}
+
+/// What an empty settings list says: what belongs here and how to add the first one.
+struct EmptyCard: View {
+    let symbol: String
+    let title: String
+    let text: String
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: symbol)
+                .font(.system(size: 28, weight: .regular))
+                .foregroundStyle(Color.kervanLapis.opacity(0.6))
+            Text(title).font(.headline)
+            Text(text)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 320)
+        }
+        .padding(24)
     }
 }

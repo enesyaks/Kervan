@@ -133,11 +133,11 @@ extension SessionStore {
 
 extension Color {
     /// The window's floor: a night-blue tint (mist by day) instead of neutral gray, taken from the icon.
-    static let kervanCanvas = Color(light: 0xF1F4F8, dark: 0x111925)
+    static let kervanCanvas = Color(light: 0xF3F6FA, dark: 0x111925)
     /// One step up from the canvas: cards, bubbles, the composer.
     static let kervanSurface = Color(light: 0xFFFFFF, dark: 0x1A2433)
     /// Recessed inside a surface: code, tool rows, chips.
-    static let kervanWell = Color(light: 0xE7ECF3, dark: 0x22304A)
+    static let kervanWell = Color(light: 0xEAEFF6, dark: 0x22304A)
 }
 
 /// Corner radii. Nested shapes follow outer = inner + padding, so a chip inside a card stays concentric.
@@ -215,5 +215,44 @@ struct StatusDot: View {
             .background(Circle().fill(color.opacity(0.22)).frame(width: size + 6, height: size + 6))
             .frame(width: size + 6, height: size + 6)
             .accessibilityHidden(true)
+    }
+}
+
+/// Light, dark or follow the system; light by default. Chosen in Settings › Genel.
+enum Appearance: String, CaseIterable, Identifiable {
+    case light, dark, system
+    static let key = "appearance"
+
+    var id: String { rawValue }
+    var scheme: ColorScheme? {
+        switch self {
+        case .light: .light
+        case .dark: .dark
+        case .system: nil
+        }
+    }
+    var label: String {
+        switch self {
+        case .light: "Açık"
+        case .dark: "Koyu"
+        case .system: "Sistem"
+        }
+    }
+}
+
+extension View {
+    /// A settings list as a soft card on the canvas instead of a bordered box.
+    func softList() -> some View {
+        listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(Color.kervanSurface)
+            .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+            .softSurface()
+    }
+
+    /// The background every settings page and sheet sits on.
+    func settingsPage() -> some View {
+        frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(Color.kervanCanvas)
     }
 }

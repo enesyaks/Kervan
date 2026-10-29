@@ -5,12 +5,14 @@ import SwiftUI
 struct KervanApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var model = AppModel()
+    @AppStorage(Appearance.key) private var appearance = Appearance.light.rawValue
 
     var body: some Scene {
         WindowGroup("Kervan") {
             RootView()
                 .environment(model)
                 .tint(.kervanLapis)
+                .preferredColorScheme(Appearance(rawValue: appearance)?.scheme)
         }
         .defaultSize(width: 960, height: 620)
         .commands {
@@ -23,6 +25,7 @@ struct KervanApp: App {
             SettingsView()
                 .environment(model)
                 .tint(.kervanLapis)
+                .preferredColorScheme(Appearance(rawValue: appearance)?.scheme)
         }
     }
 }
