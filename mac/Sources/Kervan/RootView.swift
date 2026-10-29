@@ -14,7 +14,11 @@ struct RootView: View {
                 if !model.isLinked || model.connection.state.isFailed {
                     ConnectView()
                 } else if let id = model.selectedSessionID, model.store.session(id) != nil {
-                    ChatView(sessionID: id).id(id)
+                    if model.showCrew, let crew = Crew.of(id, sessions: model.store.sessions, teams: model.store.teams) {
+                        CrewView(crew: crew, selected: id)
+                    } else {
+                        ChatView(sessionID: id).id(id)
+                    }
                 } else {
                     OverviewView()
                 }

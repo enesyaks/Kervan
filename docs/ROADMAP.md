@@ -16,7 +16,7 @@ Her adım tek başına çalışan, test edilebilir bir özellik bırakır.
 | M7c | Ajanları uygulamadan ekleme / düzenleme (node seçimi M13 ile) | ✅ |
 | M8 | Takımlar ve roller, takımı elle kurma | ✅ |
 | M9 | Orkestrasyon MCP sunucusu: ana ajan yardımcı başlatır ve mesajlaşır | ✅ |
-| M10 | Takım görünümü: çok panelli ekran, akış şeridi | |
+| M10 | Takım görünümü: çok panelli ekran, akış şeridi | ✅ |
 | M11 | Git worktree ile yardımcı izolasyonu, bütçe ve sınırlar | |
 | M12 | PTY yedeği, bildirimler, dayanıklılık | |
 | M13 | Çoklu sunucu (node) | |

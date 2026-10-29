@@ -492,3 +492,45 @@ import Testing
         #expect(try JSONDecoder().decode(Role.self, from: Data(#"{"id":"x","name":"X","agent":"claude"}"#.utf8)).lead == false)
     }
 }
+
+@Suite struct CrewTests {
+    private func info(_ id: String, at: String, team: String? = nil, parent: String? = nil, lead: Bool = false) -> SessionInfo {
+        SessionInfo(id: id, agent: "claude", title: id, status: .idle, createdAt: at, teamId: team, parentId: parent, orchestrate: lead)
+    }
+
+    @Test func gathersALeadAndItsHelpersFromAnyOfThem() {
+        let sessions = [info("h2", at: "3", parent: "lead"), info("lead", at: "1", lead: true), info("h1", at: "2", parent: "lead"), info("solo", at: "4")]
+        let crew = Crew.of("h2", sessions: sessions, teams: [])
+        #expect(crew?.kind == .lead("lead"))
+        #expect(crew?.members.map(\.id) == ["lead", "h1", "h2"])
+        #expect(Crew.of("solo", sessions: sessions, teams: []) == nil, "a session working alone has no team view")
+    }
+
+    @Test func listsTeamMembersWithEachLeadsHelpersAfterIt() {
+        let team = TeamInfo(id: "t", title: "Web", createdAt: "0", sessionIds: ["a", "b"])
+        let sessions = [info("a", at: "1", team: "t", lead: true), info("b", at: "2", team: "t"), info("ah", at: "3", team: "t", parent: "a")]
+        let crew = Crew.of("b", sessions: sessions, teams: [team])
+        #expect(crew?.title == "Web")
+        #expect(crew?.members.map(\.id) == ["a", "ah", "b"])
+    }
+
+    @Test func buildsTheFlowFromHandOffsRepliesAndOpenApprovals() {
+        let members = [info("lead", at: "1", lead: true), info("h", at: "2", parent: "lead")]
+        let events: [String: [SessionEvent]] = [
+            "lead": [SessionEvent(seq: 1, at: "t1", body: .userMessage("iki yardımcı başlat"))],
+            "h": [
+                SessionEvent(seq: 1, at: "t2", body: .userMessage("hello.py yaz", from: "lead")),
+                SessionEvent(seq: 2, at: "t3", body: .agentMessageChunk("Yazdım, ")),
+                SessionEvent(seq: 3, at: "t3", body: .agentMessageChunk("çalışıyor.")),
+                SessionEvent(seq: 4, at: "t4", body: .turnEnd(stopReason: "end_turn")),
+                SessionEvent(seq: 5, at: "t5", body: .permissionRequest(requestId: "r1", title: "Write a", toolKind: "edit", detail: nil, options: [])),
+                SessionEvent(seq: 6, at: "t6", body: .permissionResolved(requestId: "r1", optionId: "yes")),
+                SessionEvent(seq: 7, at: "t7", body: .permissionRequest(requestId: "r2", title: "Run tests", toolKind: "execute", detail: nil, options: [])),
+            ],
+        ]
+        let flow = Flow.build(members, events: events)
+        #expect(flow.map(\.kind) == [.userWrote, .assigned(from: "lead"), .replied, .waiting])
+        #expect(flow.map(\.text) == ["iki yardımcı başlat", "hello.py yaz", "Yazdım, çalışıyor.", "Run tests"])
+        #expect(Flow.build(members, events: events, limit: 2).map(\.seq) == [4, 7])
+    }
+}

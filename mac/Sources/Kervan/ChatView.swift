@@ -119,6 +119,17 @@ struct ChatView: View {
                 .inspectorColumnWidth(min: 240, ideal: 300)
         }
         .toolbar {
+            if Crew.of(sessionID, sessions: model.store.sessions, teams: model.store.teams) != nil {
+                ToolbarItem {
+                    Button {
+                        model.showCrew = true
+                    } label: {
+                        Label("Takım görünümü", systemImage: "rectangle.split.3x1")
+                    }
+                    .help("Takımdaki bütün ajanları yan yana göster (⌥⌘T)")
+                    .keyboardShortcut("t", modifiers: [.command, .option])
+                }
+            }
             ToolbarItem {
                 Button {
                     model.showFiles.toggle()
@@ -227,7 +238,7 @@ private struct LeadLink: View {
     }
 }
 
-private struct TranscriptRow: View {
+struct TranscriptRow: View {
     let item: TranscriptItem
     let agentName: String
     let senderName: (String) -> String
