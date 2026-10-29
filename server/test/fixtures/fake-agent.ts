@@ -4,6 +4,7 @@
 //   "slow"   → waits 300 ms before answering
 //   "crash"  → exits mid-turn
 //   attached files → answers "files: <file:// uris>"
+//   "authstate" → answers with the auth method chosen via `authenticate`, or "none"
 //   "whoami" → answers with the ACP session id it is running (new or resumed)
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
@@ -14,13 +15,19 @@ const stream = acp.ndJsonStream(
 );
 
 let current = "";
+let authenticated = "none";
 
 acp
   .agent({ name: "fake" })
   .onRequest("initialize", () => ({
     protocolVersion: acp.PROTOCOL_VERSION,
     agentCapabilities: { sessionCapabilities: { resume: {} } },
+    authMethods: [{ id: "fake-key", name: "Fake key" }],
   }))
+  .onRequest("authenticate", ({ params }) => {
+    authenticated = params.methodId;
+    return {};
+  })
   .onRequest("session/new", () => {
     current = `fake-${process.pid}`;
     return { sessionId: current };
@@ -34,6 +41,10 @@ acp
     const update = (u: acp.SessionUpdate) => client.notify("session/update", { sessionId: params.sessionId, update: u });
 
     if (text.includes("crash")) process.exit(1);
+    if (text.includes("authstate")) {
+      await update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: authenticated } });
+      return { stopReason: "end_turn" };
+    }
     if (text.includes("whoami")) {
       await update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: current } });
       return { stopReason: "end_turn" };

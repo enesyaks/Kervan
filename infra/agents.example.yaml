@@ -11,7 +11,8 @@ agents:
     command: builtin          # bundled @agentclientprotocol/codex-acp; needs CODEX_API_KEY or OPENAI_API_KEY
   gemini:
     name: Gemini
-    command: builtin          # bundled @google/gemini-cli --acp; needs GEMINI_API_KEY or a one-time login
+    command: builtin          # bundled @google/gemini-cli --acp with authMethod gemini-api-key; needs GEMINI_API_KEY
+    # authMethod: gemini-api-key   # ACP auth method chosen at start; any agent may set one
   # Any ACP agent on the VM's PATH:
   # opencode:
   #   name: OpenCode

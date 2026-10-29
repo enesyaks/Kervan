@@ -97,6 +97,13 @@ export class LocalAcpRunner implements AgentRunner {
         exited.then(() => Promise.reject(new Error("agent exited during startup"))),
       ]);
 
+      if (command.authMethod) {
+        if (!init.authMethods?.some((method) => method.id === command.authMethod)) {
+          throw new Error(`agent does not offer auth method '${command.authMethod}'`);
+        }
+        await agent.request("authenticate", { methodId: command.authMethod });
+      }
+
       let sessionId: string;
       if (resumeSessionId) {
         if (!init.agentCapabilities?.sessionCapabilities?.resume) throw new Error("agent cannot resume sessions");

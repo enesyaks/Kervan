@@ -9,6 +9,8 @@ export interface AgentCommand {
   command: string;
   args: string[];
   env?: Record<string, string>;
+  /** ACP auth method to select right after `initialize`, for agents that wait for one (Gemini). */
+  authMethod?: string;
 }
 
 export interface AgentDefinition extends AgentCommand {
@@ -26,7 +28,8 @@ const bin = (name: string) => join(serverRoot, "node_modules/.bin", name);
 const BUILTIN: Record<string, AgentDefinition> = {
   claude: { name: "Claude Code", command: bin("claude-agent-acp"), args: [] },
   codex: { name: "Codex", command: bin("codex-acp"), args: [] },
-  gemini: { name: "Gemini", command: bin("gemini"), args: ["--acp"] },
+  // Gemini blocks on its first prompt until a method is chosen; Google account login is closed to individuals.
+  gemini: { name: "Gemini", command: bin("gemini"), args: ["--acp"], authMethod: "gemini-api-key" },
 };
 
 function fail(file: string, message: string): never {
@@ -73,9 +76,17 @@ export function parseAgents(text: string, file = "agents.yaml"): AgentDefinition
     if (entry.env !== undefined && !isStringRecord(entry.env)) fail(file, `agent '${id}': 'env' must map names to strings`);
     const name = entry.name ?? base?.name ?? id;
     if (typeof name !== "string") fail(file, `agent '${id}': 'name' must be text`);
+    const authMethod = entry.authMethod ?? base?.authMethod;
+    if (authMethod !== undefined && typeof authMethod !== "string") fail(file, `agent '${id}': 'authMethod' must be text`);
 
     ids.push(id);
-    definitions.push({ name, command, args, ...(entry.env ? { env: entry.env as Record<string, string> } : {}) });
+    definitions.push({
+      name,
+      command,
+      args,
+      ...(entry.env ? { env: entry.env as Record<string, string> } : {}),
+      ...(authMethod ? { authMethod } : {}),
+    });
   }
   return Object.assign(definitions, { ids });
 }

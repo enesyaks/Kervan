@@ -20,6 +20,7 @@ agents:
     assert.deepEqual(agents.ids, ["gemini", "claude"]);
     assert.equal(agents[0].name, "Gemini");
     assert.deepEqual(agents[0].args, ["--acp"]);
+    assert.equal(agents[0].authMethod, "gemini-api-key", "builtin Gemini selects API-key auth");
     assert.ok(agents[0].command.endsWith("node_modules/.bin/gemini"));
     assert.equal(agents[1].name, "Claude");
     assert.deepEqual(agents[1].env, { ANTHROPIC_LOG: "debug" });
@@ -43,6 +44,7 @@ agents:
     assert.throws(() => parseAgents("agents:\n  foo: {name: Foo}"), /needs a 'command'/);
     assert.throws(() => parseAgents("agents:\n  foo: {command: x, args: x}"), /'args' must be a list/);
     assert.throws(() => parseAgents("agents:\n  foo: {command: x, env: {A: 1}}"), /'env' must map/);
+    assert.throws(() => parseAgents("agents:\n  foo: {command: x, authMethod: 3}"), /'authMethod' must be text/);
   });
 
   it("offers only agents that can run here", () => {
@@ -60,5 +62,40 @@ agents:
 
   it("falls back to the builtin adapters without a file", () => {
     assert.deepEqual([...loadAgents("/nonexistent/agents.yaml").keys()], ["claude", "codex", "gemini"]);
+  });
+});
+
+describe("agent auth", () => {
+  const start = async (authMethod?: string) => {
+    const { LocalAcpRunner } = await import("../src/runner.ts");
+    const { fakeAgent } = await import("./helpers.ts");
+    const chunks: string[] = [];
+    const agent = await new LocalAcpRunner().start({
+      command: { ...fakeAgent, ...(authMethod ? { authMethod } : {}) },
+      cwd: tmpdir(),
+      onEvent: (event) => {
+        if (event.kind === "agent_message_chunk") chunks.push(event.text);
+      },
+      onPermission: async () => null,
+    });
+    return { agent, chunks };
+  };
+
+  it("selects the configured auth method before the first prompt", async () => {
+    const { agent, chunks } = await start("fake-key");
+    await agent.prompt("authstate");
+    assert.deepEqual(chunks, ["fake-key"]);
+    agent.close();
+  });
+
+  it("skips authentication when none is configured", async () => {
+    const { agent, chunks } = await start();
+    await agent.prompt("authstate");
+    assert.deepEqual(chunks, ["none"]);
+    agent.close();
+  });
+
+  it("fails clearly when the agent doesn't offer the method", async () => {
+    await assert.rejects(start("oauth-personal"), /does not offer auth method 'oauth-personal'/);
   });
 });
