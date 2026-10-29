@@ -2,6 +2,7 @@
 
 export const PROTOCOL_VERSION = 1;
 
+export const MAX_BUDGET_USD = 10_000;
 const MAX_PROMPT_CHARS = 100_000;
 const MAX_ATTACHMENTS = 20;
 
@@ -37,7 +38,20 @@ export interface SessionInfo {
   parentId?: string;
   /** The agent may start and message helpers (Kervan's orchestration tools). */
   orchestrate?: boolean;
+  /** Leads: the most the lead and its helpers may spend together, in USD. */
+  budgetUsd?: number;
+  /** Helpers in a git repository: the branch of their own worktree. */
+  branch?: string;
+  /** Last reported by the agent; cost only from agents that report it (Claude). */
+  usage?: SessionUsage;
   error?: string;
+}
+
+export interface SessionUsage {
+  contextUsed: number;
+  contextSize: number;
+  /** Cumulative across agent restarts. */
+  costUsd?: number;
 }
 
 export interface TeamInfo {
@@ -100,7 +114,7 @@ export type SessionEvent = SessionEventBody & { seq: number; at: string };
 export type ClientMessage =
   | { type: "hello"; protocol: number; client: PeerInfo }
   | { type: "ping"; id: string }
-  | { type: "session.create"; id: string; agent: string; skills?: string[]; mcpServers?: string[]; orchestrate?: boolean }
+  | { type: "session.create"; id: string; agent: string; skills?: string[]; mcpServers?: string[]; orchestrate?: boolean; budgetUsd?: number }
   | { type: "session.list"; id: string }
   | { type: "session.history"; id: string; sessionId: string }
   | { type: "session.prompt"; id: string; sessionId: string; text: string; attachments?: string[] }
@@ -251,6 +265,12 @@ export function parseClientMessage(raw: string): ParseResult {
     if (data.orchestrate !== undefined) {
       if (typeof data.orchestrate !== "boolean") return fail("bad_message", "orchestrate must be true or false");
       (message as Record<string, unknown>).orchestrate = data.orchestrate;
+    }
+    if (data.budgetUsd !== undefined) {
+      if (typeof data.budgetUsd !== "number" || !(data.budgetUsd > 0 && data.budgetUsd <= MAX_BUDGET_USD)) {
+        return fail("bad_message", `budgetUsd must be a number between 0 and ${MAX_BUDGET_USD}`);
+      }
+      (message as Record<string, unknown>).budgetUsd = data.budgetUsd;
     }
   }
   if (data.type === "role.save") {

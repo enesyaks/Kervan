@@ -109,3 +109,22 @@ struct CaravanDots: View {
         .accessibilityHidden(true)
     }
 }
+
+/// Dollars as the agents report them, written the Turkish way: $0,42.
+func usd(_ amount: Double) -> String {
+    amount.formatted(.currency(code: "USD").locale(Locale(identifier: "tr_TR")))
+}
+
+extension SessionStore {
+    /// What a session has spent, for subtitles. A lead counts its helpers too and shows its budget.
+    func costSummary(_ session: SessionInfo) -> String? {
+        let crew = crewCost(session.id)
+        if let budget = session.budgetUsd {
+            return "\(usd(crew ?? 0)) / \(usd(budget)) bütçe"
+        }
+        if !helpers(of: session.id).isEmpty, let crew {
+            return "yardımcılarla \(usd(crew)) harcandı"
+        }
+        return session.usage?.costUsd.map { "\(usd($0)) harcandı" }
+    }
+}

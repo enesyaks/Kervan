@@ -41,6 +41,10 @@ export const TOOLS: Tool[] = [
         task: text("Everything the helper needs to know; it can't see your conversation."),
         agent: text("Agent id from list_agents. Give this or role."),
         role: text("Role id from list_agents; uses the role's agent and instructions."),
+        isolate: {
+          type: "boolean",
+          description: "In a git repository (default true): work on its own branch in a separate worktree, merged later with merge_helper.",
+        },
       },
       required: ["name", "task"],
     },
@@ -78,9 +82,22 @@ export const TOOLS: Tool[] = [
     description: "Stop what a helper is doing now. It can be messaged again afterwards.",
     inputSchema: { type: "object", properties: { helperId: text("Id from start_helper.") }, required: ["helperId"] },
   },
+  {
+    name: "helper_diff",
+    description: "What an isolated helper changed on its branch so far (uncommitted work included): a summary and the patch.",
+    inputSchema: { type: "object", properties: { helperId: text("Id from start_helper.") }, required: ["helperId"] },
+  },
+  {
+    name: "merge_helper",
+    description:
+      "Merge an isolated helper's branch into your current branch. Wait until it has finished its turn. " +
+      "On a conflict nothing is merged and the conflicting files are listed.",
+    inputSchema: { type: "object", properties: { helperId: text("Id from start_helper.") }, required: ["helperId"] },
+  },
 ];
 
-const NAMES = TOOLS.map((tool) => tool.name).join("|");
+// merge_helper changes the lead's files, so the user is still asked about it.
+const NAMES = TOOLS.map((tool) => tool.name).filter((name) => name !== "merge_helper").join("|");
 /** How adapters title a call to one of these tools: Claude `mcp__kervan__x`, Codex `kervan.x`, Gemini `x (kervan MCP Server)`. */
 const TOOL_TITLE = new RegExp(`^(?:(?:mcp__)?kervan(?:__|\\.|/|: ?| )(?:${NAMES})|(?:${NAMES}) \\(kervan MCP Server\\))$`);
 const NEVER_AUTO = new Set(["execute", "edit", "delete", "move", "fetch"]);
@@ -189,6 +206,7 @@ export class OrchestraHub {
           task: str(args, "task")!,
           agent: str(args, "agent", false),
           role: str(args, "role", false),
+          isolate: args.isolate !== false,
         });
       case "message_helper":
         sessions.messageHelper(leadId, str(args, "helperId")!, str(args, "text")!);
@@ -203,6 +221,10 @@ export class OrchestraHub {
       case "stop_helper":
         await sessions.stopHelper(leadId, str(args, "helperId")!);
         return { stopped: true };
+      case "helper_diff":
+        return sessions.helperDiff(leadId, str(args, "helperId")!);
+      case "merge_helper":
+        return sessions.mergeHelper(leadId, str(args, "helperId")!);
       default:
         throw new KervanError("bad_message", `no tool named '${tool}'`);
     }

@@ -40,7 +40,14 @@ struct CrewView: View {
             }
         }
         .navigationTitle(crew.title)
-        .navigationSubtitle(working == 0 ? "\(members.count) ajan, hepsi boşta" : "\(members.count) ajan, \(working) çalışıyor")
+        .navigationSubtitle(
+            [
+                working == 0 ? "\(members.count) ajan, hepsi boşta" : "\(members.count) ajan, \(working) çalışıyor",
+                members.first(where: { $0.orchestrate }).flatMap(store.costSummary),
+            ]
+            .compactMap { $0 }
+            .joined(separator: ", ")
+        )
         .toolbar {
             ToolbarItem {
                 Button {
@@ -239,10 +246,17 @@ private struct MemberPanel: View {
                 Text(session.role ?? session.title).font(.headline).lineLimit(1)
                 HStack(spacing: 5) {
                     Circle().fill(session.status.tint).frame(width: 6, height: 6)
-                    Text("\(agentName), \(session.status.label.lowercased())")
+                    Text(
+                        ["\(agentName), \(session.status.label.lowercased())", session.usage?.costUsd.map(usd)]
+                            .compactMap { $0 }
+                            .joined(separator: ", ")
+                    )
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                if let branch = session.branch {
+                    BranchLabel(branch: branch)
+                }
             }
             Spacer()
             Button {

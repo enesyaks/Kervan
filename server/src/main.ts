@@ -26,7 +26,16 @@ const roles = new RoleRegistry(join(config.dataDir, "roles.json"), {
   hasSkill: (name) => skills.has(name),
   hasMcp: (name) => mcp.has(name),
 });
-const sessions = new SessionManager(runner, catalog.live, config.workspacesDir, store, { skills, mcp, catalog, roles });
+const sessions = new SessionManager(runner, catalog.live, config.workspacesDir, store, {
+  skills,
+  mcp,
+  catalog,
+  roles,
+  limits: {
+    ...(config.maxHelpers !== undefined ? { maxHelpers: config.maxHelpers } : {}),
+    ...(config.helperTurnMinutes !== undefined ? { helperTurnMinutes: config.helperTurnMinutes } : {}),
+  },
+});
 // Absolute: lead agents' MCP bridges run in their own working folders.
 const orchestra = new OrchestraHub(resolve(config.dataDir, "orchestra.sock"), sessions);
 await orchestra.listen();

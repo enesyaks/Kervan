@@ -113,6 +113,8 @@ describe("lead agents and helpers", () => {
     assert.ok(!isOrchestraCall("mcp__kervan__start_helper", "execute"));
     assert.ok(!isOrchestraCall("echo mcp__kervan__start_helper && touch x", "other"));
     assert.ok(!isOrchestraCall("mcp__github__list_agents", "other"));
+    assert.ok(isOrchestraCall("mcp__kervan__helper_diff", "other"));
+    assert.ok(!isOrchestraCall("mcp__kervan__merge_helper", "other"), "merging changes the lead's files, so the user is asked");
   });
 
   it("lets a lead call its tools without asking, but still asks for anything else", async () => {

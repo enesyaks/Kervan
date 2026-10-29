@@ -9,6 +9,7 @@ struct NewSessionSheet: View {
     @State private var skills: Set<String>
     @State private var mcpServers: Set<String>
     @State private var orchestrate: Bool
+    @State private var budget: Double?
     @State private var available: [SkillInfo]?
     @State private var loadError: String?
 
@@ -30,7 +31,10 @@ struct NewSessionSheet: View {
                     }
                     Toggle(isOn: $orchestrate) {
                         Text("Yardımcı ajan başlatabilsin")
-                        Text("Alt görevleri başka ajanlara verir; yardımcılar aynı klasörde çalışır ve kenar çubuğunda bu oturumun altında görünür.")
+                        Text("Alt görevleri başka ajanlara verir; yardımcılar kenar çubuğunda bu oturumun altında görünür. Klasör bir git deposuysa her yardımcı kendi dalında çalışır.")
+                    }
+                    if orchestrate {
+                        BudgetField(budget: $budget)
                     }
                 }
 
@@ -81,7 +85,8 @@ struct NewSessionSheet: View {
                         agent: agent,
                         skills: skills.filter(names.contains).sorted(),
                         mcpServers: mcpServers.filter { name in servers.contains { $0.name == name } }.sorted(),
-                        orchestrate: orchestrate
+                        orchestrate: orchestrate,
+                        budgetUsd: orchestrate ? budget.flatMap { $0 > 0 ? $0 : nil } : nil
                     )
                     dismiss()
                 }
@@ -109,6 +114,26 @@ struct NewSessionSheet: View {
             available = try await client.listSkills()
         } catch {
             loadError = "Skill'ler alınamadı: \(error.localizedDescription)"
+        }
+    }
+}
+
+/// An optional dollar limit for a lead and its helpers together. Empty means no limit.
+struct BudgetField: View {
+    @Binding var budget: Double?
+
+    var body: some View {
+        LabeledContent {
+            HStack(spacing: 4) {
+                TextField("Bütçe", value: $budget, format: .number.precision(.fractionLength(0...2)), prompt: Text("Sınırsız"))
+                    .labelsHidden()
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 90)
+                Text("USD").foregroundStyle(.secondary)
+            }
+        } label: {
+            Text("Bütçe")
+            Text("Ana ajan ve yardımcılarının toplam harcaması. Dolunca hepsi durur. Şimdilik yalnızca maliyet bildiren ajanlarda (Claude) işler.")
         }
     }
 }

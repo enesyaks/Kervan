@@ -192,7 +192,7 @@ import Testing
     @Test func selectsOnlySessionsItCreated() async {
         let (store, outbox) = makeStore()
         await store.create(agent: "claude")
-        guard case .sessionCreate(let requestID, "claude", _, _, false)? = outbox.sent.last else {
+        guard case .sessionCreate(let requestID, "claude", _, _, false, _)? = outbox.sent.last else {
             Issue.record("expected a session.create")
             return
         }
@@ -532,5 +532,35 @@ import Testing
         #expect(flow.map(\.kind) == [.userWrote, .assigned(from: "lead"), .replied, .waiting])
         #expect(flow.map(\.text) == ["iki yardımcı başlat", "hello.py yaz", "Yazdım, çalışıyor.", "Run tests"])
         #expect(Flow.build(members, events: events, limit: 2).map(\.seq) == [4, 7])
+    }
+}
+
+@MainActor @Suite struct BudgetTests {
+    @Test func sendsABudgetOnlyForLeads() throws {
+        #expect(
+            try ClientMessage.sessionCreate(id: "r", agent: "claude", orchestrate: true, budgetUsd: 5).jsonString()
+                == #"{"agent":"claude","budgetUsd":5,"id":"r","orchestrate":true,"type":"session.create"}"#
+        )
+        #expect(try ClientMessage.sessionCreate(id: "r", agent: "claude", budgetUsd: 5).jsonString() == #"{"agent":"claude","id":"r","type":"session.create"}"#)
+    }
+
+    @Test func decodesUsageBranchAndBudget() throws {
+        let updated = try ServerMessage.decode(
+            #"{"type":"session.updated","session":{"id":"h","agent":"claude","title":"A","status":"idle","createdAt":"c","archived":false,"parentId":"l","branch":"kervan/a-1","usage":{"contextUsed":10,"contextSize":100,"costUsd":0.12}}}"#
+        )
+        guard case .sessionUpdated(let info) = updated else { Issue.record("expected session.updated"); return }
+        #expect(info.branch == "kervan/a-1")
+        #expect(info.usage == SessionUsage(contextUsed: 10, contextSize: 100, costUsd: 0.12))
+    }
+
+    @Test func addsUpWhatALeadAndItsHelpersSpent() {
+        let store = SessionStore { _ in }
+        #expect(store.crewCost("lead") == nil)
+        store.handle(.sessionUpdated(SessionInfo(id: "lead", agent: "claude", title: "Şef", status: .idle, createdAt: "1", orchestrate: true, budgetUsd: 2,
+                                                 usage: SessionUsage(contextUsed: 1, contextSize: 10, costUsd: 0.5))))
+        store.handle(.sessionUpdated(SessionInfo(id: "h", agent: "claude", title: "A", status: .idle, createdAt: "2", parentId: "lead",
+                                                 usage: SessionUsage(contextUsed: 1, contextSize: 10, costUsd: 0.25))))
+        store.handle(.sessionUpdated(SessionInfo(id: "g", agent: "gemini", title: "B", status: .idle, createdAt: "3", parentId: "lead")))
+        #expect(store.crewCost("lead") == 0.75)
     }
 }

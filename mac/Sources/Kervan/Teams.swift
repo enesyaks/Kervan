@@ -219,6 +219,9 @@ private struct RoleEditor: View {
                     Text("Ana ajan")
                     Text("Takımda yardımcı ajan başlatıp onlara görev verebilir.")
                 }
+                if role.lead {
+                    BudgetField(budget: $role.budgetUsd)
+                }
                 Section("Talimat") {
                     TextEditor(text: $role.instructions)
                         .font(.body)

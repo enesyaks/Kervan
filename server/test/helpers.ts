@@ -8,7 +8,7 @@ import { AgentCatalog } from "../src/catalog.ts";
 import { RoleRegistry } from "../src/roles.ts";
 import { LocalAcpRunner, probeAgent } from "../src/runner.ts";
 import { createKervanServer } from "../src/server.ts";
-import { SessionManager } from "../src/sessions.ts";
+import { SessionManager, type Limits } from "../src/sessions.ts";
 import { EventStore } from "../src/store.ts";
 import { McpRegistry } from "../src/mcp.ts";
 import { SkillLibrary } from "../src/skills.ts";
@@ -19,7 +19,7 @@ export const TEST_TOKEN = "test-token-0123456789";
 export const fakeAgent = { name: "Fake", command: process.execPath, args: [join(import.meta.dirname, "fixtures/fake-agent.ts")] };
 
 export async function startServer(
-  options: { maxUploadBytes?: number } = {},
+  options: { maxUploadBytes?: number; limits?: Partial<Limits> } = {},
 ): Promise<{ server: Server; port: number; sessions: SessionManager; dataDir: string; stop: () => Promise<void> }> {
   const workspaces = mkdtempSync(join(tmpdir(), "kervan-test-"));
   const dataDir = mkdtempSync(join(tmpdir(), "kervan-data-"));
@@ -33,11 +33,17 @@ export async function startServer(
     hasSkill: (name) => skills.has(name),
     hasMcp: (name) => mcp.has(name),
   });
-  const sessions = new SessionManager(runner, catalog.live, workspaces, new EventStore(":memory:"), { skills, mcp, catalog, roles });
+  const sessions = new SessionManager(runner, catalog.live, workspaces, new EventStore(":memory:"), {
+    skills,
+    mcp,
+    catalog,
+    roles,
+    ...(options.limits ? { limits: options.limits } : {}),
+  });
   const orchestra = new OrchestraHub(join(dataDir, "orchestra.sock"), sessions);
   await orchestra.listen();
   sessions.useOrchestra(orchestra);
-  const server = createKervanServer({ token: TEST_TOKEN, sessions, skills, ...options });
+  const server = createKervanServer({ token: TEST_TOKEN, sessions, skills, maxUploadBytes: options.maxUploadBytes });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const port = (server.address() as AddressInfo).port;
   const stop = () =>

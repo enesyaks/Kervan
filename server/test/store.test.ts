@@ -41,6 +41,18 @@ describe("EventStore", () => {
     assert.deepEqual(store.loadSessions().map((s) => s.info), [{ ...info, orchestrate: true }, { ...info, id: "s2", parentId: "s1" }]);
   });
 
+  it("keeps budgets, branches and the latest usage", () => {
+    const store = new EventStore(":memory:");
+    const usage = { contextUsed: 10, contextSize: 100, costUsd: 0.12 };
+    store.saveSession({ info: { ...info, orchestrate: true, budgetUsd: 2 } });
+    store.saveSession({ info: { ...info, id: "s2", parentId: "s1", branch: "kervan/a-1" } });
+    store.saveSession({ info: { ...info, orchestrate: true, budgetUsd: 2, usage } });
+    assert.deepEqual(store.loadSessions().map((s) => s.info), [
+      { ...info, orchestrate: true, budgetUsd: 2, usage },
+      { ...info, id: "s2", parentId: "s1", branch: "kervan/a-1" },
+    ]);
+  });
+
   it("refuses a duplicate seq", () => {
     const store = new EventStore(":memory:");
     store.saveSession({ info });

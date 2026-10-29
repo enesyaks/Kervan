@@ -64,10 +64,20 @@ public final class SessionStore {
         await request(.teamList(id: Self.newID()))
     }
 
-    public func create(agent: String, skills: [String] = [], mcpServers: [String] = [], orchestrate: Bool = false) async {
+    public func create(
+        agent: String, skills: [String] = [], mcpServers: [String] = [], orchestrate: Bool = false, budgetUsd: Double? = nil
+    ) async {
         let id = Self.newID()
         pendingCreates.insert(id)
-        await request(.sessionCreate(id: id, agent: agent, skills: skills, mcpServers: mcpServers, orchestrate: orchestrate))
+        await request(.sessionCreate(
+            id: id, agent: agent, skills: skills, mcpServers: mcpServers, orchestrate: orchestrate, budgetUsd: budgetUsd
+        ))
+    }
+
+    /// What a lead and its helpers have spent together, from what their agents reported; nil when none reported a cost.
+    public func crewCost(_ leadID: String) -> Double? {
+        let costs = ([session(leadID)].compactMap { $0 } + helpers(of: leadID)).compactMap { $0.usage?.costUsd }
+        return costs.isEmpty ? nil : costs.reduce(0, +)
     }
 
     /// The helpers a lead agent started, oldest first.

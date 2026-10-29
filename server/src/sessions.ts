@@ -13,6 +13,7 @@ import type { EventStore, IndexedMessage, SearchHit, StoredTeam } from "./store.
 import type { RoleRegistry } from "./roles.ts";
 import type * as acp from "@agentclientprotocol/sdk";
 import { isOrchestraCall } from "./orchestra.ts";
+import { addWorktree, branchDiff, branchName, hasCommits, mergeBranch, type MergeResult } from "./worktree.ts";
 
 const fail = (message: string): never => {
   throw new KervanError("bad_message", message);
@@ -23,8 +24,16 @@ const FALLBACK_SKILLS_DIR = ".kervan/skills";
 
 const DEFAULT_TITLE = "Yeni oturum";
 const TITLE_CHARS = 60;
-/** Per lead; a runaway lead can't fill the server with agents. */
+/** Per lead, unless configured otherwise; a runaway lead can't fill the server with agents. */
 export const MAX_HELPERS = 6;
+/** A helper's turn is stopped after this long, unless configured otherwise. */
+export const HELPER_TURN_MINUTES = 30;
+
+export interface Limits {
+  maxHelpers: number;
+  /** 0 turns the limit off. */
+  helperTurnMinutes: number;
+}
 const REPLY_CHARS = 20_000;
 
 /** What a lead agent learns about one of its helpers. */
@@ -35,6 +44,11 @@ export interface HelperSummary {
   status: SessionInfo["status"];
   /** False while the helper is still working (or waiting for the user's approval). */
   done: boolean;
+  /** Set when it works on its own branch (a separate git worktree). */
+  branch?: string;
+  costUsd?: number;
+  /** Something the lead should know, e.g. why the helper isn't isolated. */
+  note?: string;
   /** The helper's last answer. */
   reply?: string;
   error?: string;
@@ -52,6 +66,9 @@ interface CreateOptions {
   instructions?: string;
   parentId?: string;
   orchestrate?: boolean;
+  budgetUsd?: number;
+  /** Start in a new worktree of this repository, on a branch of its own. */
+  worktreeFrom?: string;
 }
 
 interface PendingPermission {
@@ -74,6 +91,12 @@ interface Session {
   instructions?: string;
   /** Settles once the agent has started (or failed to). */
   ready?: Promise<void>;
+  /** Cost already spent before the current agent process started; agents report cost per process. */
+  costBase: number;
+  /** Stops a helper's turn that runs too long. */
+  turnTimer?: NodeJS.Timeout;
+  /** Leads: the budget ran out and everything was stopped once already. */
+  budgetSpent?: boolean;
 }
 
 type Listener = (message: ServerMessage) => void;
@@ -100,14 +123,16 @@ export class SessionManager {
   readonly roles?: RoleRegistry;
   private readonly teams = new Map<string, StoredTeam>();
   private orchestra?: Orchestrator;
+  readonly limits: Limits;
 
   constructor(
     runner: AgentRunner,
     agents: AgentRegistry,
     workspacesDir: string,
     store: EventStore,
-    extras: { skills?: SkillLibrary; mcp?: McpRegistry; catalog?: AgentCatalog; roles?: RoleRegistry } = {},
+    extras: { skills?: SkillLibrary; mcp?: McpRegistry; catalog?: AgentCatalog; roles?: RoleRegistry; limits?: Partial<Limits> } = {},
   ) {
+    this.limits = { maxHelpers: MAX_HELPERS, helperTurnMinutes: HELPER_TURN_MINUTES, ...extras.limits };
     this.roles = extras.roles;
     this.skills = extras.skills;
     this.mcp = extras.mcp;
@@ -124,6 +149,7 @@ export class SessionManager {
         agentSessionId: stored.agentSessionId,
         instructions: stored.instructions,
         pending: new Map(),
+        costBase: stored.info.usage?.costUsd ?? 0,
       };
       this.sessions.set(session.info.id, session);
       this.recover(session);
@@ -195,14 +221,18 @@ export class SessionManager {
         ...(options.role ? { role: options.role } : {}),
         ...(options.parentId ? { parentId: options.parentId } : {}),
         ...(options.orchestrate && !options.parentId ? { orchestrate: true } : {}),
+        ...(options.orchestrate && !options.parentId && options.budgetUsd ? { budgetUsd: options.budgetUsd } : {}),
+        ...(options.worktreeFrom ? { branch: branchName(options.title ?? agent, id) } : {}),
       },
       ...(options.instructions ? { instructions: options.instructions } : {}),
       events: [],
       cwd: "",
       pending: new Map(),
+      costBase: 0,
     };
     session.cwd = this.cwdFor(this.workspacesDir, session.info);
-    await mkdir(session.cwd, { recursive: true });
+    if (options.worktreeFrom) await addWorktree(options.worktreeFrom, session.cwd, session.info.branch!);
+    else await mkdir(session.cwd, { recursive: true });
     if (session.info.skills.length > 0) {
       const target = this.agents.get(agent)!.skillsDir ?? FALLBACK_SKILLS_DIR;
       await this.skills!.copyInto(session.info.skills, join(session.cwd, target));
@@ -249,6 +279,7 @@ export class SessionManager {
       ...(from ? { from } : {}),
     });
     this.setStatus(session, "running");
+    this.startTurnTimer(session);
 
     (async () => {
       if (!session.process) {
@@ -263,8 +294,20 @@ export class SessionManager {
         this.record(session, { kind: "error", message: error instanceof Error ? error.message : String(error) });
       })
       .finally(() => {
+        clearTimeout(session.turnTimer);
         if (session.info.status === "running" || session.info.status === "waiting") this.setStatus(session, "idle");
       });
+  }
+
+  /** Helpers only: the user isn't watching them, so a turn that runs away is stopped. */
+  private startTurnTimer(session: Session): void {
+    const minutes = this.limits.helperTurnMinutes;
+    if (!session.info.parentId || minutes <= 0) return;
+    session.turnTimer = setTimeout(() => {
+      if (session.info.status !== "running" && session.info.status !== "waiting") return;
+      this.record(session, { kind: "notice", text: `Tur süresi sınırı (${minutes} dk) doldu; yardımcı durduruldu.` });
+      void this.cancel(session.info.id);
+    }, minutes * 60_000);
   }
 
   /** Starts one session per role, all sharing the team's folder. */
@@ -279,6 +322,7 @@ export class SessionManager {
         role: role.name,
         instructions: role.instructions,
         orchestrate: role.lead === true && this.orchestra !== undefined,
+        ...(role.lead && role.budgetUsd ? { budgetUsd: role.budgetUsd } : {}),
       });
     }
     const info = this.teamInfo(team);
@@ -297,6 +341,7 @@ export class SessionManager {
 
   /** Team members share one folder so they see each other's files; helpers work in their lead's. */
   private cwdFor(root: string, info: SessionInfo): string {
+    if (info.branch) return join(root, `worktree-${info.id}`);
     if (info.teamId) return join(root, `team-${info.teamId}`);
     return join(root, info.parentId ?? info.id);
   }
@@ -312,13 +357,16 @@ export class SessionManager {
   /** A lead agent starts a helper in its own folder and gives it its first task. */
   async startHelper(
     leadId: string,
-    request: { name: string; task: string; agent?: string; role?: string },
+    request: { name: string; task: string; agent?: string; role?: string; isolate?: boolean },
   ): Promise<HelperSummary> {
     const lead = this.require(leadId);
     if (!lead.info.orchestrate) throw new KervanError("bad_message", "this session can't start helpers");
-    if (this.helperSessions(leadId).length >= MAX_HELPERS) {
-      throw new KervanError("bad_message", `at most ${MAX_HELPERS} helpers; message or reuse one you have`);
+    this.requireBudget(lead);
+    const max = this.limits.maxHelpers;
+    if (this.helperSessions(leadId).length >= max) {
+      throw new KervanError("bad_message", `at most ${max} helpers; message or reuse one you have`);
     }
+    const isolated = request.isolate !== false && (await hasCommits(lead.cwd));
     const role = request.role === undefined ? undefined : (this.roles?.get(request.role) ?? fail(`no role named '${request.role}'`));
     const agent = role?.agent ?? request.agent ?? fail("give an agent or a role (see list_agents)");
     const info = await this.create(agent, role?.skills ?? [], role?.mcpServers ?? [], {
@@ -326,17 +374,88 @@ export class SessionManager {
       parentId: leadId,
       ...(lead.info.teamId ? { teamId: lead.info.teamId } : {}),
       ...(role ? { role: role.name, instructions: role.instructions } : {}),
+      ...(isolated ? { worktreeFrom: lead.cwd } : {}),
     });
     const helper = this.require(info.id);
     await helper.ready;
     if (helper.info.status !== "idle") throw new KervanError("bad_message", `helper didn't start: ${helper.info.error ?? helper.info.status}`);
     this.prompt(info.id, request.task, [], leadId);
-    return this.helperSummary(helper);
+    const note =
+      request.isolate !== false && !isolated
+        ? "Your folder is not a git repository with a commit, so this helper works in your folder, not on a branch."
+        : undefined;
+    return { ...this.helperSummary(helper), ...(note ? { note } : {}) };
   }
 
   messageHelper(leadId: string, helperId: string, text: string): void {
+    this.requireBudget(this.require(leadId));
     this.requireHelper(leadId, helperId);
     this.prompt(helperId, text, [], leadId);
+  }
+
+  /** What an isolated helper changed on its branch so far. */
+  async helperDiff(leadId: string, helperId: string): Promise<{ stat: string; patch: string }> {
+    const lead = this.require(leadId);
+    const helper = this.requireBranch(leadId, helperId);
+    return branchDiff(lead.cwd, helper.cwd, helper.info.branch!, helper.info.title);
+  }
+
+  /** Brings an isolated helper's work into the lead's folder; a conflict leaves both untouched. */
+  async mergeHelper(leadId: string, helperId: string): Promise<MergeResult> {
+    const lead = this.require(leadId);
+    const helper = this.requireBranch(leadId, helperId);
+    if (!this.isDone(helper)) throw new KervanError("session_busy", "the helper is still working; wait for it first");
+    const result = await mergeBranch(lead.cwd, helper.cwd, helper.info.branch!, helper.info.title);
+    this.record(
+      helper,
+      result.merged
+        ? { kind: "notice", text: `${lead.info.title} bu yardımcının dalını (${helper.info.branch}) birleştirdi.` }
+        : { kind: "notice", text: `Birleştirme çakıştı: ${result.conflicts.join(", ") || result.message}` },
+    );
+    return result;
+  }
+
+  private requireBranch(leadId: string, helperId: string): Session {
+    const helper = this.requireHelper(leadId, helperId);
+    if (!helper.info.branch) throw new KervanError("bad_message", "this helper works in your folder, not on a branch of its own");
+    return helper;
+  }
+
+  /** What a lead and all its helpers have spent, from what their agents reported. */
+  crewCost(leadId: string): number {
+    const crew = [this.require(leadId), ...this.helperSessions(leadId)];
+    return crew.reduce((sum, s) => sum + (s.info.usage?.costUsd ?? 0), 0);
+  }
+
+  private requireBudget(lead: Session): void {
+    const budget = lead.info.budgetUsd;
+    if (budget !== undefined && this.crewCost(lead.info.id) >= budget) {
+      throw new KervanError("bad_message", `the budget of $${budget} for you and your helpers is used up; finish with what you have`);
+    }
+  }
+
+  /** Records what the agent reported and, past a lead's budget, stops the lead and its helpers once. */
+  private updateUsage(session: Session, usage: { used: number; size: number; costUsd?: number }): void {
+    const cost = usage.costUsd === undefined ? session.info.usage?.costUsd : session.costBase + usage.costUsd;
+    session.info.usage = {
+      contextUsed: usage.used,
+      contextSize: usage.size,
+      ...(cost !== undefined ? { costUsd: Math.round(cost * 10_000) / 10_000 } : {}),
+    };
+    this.save(session);
+    this.broadcast({ type: "session.updated", session: { ...session.info } });
+
+    const lead = session.info.parentId ? this.sessions.get(session.info.parentId) : session;
+    const budget = lead?.info.budgetUsd;
+    if (!lead || budget === undefined || lead.budgetSpent) return;
+    const spent = this.crewCost(lead.info.id);
+    if (spent < budget) return;
+    lead.budgetSpent = true;
+    this.record(lead, {
+      kind: "notice",
+      text: `Bütçe doldu: $${spent.toFixed(2)} / $${budget}. Ana ajan ve yardımcıları durduruldu; yeni yardımcı başlatılamaz.`,
+    });
+    for (const member of [lead, ...this.helperSessions(lead.info.id)]) void this.cancel(member.info.id);
   }
 
   /** Resolves when the helper's turn is over, or after `timeoutMs` with `done: false`. */
@@ -390,6 +509,8 @@ export class SessionManager {
       status: helper.info.status,
       done: this.isDone(helper),
       ...(reply ? { reply: reply.length > REPLY_CHARS ? `${reply.slice(0, REPLY_CHARS - 1)}…` : reply } : {}),
+      ...(helper.info.branch ? { branch: helper.info.branch } : {}),
+      ...(helper.info.usage?.costUsd !== undefined ? { costUsd: helper.info.usage.costUsd } : {}),
       ...(helper.info.error ? { error: helper.info.error } : {}),
     };
   }
@@ -454,15 +575,24 @@ export class SessionManager {
           "Messages come from the lead, not the user, and your final answer each turn goes back to it: " +
           "end with a short summary of what you did, which files you changed and anything left open."
         : undefined,
+      lead && session.info.branch
+        ? `[Kervan] You work in your own git worktree on branch ${session.info.branch}; your changes stay there until ` +
+          "the lead merges them. Commit when it helps; anything uncommitted is committed for you when the lead merges."
+        : undefined,
       session.instructions && !lead ? `[Kervan] Your role in this team: ${session.info.role}.\n${session.instructions}` : undefined,
       session.instructions && lead ? `[Kervan] Your role: ${session.info.role}.\n${session.instructions}` : undefined,
       session.info.orchestrate
         ? "[Kervan] You can hand subtasks to helper agents with the `kervan` MCP tools: list_agents, start_helper, " +
-          `message_helper, wait_for_helper, list_helpers, stop_helper (up to ${MAX_HELPERS} helpers). They work in your folder ` +
-          "and can't see this conversation, so give each a self-contained task. Start independent tasks together, " +
-          "then wait for their replies and check their work before you report back."
+          `message_helper, wait_for_helper, list_helpers, stop_helper, helper_diff, merge_helper (up to ${this.limits.maxHelpers} helpers). ` +
+          "They can't see this conversation, so give each a self-contained task. Start independent tasks together, " +
+          "then wait for their replies and check their work before you report back. If your folder is a git repository " +
+          "with a commit, each helper works on its own branch in a separate worktree: look at its work with helper_diff " +
+          "and bring it in with merge_helper. Otherwise helpers work in your folder."
         : undefined,
-      session.info.teamId || session.info.parentId || session.info.orchestrate
+      session.info.budgetUsd !== undefined
+        ? `[Kervan] Budget for you and your helpers together: $${session.info.budgetUsd}. Everything stops when it is used up.`
+        : undefined,
+      (session.info.teamId || session.info.parentId || session.info.orchestrate) && !session.info.branch
         ? "[Kervan] Other agents may work in this same folder; check files before overwriting them."
         : undefined,
       await this.skillPreface(session),
@@ -484,12 +614,14 @@ export class SessionManager {
 
   /** Starts (or resumes) the session's agent. On failure the session ends up in `error`. */
   private async startAgent(session: Session, resume = false): Promise<void> {
+    session.costBase = session.info.usage?.costUsd ?? 0;
     try {
       const process = await this.runner.start({
         command: this.agents.get(session.info.agent)!,
         cwd: session.cwd,
         onEvent: (event) => this.record(session, event),
         onPermission: (request) => this.askPermission(session, request),
+        onUsage: (usage) => this.updateUsage(session, usage),
         mcpServers: (supportsHttp) => {
           const { servers, skipped } = this.mcp?.toAcp(session.info.mcpServers, supportsHttp) ?? { servers: [], skipped: [] };
           if (skipped.length > 0) {

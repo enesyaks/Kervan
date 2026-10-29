@@ -111,12 +111,12 @@ final class AppModel {
         newSessionAgent = agent
     }
 
-    func startSession(agent: String, skills: [String], mcpServers: [String], orchestrate: Bool = false) {
+    func startSession(agent: String, skills: [String], mcpServers: [String], orchestrate: Bool = false, budgetUsd: Double? = nil) {
         lastAgentID = agent
         UserDefaults.standard.set(skills, forKey: Self.lastSkillsKey)
         UserDefaults.standard.set(mcpServers, forKey: Self.lastMcpKey)
         UserDefaults.standard.set(orchestrate, forKey: Self.lastOrchestrateKey)
-        Task { await store.create(agent: agent, skills: skills, mcpServers: mcpServers, orchestrate: orchestrate) }
+        Task { await store.create(agent: agent, skills: skills, mcpServers: mcpServers, orchestrate: orchestrate, budgetUsd: budgetUsd) }
     }
 
     private func restoreToken() async {

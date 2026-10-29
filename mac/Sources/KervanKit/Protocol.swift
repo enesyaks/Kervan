@@ -67,13 +67,22 @@ public struct SessionInfo: Codable, Equatable, Sendable, Identifiable {
     public var parentId: String?
     /// The agent may start and message helper agents.
     public var orchestrate: Bool
+    /// Leads: the most the lead and its helpers may spend together, in USD.
+    public var budgetUsd: Double?
+    /// Helpers in a git repository: the branch of their own worktree.
+    public var branch: String?
+    public var usage: SessionUsage?
     public var error: String?
 
     public init(
         id: String, agent: String, title: String, status: SessionStatus, createdAt: String,
         archived: Bool = false, skills: [String] = [], mcpServers: [String] = [], teamId: String? = nil,
-        role: String? = nil, parentId: String? = nil, orchestrate: Bool = false, error: String? = nil
+        role: String? = nil, parentId: String? = nil, orchestrate: Bool = false, budgetUsd: Double? = nil,
+        branch: String? = nil, usage: SessionUsage? = nil, error: String? = nil
     ) {
+        self.budgetUsd = budgetUsd
+        self.branch = branch
+        self.usage = usage
         self.parentId = parentId
         self.orchestrate = orchestrate
         self.teamId = teamId
@@ -89,7 +98,7 @@ public struct SessionInfo: Codable, Equatable, Sendable, Identifiable {
         self.error = error
     }
 
-    private enum CodingKeys: String, CodingKey { case id, agent, title, status, createdAt, archived, skills, mcpServers, teamId, role, parentId, orchestrate, error }
+    private enum CodingKeys: String, CodingKey { case id, agent, title, status, createdAt, archived, skills, mcpServers, teamId, role, parentId, orchestrate, budgetUsd, branch, usage, error }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -105,7 +114,23 @@ public struct SessionInfo: Codable, Equatable, Sendable, Identifiable {
         role = try c.decodeIfPresent(String.self, forKey: .role)
         parentId = try c.decodeIfPresent(String.self, forKey: .parentId)
         orchestrate = try c.decodeIfPresent(Bool.self, forKey: .orchestrate) ?? false
+        budgetUsd = try c.decodeIfPresent(Double.self, forKey: .budgetUsd)
+        branch = try c.decodeIfPresent(String.self, forKey: .branch)
+        usage = try c.decodeIfPresent(SessionUsage.self, forKey: .usage)
         error = try c.decodeIfPresent(String.self, forKey: .error)
+    }
+}
+
+/// Context and cost as the session's agent last reported them. Cost only from agents that report it (Claude).
+public struct SessionUsage: Codable, Equatable, Sendable {
+    public var contextUsed: Int
+    public var contextSize: Int
+    public var costUsd: Double?
+
+    public init(contextUsed: Int, contextSize: Int, costUsd: Double? = nil) {
+        self.contextUsed = contextUsed
+        self.contextSize = contextSize
+        self.costUsd = costUsd
     }
 }
 
@@ -144,12 +169,15 @@ public struct Role: Codable, Equatable, Sendable, Identifiable {
     public var mcpServers: [String]
     /// In a team, this member may start and message helper agents.
     public var lead: Bool
+    /// For a lead: the most it and its helpers may spend, in USD.
+    public var budgetUsd: Double?
 
     public init(
         id: String, name: String, agent: String, instructions: String = "", skills: [String] = [], mcpServers: [String] = [],
-        lead: Bool = false
+        lead: Bool = false, budgetUsd: Double? = nil
     ) {
         self.lead = lead
+        self.budgetUsd = budgetUsd
         self.id = id
         self.name = name
         self.agent = agent
@@ -158,7 +186,7 @@ public struct Role: Codable, Equatable, Sendable, Identifiable {
         self.mcpServers = mcpServers
     }
 
-    private enum CodingKeys: String, CodingKey { case id, name, agent, instructions, skills, mcpServers, lead }
+    private enum CodingKeys: String, CodingKey { case id, name, agent, instructions, skills, mcpServers, lead, budgetUsd }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -169,6 +197,7 @@ public struct Role: Codable, Equatable, Sendable, Identifiable {
         skills = try c.decodeIfPresent([String].self, forKey: .skills) ?? []
         mcpServers = try c.decodeIfPresent([String].self, forKey: .mcpServers) ?? []
         lead = try c.decodeIfPresent(Bool.self, forKey: .lead) ?? false
+        budgetUsd = try c.decodeIfPresent(Double.self, forKey: .budgetUsd)
     }
 }
 
@@ -433,7 +462,7 @@ public struct SessionEvent: Decodable, Equatable, Sendable {
 public enum ClientMessage: Encodable, Equatable, Sendable {
     case hello(client: PeerInfo)
     case ping(id: String)
-    case sessionCreate(id: String, agent: String, skills: [String] = [], mcpServers: [String] = [], orchestrate: Bool = false)
+    case sessionCreate(id: String, agent: String, skills: [String] = [], mcpServers: [String] = [], orchestrate: Bool = false, budgetUsd: Double? = nil)
     case sessionList(id: String)
     case sessionHistory(id: String, sessionId: String)
     case sessionPrompt(id: String, sessionId: String, text: String, attachments: [String] = [])
@@ -456,7 +485,7 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case type, `protocol`, client, id, agent, sessionId, text, requestId, optionId, attachments, title, archived, query
-        case skills, mcpServers, server, name, agentId, role, roleId, roles, orchestrate
+        case skills, mcpServers, server, name, agentId, role, roleId, roles, orchestrate, budgetUsd
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -469,13 +498,14 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
         case .ping(let id):
             try c.encode("ping", forKey: .type)
             try c.encode(id, forKey: .id)
-        case .sessionCreate(let id, let agent, let skills, let mcpServers, let orchestrate):
+        case .sessionCreate(let id, let agent, let skills, let mcpServers, let orchestrate, let budgetUsd):
             try c.encode("session.create", forKey: .type)
             try c.encode(id, forKey: .id)
             try c.encode(agent, forKey: .agent)
             if !skills.isEmpty { try c.encode(skills, forKey: .skills) }
             if !mcpServers.isEmpty { try c.encode(mcpServers, forKey: .mcpServers) }
             if orchestrate { try c.encode(true, forKey: .orchestrate) }
+            if orchestrate, let budgetUsd { try c.encode(budgetUsd, forKey: .budgetUsd) }
         case .sessionList(let id):
             try c.encode("session.list", forKey: .type)
             try c.encode(id, forKey: .id)

@@ -26,7 +26,7 @@ struct ChatView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 16) {
                         if let leadID = session?.parentId {
-                            LeadLink(leadTitle: model.store.session(leadID)?.title ?? "Ana ajan") {
+                            LeadLink(leadTitle: model.store.session(leadID)?.title ?? "Ana ajan", branch: session?.branch) {
                                 model.selectedSessionID = leadID
                             }
                         }
@@ -113,7 +113,11 @@ struct ChatView: View {
             return true
         } isTargeted: { dropTargeted = $0 }
         .navigationTitle(session?.title ?? "Oturum")
-        .navigationSubtitle("\(agentName), \(status.label.lowercased())")
+        .navigationSubtitle(
+            ["\(agentName), \(status.label.lowercased())", session.flatMap(model.store.costSummary)]
+                .compactMap { $0 }
+                .joined(separator: ", ")
+        )
         .inspector(isPresented: Bindable(model).showFiles) {
             FilesPanel(sessionID: sessionID)
                 .inspectorColumnWidth(min: 240, ideal: 300)
@@ -226,15 +230,35 @@ private struct EmptySession: View {
 /// Top of a helper's chat: who started it, and the way back.
 private struct LeadLink: View {
     let leadTitle: String
+    let branch: String?
     let open: () -> Void
 
     var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "arrow.turn.down.right").foregroundStyle(Color.kervanSaffron)
-            Text("Bu yardımcıyı \(leadTitle) başlattı.").foregroundStyle(.secondary)
-            Button("Ana ajana git", action: open).buttonStyle(.link)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.turn.down.right").foregroundStyle(Color.kervanSaffron)
+                Text("Bu yardımcıyı \(leadTitle) başlattı.").foregroundStyle(.secondary)
+                Button("Ana ajana git", action: open).buttonStyle(.link)
+            }
+            if let branch {
+                BranchLabel(branch: branch)
+                    .help("Yardımcı kendi worktree'sinde bu dalda çalışıyor; ana ajan birleştirene kadar değişiklikleri orada kalır.")
+            }
         }
         .font(.callout)
+    }
+}
+
+struct BranchLabel: View {
+    let branch: String
+
+    var body: some View {
+        Label(branch, systemImage: "arrow.triangle.branch")
+            .font(.caption.monospaced())
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .accessibilityLabel("Dal: \(branch)")
     }
 }
 

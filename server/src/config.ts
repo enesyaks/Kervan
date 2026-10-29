@@ -10,6 +10,8 @@ export interface KervanConfig {
   maxUploadBytes: number;
   /** agents.yaml; without it the builtin adapters are offered. */
   agentsFile?: string;
+  maxHelpers?: number;
+  helperTurnMinutes?: number;
 }
 
 const MIN_TOKEN_LENGTH = 16;
@@ -32,5 +34,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): KervanConfig {
     token,
     maxUploadBytes: Number(env.KERVAN_MAX_UPLOAD_MB ?? 512) * 1024 * 1024,
     ...(env.KERVAN_AGENTS_FILE ? { agentsFile: env.KERVAN_AGENTS_FILE } : {}),
+    ...(env.KERVAN_MAX_HELPERS ? { maxHelpers: wholeNumber("KERVAN_MAX_HELPERS", env.KERVAN_MAX_HELPERS) } : {}),
+    ...(env.KERVAN_HELPER_TURN_MINUTES
+      ? { helperTurnMinutes: wholeNumber("KERVAN_HELPER_TURN_MINUTES", env.KERVAN_HELPER_TURN_MINUTES) }
+      : {}),
   };
+}
+
+function wholeNumber(name: string, value: string): number {
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < 0) throw new Error(`${name} must be a whole number: ${value}`);
+  return number;
 }

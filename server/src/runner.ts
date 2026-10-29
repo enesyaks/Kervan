@@ -45,6 +45,8 @@ export interface StartOptions {
   resumeSessionId?: string;
   /** Called with the agent's MCP capabilities; returns the servers to pass to session/new or resume. */
   mcpServers?: (supportsHttp: boolean) => acp.McpServer[];
+  /** Context and cost as the agent reports them; `costUsd` counts from this agent process's start. */
+  onUsage?: (usage: { used: number; size: number; costUsd?: number }) => void;
 }
 
 /**
@@ -78,7 +80,7 @@ export async function probeAgent(runner: AgentRunner, command: AgentCommand, tim
 
 /** Runs an ACP agent as a child process on this machine and talks to it over stdio. */
 export class LocalAcpRunner implements AgentRunner {
-  async start({ command, cwd, onEvent, onPermission, resumeSessionId, mcpServers }: StartOptions): Promise<AgentProcess> {
+  async start({ command, cwd, onEvent, onPermission, resumeSessionId, mcpServers, onUsage }: StartOptions): Promise<AgentProcess> {
     const child = spawn(command.command, command.args, {
       cwd,
       env: { ...process.env, ...command.env },
@@ -98,7 +100,13 @@ export class LocalAcpRunner implements AgentRunner {
     const app = acp
       .client({ name: "kervan" })
       .onNotification("session/update", ({ params }) => {
-        const event = toEvent(params.update);
+        const update = params.update;
+        if (update.sessionUpdate === "usage_update") {
+          const cost = update.cost?.currency === "USD" ? update.cost.amount : undefined;
+          onUsage?.({ used: update.used, size: update.size, ...(cost !== undefined ? { costUsd: cost } : {}) });
+          return;
+        }
+        const event = toEvent(update);
         if (event) onEvent(event);
       })
       .onRequest("session/request_permission", async ({ params }) => {

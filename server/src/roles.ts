@@ -15,6 +15,8 @@ export interface Role {
   mcpServers: string[];
   /** A lead: in a team, this member may start and message helper agents. */
   lead?: boolean;
+  /** For a lead: the most it and its helpers may spend, in USD. */
+  budgetUsd?: number;
 }
 
 export interface RoleChecks {
@@ -32,6 +34,9 @@ const names = (value: unknown, what: string): string[] => {
   if (!Array.isArray(value) || !value.every((v) => typeof v === "string")) return bad(`${what} must be a list of names`);
   return [...new Set(value as string[])];
 };
+
+const budget = (value: unknown): number =>
+  typeof value === "number" && value > 0 && value <= 10_000 ? value : bad("budgetUsd must be a number between 0 and 10000");
 
 /** Roles the user defined, in `roles.json`. Checked against the agents, skills and MCP servers that exist. */
 export class RoleRegistry {
@@ -80,6 +85,7 @@ export class RoleRegistry {
       skills,
       mcpServers,
       ...(raw.lead === true ? { lead: true } : {}),
+      ...(raw.lead === true && raw.budgetUsd !== undefined && raw.budgetUsd !== null ? { budgetUsd: budget(raw.budgetUsd) } : {}),
     };
     this.roles.set(role.id, role);
     this.persist();

@@ -10,6 +10,7 @@
 //   "whoami" → answers with the ACP session id it is running (new or resumed)
 //   "delegate: <task>" → starts a helper through the `kervan` MCP server, waits, answers "helper said: <reply>"
 //   "askperm: <kind> <title>" → asks permission for that tool call, answers "permission: <optionId or cancelled>"
+//   "usage <usd>" → reports a usage update with that cumulative cost
 //   "mcptools" → names of the tools the `kervan` MCP server offers
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
@@ -83,6 +84,11 @@ acp
     if (text.includes("crash")) process.exit(1);
     if (text.includes("mcpcheck")) {
       await update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `mcp: ${mcpNames.join(",")}` } });
+      return { stopReason: "end_turn" };
+    }
+    if (text.startsWith("usage ")) {
+      await update({ sessionUpdate: "usage_update", used: 1200, size: 200_000, cost: { amount: Number(text.slice(6)), currency: "USD" } });
+      await update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "spent" } });
       return { stopReason: "end_turn" };
     }
     if (text.startsWith("askperm: ")) {

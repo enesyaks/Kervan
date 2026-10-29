@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import type { SessionEvent, SessionInfo } from "./protocol.ts";
 
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 export interface IndexedMessage {
   /** seq of the first event of the message; matches the Mac transcript row id. */
@@ -141,14 +141,15 @@ export class EventStore {
     this.migrate();
     this.upsertSession = this.db.prepare(`
       INSERT INTO sessions (id, agent, title, status, created_at, error, agent_session_id, archived, skills, mcp_servers,
-                            team_id, role, instructions, parent_id, orchestrate)
+                            team_id, role, instructions, parent_id, orchestrate, budget_usd, branch, usage)
       VALUES (:id, :agent, :title, :status, :createdAt, :error, :agentSessionId, :archived, :skills, :mcpServers,
-              :teamId, :role, :instructions, :parentId, :orchestrate)
+              :teamId, :role, :instructions, :parentId, :orchestrate, :budgetUsd, :branch, :usage)
       ON CONFLICT (id) DO UPDATE SET
         title = excluded.title,
         status = excluded.status,
         error = excluded.error,
         archived = excluded.archived,
+        usage = excluded.usage,
         agent_session_id = COALESCE(excluded.agent_session_id, sessions.agent_session_id)
     `);
     this.insertEvent = this.db.prepare("INSERT INTO events (session_id, seq, at, body) VALUES (?, ?, ?, ?)");
@@ -184,9 +185,17 @@ export class EventStore {
         `);
       }
       // v5 (M9): helpers point at the lead that started them; leads may start helpers.
+      if (version < 5) {
+        this.db.exec(`
+          ALTER TABLE sessions ADD COLUMN parent_id TEXT;
+          ALTER TABLE sessions ADD COLUMN orchestrate INTEGER NOT NULL DEFAULT 0;
+        `);
+      }
+      // v6 (M11): a lead's budget, a helper's branch, and the last usage the agent reported.
       this.db.exec(`
-        ALTER TABLE sessions ADD COLUMN parent_id TEXT;
-        ALTER TABLE sessions ADD COLUMN orchestrate INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE sessions ADD COLUMN budget_usd REAL;
+        ALTER TABLE sessions ADD COLUMN branch TEXT;
+        ALTER TABLE sessions ADD COLUMN usage TEXT;
       `);
       this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
       this.db.exec("COMMIT");
@@ -232,6 +241,9 @@ export class EventStore {
       instructions: instructions ?? "",
       parentId: info.parentId ?? null,
       orchestrate: info.orchestrate ? 1 : 0,
+      budgetUsd: info.budgetUsd ?? null,
+      branch: info.branch ?? null,
+      usage: info.usage ? JSON.stringify(info.usage) : null,
     });
   }
 
@@ -289,6 +301,9 @@ export class EventStore {
         ...(row.role ? { role: String(row.role) } : {}),
         ...(row.parent_id ? { parentId: String(row.parent_id) } : {}),
         ...(row.orchestrate === 1 ? { orchestrate: true } : {}),
+        ...(row.budget_usd !== null && row.budget_usd !== undefined ? { budgetUsd: Number(row.budget_usd) } : {}),
+        ...(row.branch ? { branch: String(row.branch) } : {}),
+        ...(row.usage ? { usage: JSON.parse(String(row.usage)) as SessionInfo["usage"] } : {}),
         ...(row.error ? { error: String(row.error) } : {}),
       },
       ...(row.agent_session_id ? { agentSessionId: String(row.agent_session_id) } : {}),

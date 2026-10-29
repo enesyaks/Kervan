@@ -55,7 +55,10 @@ async function handleRequest(ws: WebSocket, message: Exclude<ClientMessage, { ty
       return send(ws, {
         type: "session.created",
         id: message.id,
-        session: await sessions.create(message.agent, message.skills, message.mcpServers, { orchestrate: message.orchestrate }),
+        session: await sessions.create(message.agent, message.skills, message.mcpServers, {
+          orchestrate: message.orchestrate,
+          ...(message.budgetUsd ? { budgetUsd: message.budgetUsd } : {}),
+        }),
       });
     case "session.list":
       return send(ws, { type: "session.list.result", id: message.id, sessions: sessions.list() });
