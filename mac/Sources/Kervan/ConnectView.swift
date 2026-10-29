@@ -46,6 +46,8 @@ struct ConnectView: View {
                     }
                 }
                 .formStyle(.columns)
+                .padding(18)
+                .softSurface()
                 .disabled(state.isBusy)
 
                 VStack(alignment: .leading, spacing: 12) {
@@ -56,14 +58,20 @@ struct ConnectView: View {
                             .keyboardShortcut(.cancelAction)
                     } else {
                         Button("Bağlan") { model.connect() }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.kervanLapis)
+                            .controlSize(.large)
                             .keyboardShortcut(.defaultAction)
                             .disabled(!model.canConnect)
                     }
                 }
             }
             .frame(maxWidth: 560, alignment: .leading)
-            .padding(40)
+            .padding(.horizontal, 40)
+            .padding(.vertical, 48)
+            .frame(maxWidth: .infinity)
         }
+        .background(Color.kervanCanvas)
     }
 }
 

@@ -20,6 +20,8 @@ final class AppModel {
     /// The selected session's whole team (or lead and helpers) side by side, instead of its chat alone.
     var showCrew = false
     var showNewTeam = false
+    /// The opening animation, once per launch; KERVAN_NO_INTRO=1 skips it for development.
+    var showIntro = ProcessInfo.processInfo.environment["KERVAN_NO_INTRO"] == nil
     /// A message to scroll to and flash, set by picking a search hit; ChatView clears it.
     var focus: (sessionID: String, seq: Int)?
 

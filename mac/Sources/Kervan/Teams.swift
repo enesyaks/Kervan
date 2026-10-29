@@ -37,7 +37,7 @@ private struct MemberRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Circle().fill(session.status.tint).frame(width: 7, height: 7)
+            StatusDot(color: session.status.tint)
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 4) {
                     Text(session.role ?? session.title).lineLimit(1)
@@ -68,8 +68,8 @@ struct HelperRow: View {
             Image(systemName: "arrow.turn.down.right")
                 .font(.caption)
                 .foregroundStyle(Color.kervanSaffron)
-            Circle().fill(session.status.tint).frame(width: 6, height: 6)
-                .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
+            StatusDot(color: session.status.tint, size: 7)
+                .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
             VStack(alignment: .leading, spacing: 1) {
                 Text(session.title).lineLimit(1)
                 Text("\(model.store.agentName(session.agent)), \(session.status.label.lowercased())")

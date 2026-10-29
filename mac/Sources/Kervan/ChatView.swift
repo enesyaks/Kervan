@@ -24,7 +24,7 @@ struct ChatView: View {
 
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 16) {
+                    LazyVStack(alignment: .leading, spacing: 18) {
                         if let leadID = session?.parentId {
                             LeadLink(leadTitle: model.store.session(leadID)?.title ?? "Ana ajan", branch: session?.branch) {
                                 model.selectedSessionID = leadID
@@ -55,6 +55,7 @@ struct ChatView: View {
                                     .strokeBorder(Color.kervanLapis.opacity(highlighted == item.id ? 0.7 : 0), lineWidth: 1.5)
                             )
                             .id(item.id)
+                            .transition(.arrive(reduce: reduceMotion))
                         }
                         if status == .running {
                             HStack(spacing: 8) {
@@ -67,11 +68,13 @@ struct ChatView: View {
                         }
                         Color.clear.frame(height: 1).id(Self.bottom)
                     }
-                    .frame(maxWidth: 720, alignment: .leading)
+                    .frame(maxWidth: 760, alignment: .leading)
                     .padding(.horizontal, 32)
-                    .padding(.vertical, 24)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 28)
+                    .frame(maxWidth: .infinity)
+                    .animation(Motion.pick(Motion.smooth, reduce: reduceMotion), value: items.count)
                 }
+                .background(Color.kervanCanvas)
                 .onAppear { proxy.scrollTo(Self.bottom, anchor: .bottom) }
                 .task(id: model.focus?.seq) {
                     guard let focus = model.focus, focus.sessionID == sessionID else { return }
@@ -285,27 +288,27 @@ struct TranscriptRow: View {
     var body: some View {
         switch item {
         case .user(_, let text, let attached, let from):
+            // Your words sit on the right in a soft bubble; a lead's instructions to a helper get its gold.
             let accent = from == nil ? Color.kervanLapis : Color.kervanSaffron
-            VStack(alignment: .leading, spacing: 8) {
-                if let from {
-                    Label(senderName(from), systemImage: "flag.fill")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Color.kervanSaffron)
+            HStack {
+                Spacer(minLength: 64)
+                VStack(alignment: .trailing, spacing: 8) {
+                    if let from {
+                        Label(senderName(from), systemImage: "flag.fill")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Color.kervanSaffron)
+                    }
+                    Text(text)
+                        .textSelection(.enabled)
+                        .lineSpacing(2)
+                    if !attached.isEmpty {
+                        FlowChips(names: attached.map { $0.split(separator: "/").last.map(String.init) ?? $0 })
+                    }
                 }
-                Text(text).textSelection(.enabled)
-                if !attached.isEmpty {
-                    FlowChips(names: attached.map { $0.split(separator: "/").last.map(String.init) ?? $0 })
-                }
+                .padding(.vertical, 10)
+                .padding(.horizontal, 14)
+                .background(accent.opacity(0.16), in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
             }
-                .padding(.vertical, 8)
-                .padding(.horizontal, 12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
-                .overlay(alignment: .leading) {
-                    UnevenRoundedRectangle(topLeadingRadius: 8, bottomLeadingRadius: 8)
-                        .fill(accent)
-                        .frame(width: 3)
-                }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(from.map { "Ana ajan \(senderName($0)): \(text)" } ?? "Siz: \(text)")
 
@@ -314,14 +317,14 @@ struct TranscriptRow: View {
                 .font(.callout.monospaced())
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(10)
+                .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+                .background(Color.kervanWell, in: RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
 
         case .agent(_, let text):
             Text(Self.markdown(text))
                 .textSelection(.enabled)
-                .lineSpacing(3)
+                .lineSpacing(4)
                 .fixedSize(horizontal: false, vertical: true)
 
         case .thought(_, let text):
@@ -400,9 +403,9 @@ private struct ToolRow: View {
                 .font(.caption)
                 .foregroundStyle(Self.statusTint(status))
         }
-        .padding(.vertical, 7)
-        .padding(.horizontal, 10)
-        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(.separator))
+        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
+        .background(Color.kervanWell.opacity(0.7), in: RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
         .accessibilityElement(children: .combine)
     }
 
@@ -472,15 +475,15 @@ private struct PermissionCard: View {
                 Text(detail)
                     .font(.callout.monospaced())
                     .textSelection(.enabled)
-                    .padding(8)
+                    .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
+                    .background(Color.kervanWell, in: RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
             }
 
             HStack(spacing: 8) {
                 ForEach(Self.ordered(prompt.options)) { option in
                     if option.kind == "allow_once" {
-                        Button(Self.label(option)) { choose(option) }.buttonStyle(.borderedProminent)
+                        Button(Self.label(option)) { choose(option) }.buttonStyle(.borderedProminent).tint(.kervanLapis)
                     } else {
                         Button(Self.label(option)) { choose(option) }
                     }
@@ -488,9 +491,13 @@ private struct PermissionCard: View {
             }
             .controlSize(.large)
         }
-        .padding(14)
-        .background(Color.kervanSaffron.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.kervanSaffron.opacity(0.5)))
+        .padding(16)
+        .background(Color.kervanSaffron.opacity(0.08), in: RoundedRectangle(cornerRadius: Radius.card + 2, style: .continuous))
+        .softSurface(radius: Radius.card + 2)
+        .overlay(
+            RoundedRectangle(cornerRadius: Radius.card + 2, style: .continuous)
+                .strokeBorder(Color.kervanSaffron.opacity(0.35), lineWidth: 1)
+        )
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(agentName) izin istiyor: \(prompt.title)")
     }
@@ -558,35 +565,49 @@ private struct Composer: View {
             HStack(alignment: .bottom, spacing: 10) {
                 Button(action: attach) {
                     Image(systemName: "paperclip")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.borderless)
-                .controlSize(.large)
+                .buttonStyle(SoftPressStyle())
                 .help("Dosya ekle; sohbete sürükleyip bırakabilirsiniz de")
                 .accessibilityLabel("Dosya ekle")
-                .padding(.bottom, 8)
 
                 TextField("Bir görev ya da soru yazın", text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
+                    .font(.body)
                     .lineLimit(1...8)
                     .focused($focused)
                     .onSubmit(send)
-                    .padding(.vertical, 8)
-                    .padding(.horizontal, 10)
-                    .background(.background, in: RoundedRectangle(cornerRadius: 9))
-                    .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(focused ? Color.kervanLapis.opacity(0.6) : Color(nsColor: .separatorColor)))
+                    .padding(.vertical, 7)
 
-                if status == .running || status == .waiting {
-                    Button("Durdur", action: stop)
-                        .keyboardShortcut(".", modifiers: .command)
-                        .controlSize(.large)
-                } else {
-                    Button("Gönder", action: send)
-                        .keyboardShortcut(.return, modifiers: .command)
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
-                        .disabled(!canSend || status != .idle || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                let busy = status == .running || status == .waiting
+                let empty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                let ready = canSend && status == .idle && !empty
+                Button(action: busy ? stop : send) {
+                    Image(systemName: busy ? "stop.fill" : "arrow.up")
+                        .font(.system(size: busy ? 11 : 14, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 32, height: 32)
+                        .background(Circle().fill(busy ? Color.kervanSaffron : (ready ? Color.kervanLapis : Color.secondary.opacity(0.35))))
+                        .contentShape(Circle())
                 }
+                .buttonStyle(SoftPressStyle())
+                .keyboardShortcut(busy ? KeyboardShortcut(".", modifiers: .command) : KeyboardShortcut(.return, modifiers: .command))
+                .disabled(!busy && !ready)
+                .help(busy ? "Durdur (⌘.)" : "Gönder (↩)")
+                .accessibilityLabel(busy ? "Durdur" : "Gönder")
             }
+            .padding(.leading, 6)
+            .padding(.trailing, 8)
+            .padding(.vertical, 6)
+            .softSurface(radius: Radius.composer)
+            .overlay(
+                RoundedRectangle(cornerRadius: Radius.composer, style: .continuous)
+                    .strokeBorder(Color.kervanLapis.opacity(focused ? 0.45 : 0), lineWidth: 1.5)
+            )
+            .animation(Motion.fast, value: focused)
             HStack(spacing: 14) {
                 ForEach(options) { option in
                     SettingMenu(option: option) { choose(option, $0) }
@@ -594,12 +615,16 @@ private struct Composer: View {
                 Spacer()
                 Text("↩ gönderir, ⌥↩ yeni satır açar.")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.tertiary)
             }
+            .padding(.horizontal, 10)
         }
-        .padding(.horizontal, 32)
-        .padding(.vertical, 12)
-        .background(.bar)
+        .frame(maxWidth: 760)
+        .padding(.horizontal, 28)
+        .padding(.top, 6)
+        .padding(.bottom, 14)
+        .frame(maxWidth: .infinity)
+        .background(Color.kervanCanvas)
         .onAppear { focused = true }
     }
 }
@@ -659,9 +684,11 @@ struct Banner: View {
         }
         .font(.callout)
         .foregroundStyle(tint)
-        .padding(.horizontal, 32)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(tint.opacity(0.08))
+        .background(tint.opacity(0.10), in: RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
     }
 }

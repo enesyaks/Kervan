@@ -4,11 +4,12 @@ import SwiftUI
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         NavigationSplitView {
             SidebarView()
-                .navigationSplitViewColumnWidth(min: 220, ideal: 250)
+                .navigationSplitViewColumnWidth(min: 230, ideal: 260)
         } detail: {
             Group {
                 if !model.isLinked || model.connection.state.isFailed {
@@ -24,6 +25,18 @@ struct RootView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(Color.kervanCanvas)
+        }
+        .fontDesign(.rounded)
+        // The intro fills the whole window; the toolbar comes back with everything else.
+        .toolbar(model.showIntro ? .hidden : .visible, for: .windowToolbar)
+        .overlay {
+            if model.showIntro {
+                IntroView {
+                    withAnimation(Motion.pick(Motion.smooth, reduce: reduceMotion)) { model.showIntro = false }
+                }
+                .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 1.04)))
+            }
         }
         .sheet(isPresented: Bindable(model).showNewTeam) {
             NewTeamSheet().environment(model)
@@ -200,11 +213,8 @@ private struct SessionRow: View {
     private var agentName: String { model.store.agentName(session.agent) }
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Circle()
-                .fill(session.status.tint)
-                .frame(width: 7, height: 7)
-                .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
+        HStack(alignment: .center, spacing: 10) {
+            StatusDot(color: session.status.tint)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
                     Text(session.title)

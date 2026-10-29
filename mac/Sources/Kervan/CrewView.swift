@@ -116,7 +116,7 @@ private struct FlowStrip: View {
                 }
             }
         }
-        .background(.background.secondary)
+        .background(Color.kervanCanvas)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Akış şeridi")
     }
@@ -142,8 +142,11 @@ private struct FlowStop: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .frame(maxWidth: 240, alignment: .leading)
-        .background(.background, in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(tint.opacity(item.kind == .waiting ? 0.8 : 0.25)))
+        .softSurface(radius: Radius.chip, lift: false)
+        .overlay(
+            RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
+                .strokeBorder(tint.opacity(item.kind == .waiting ? 0.7 : 0), lineWidth: 1.5)
+        )
         .accessibilityElement(children: .combine)
     }
 
@@ -231,16 +234,17 @@ private struct MemberPanel: View {
                 .onChange(of: session.status) { proxy.scrollTo("bottom", anchor: .bottom) }
             }
         }
-        .background(.background, in: RoundedRectangle(cornerRadius: 10))
+        .softSurface(radius: Radius.panel)
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .strokeBorder(border, lineWidth: session.status == .waiting || isSelected ? 1.5 : 1)
+            RoundedRectangle(cornerRadius: Radius.panel, style: .continuous)
+                .strokeBorder(border, lineWidth: 1.5)
         )
+        .shadow(color: session.status == .waiting ? Color.kervanSaffron.opacity(0.25) : .clear, radius: 12)
     }
 
     private var border: Color {
-        if session.status == .waiting { return .kervanSaffron }
-        return isSelected ? .kervanLapis.opacity(0.6) : .secondary.opacity(0.2)
+        if session.status == .waiting { return .kervanSaffron.opacity(0.6) }
+        return isSelected ? .kervanLapis.opacity(0.45) : .clear
     }
 
     private func header(agentName: String) -> some View {
@@ -253,7 +257,7 @@ private struct MemberPanel: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(session.role ?? session.title).font(.headline).lineLimit(1)
                 HStack(spacing: 5) {
-                    Circle().fill(session.status.tint).frame(width: 6, height: 6)
+                    StatusDot(color: session.status.tint, size: 6)
                     Text(
                         ["\(agentName), \(session.status.label.lowercased())", session.usage?.costUsd.map(usd)]
                             .compactMap { $0 }

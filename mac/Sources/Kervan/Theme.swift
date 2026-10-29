@@ -128,3 +128,92 @@ extension SessionStore {
         return session.usage?.costUsd.map { "\(usd($0)) harcandı" }
     }
 }
+
+// MARK: - Night caravan: the soft surfaces, shapes and motion every screen shares
+
+extension Color {
+    /// The window's floor: a night-blue tint (mist by day) instead of neutral gray, taken from the icon.
+    static let kervanCanvas = Color(light: 0xF1F4F8, dark: 0x111925)
+    /// One step up from the canvas: cards, bubbles, the composer.
+    static let kervanSurface = Color(light: 0xFFFFFF, dark: 0x1A2433)
+    /// Recessed inside a surface: code, tool rows, chips.
+    static let kervanWell = Color(light: 0xE7ECF3, dark: 0x22304A)
+}
+
+/// Corner radii. Nested shapes follow outer = inner + padding, so a chip inside a card stays concentric.
+enum Radius {
+    static let chip: CGFloat = 10
+    static let card: CGFloat = 14
+    static let panel: CGFloat = 18
+    static let composer: CGFloat = 20
+}
+
+/// Every animation in the app picks from these, so movement has one character: quick, soft, never bouncy.
+enum Motion {
+    /// Button feedback, hover, small state flips.
+    static let fast = Animation.easeOut(duration: 0.18)
+    /// Things arriving: messages, cards, sheets of content.
+    static let smooth = Animation.timingCurve(0.22, 1, 0.36, 1, duration: 0.35)
+    /// Panels and larger surfaces settling into place.
+    static let gentle = Animation.spring(response: 0.45, dampingFraction: 0.86)
+    /// With Reduce Motion on, every movement becomes this short fade.
+    static let reduced = Animation.easeOut(duration: 0.15)
+
+    static func pick(_ animation: Animation, reduce: Bool) -> Animation { reduce ? reduced : animation }
+}
+
+extension AnyTransition {
+    /// New content rises a few points while fading in; with Reduce Motion it only fades.
+    static func arrive(reduce: Bool) -> AnyTransition {
+        reduce ? .opacity : .opacity.combined(with: .offset(y: 6))
+    }
+}
+
+/// A raised surface: filled, continuous corners, and two faint shadows (contact + ambient) instead of a hairline border.
+private struct SoftSurface: ViewModifier {
+    let radius: CGFloat
+    let fill: Color
+    let lift: Bool
+
+    func body(content: Content) -> some View {
+        content.background {
+            RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .fill(fill)
+                .shadow(color: .black.opacity(lift ? 0.06 : 0), radius: 1, y: 1)
+                .shadow(color: .black.opacity(lift ? 0.10 : 0), radius: 14, y: 6)
+        }
+    }
+}
+
+extension View {
+    func softSurface(radius: CGFloat = Radius.card, fill: Color = .kervanSurface, lift: Bool = true) -> some View {
+        modifier(SoftSurface(radius: radius, fill: fill, lift: lift))
+    }
+}
+
+/// Presses shrink a touch and spring back, so a click feels like it landed.
+struct SoftPressStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.95 : 1)
+            .opacity(configuration.isPressed ? 0.85 : 1)
+            .animation(Motion.fast, value: configuration.isPressed)
+    }
+}
+
+/// A status light with a faint halo, so the color reads without a hard edge.
+struct StatusDot: View {
+    let color: Color
+    var size: CGFloat = 8
+
+    var body: some View {
+        Circle()
+            .fill(color)
+            .frame(width: size, height: size)
+            .background(Circle().fill(color.opacity(0.22)).frame(width: size + 6, height: size + 6))
+            .frame(width: size + 6, height: size + 6)
+            .accessibilityHidden(true)
+    }
+}

@@ -1,3 +1,4 @@
+import AppKit
 import KervanKit
 import SwiftUI
 
@@ -10,70 +11,91 @@ struct OverviewView: View {
         let host = model.activeAddress?.host ?? model.serverInput
 
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-                RouteView(state: state, host: host)
-                    .frame(maxWidth: 460)
-
-                VStack(alignment: .leading, spacing: 6) {
+            VStack(spacing: 26) {
+                // The icon, the name and the route: who you are talking to, at a glance.
+                VStack(spacing: 14) {
+                    Image(nsImage: NSApp.applicationIconImage)
+                        .resizable()
+                        .frame(width: 96, height: 96)
+                        .shadow(color: .black.opacity(0.18), radius: 16, y: 8)
+                        .accessibilityHidden(true)
                     Text(state.isConnected ? "\(host) sunucusuna bağlısınız" : "\(host) sunucusuna yeniden bağlanılıyor…")
                         .font(.title2.weight(.semibold))
+                        .multilineTextAlignment(.center)
                     Text("Oturumlar sunucuda çalışır. Mac uyusa da kapansa da devam eder; tekrar bağlandığınızda kaldığı yerden görürsünüz.")
                         .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: 440)
                 }
 
-                VStack(alignment: .leading, spacing: 10) {
+                RouteView(state: state, host: host)
+                    .frame(maxWidth: 380)
+
+                VStack(spacing: 10) {
                     NewSessionButton()
                         .buttonStyle(.borderedProminent)
+                        .tint(.kervanLapis)
                         .controlSize(.large)
                         .fixedSize()
-
-                    if model.store.sessions.isEmpty {
-                        Text("Henüz oturum yok. İlk oturumu başlattığınızda soldaki listede görünecek.")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text("Devam etmek için soldaki listeden bir oturum seçin.")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
+                    Text(model.store.sessions.isEmpty
+                         ? "Henüz oturum yok. İlk oturumu başlattığınızda soldaki listede görünecek."
+                         : "Devam etmek için soldaki listeden bir oturum seçin.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
                 }
 
-                Divider().frame(maxWidth: 460)
-
-                Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
+                VStack(alignment: .leading, spacing: 0) {
                     if case .connected(let server) = state {
-                        GridRow {
-                            Text("Sunucu sürümü").foregroundStyle(.secondary)
-                            Text(server.version).monospacedDigit()
-                        }
+                        InfoRow(label: "Sunucu sürümü", value: server.version)
+                        Divider().opacity(0.5)
                     }
-                    GridRow {
-                        Text("Gecikme").foregroundStyle(.secondary)
-                        Text(latencyText).monospacedDigit()
-                    }
-                    GridRow {
-                        Text("Ajanlar").foregroundStyle(.secondary)
-                        Text(model.store.agents.map(\.displayName).joined(separator: ", "))
-                    }
-                    GridRow {
-                        Text("Adres").foregroundStyle(.secondary)
-                        Text(model.activeAddress?.url.absoluteString ?? "")
-                            .font(.body.monospaced())
-                            .textSelection(.enabled)
-                    }
+                    InfoRow(label: "Gecikme", value: latencyText)
+                    Divider().opacity(0.5)
+                    InfoRow(label: "Ajanlar", value: model.store.agents.map(\.displayName).joined(separator: ", "))
+                    Divider().opacity(0.5)
+                    InfoRow(label: "Adres", value: model.activeAddress?.url.absoluteString ?? "", monospaced: true)
                 }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 6)
+                .softSurface()
+                .frame(maxWidth: 480)
 
                 Button("Bağlantıyı kes") { model.disconnect() }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
             }
-            .frame(maxWidth: 560, alignment: .leading)
-            .padding(40)
+            .padding(.horizontal, 40)
+            .padding(.vertical, 48)
+            .frame(maxWidth: .infinity)
         }
+        .background(Color.kervanCanvas)
     }
 
     private var latencyText: String {
         guard let latency = model.connection.latency else { return "ölçülüyor…" }
         let ms = Double(latency.components.attoseconds) / 1e15 + Double(latency.components.seconds) * 1000
         return ms < 1 ? "<1 ms" : "\(Int(ms.rounded())) ms"
+    }
+}
+
+private struct InfoRow: View {
+    let label: String
+    let value: String
+    var monospaced = false
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 16) {
+            Text(label).foregroundStyle(.secondary)
+            Spacer(minLength: 12)
+            Text(value)
+                .font(monospaced ? .callout.monospaced() : .body)
+                .monospacedDigit()
+                .multilineTextAlignment(.trailing)
+                .textSelection(.enabled)
+        }
+        .padding(.vertical, 10)
+        .accessibilityElement(children: .combine)
     }
 }
