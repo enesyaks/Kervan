@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { AgentRegistry } from "./agents.ts";
 import { isSafeRelativePath } from "./files.ts";
 import { log } from "./log.ts";
-import { KervanError, type ServerMessage, type TeamInfo, type SessionEvent, type SessionEventBody, type SessionInfo } from "./protocol.ts";
+import { KervanError, type AgentDetail, type ConfigOption, type ServerMessage, type TeamInfo, type SessionEvent, type SessionEventBody, type SessionInfo } from "./protocol.ts";
 import type { AgentProcess, AgentRunner, PermissionDecision, PermissionRequest } from "./runner.ts";
 import type { AgentCatalog } from "./catalog.ts";
 import type { McpRegistry } from "./mcp.ts";
@@ -166,8 +166,8 @@ export class SessionManager {
     return [...this.agents.keys()];
   }
 
-  get agentDetails(): { id: string; name: string }[] {
-    return [...this.agents].map(([id, agent]) => ({ id, name: agent.name }));
+  get agentDetails(): AgentDetail[] {
+    return [...this.agents].map(([id, agent]) => ({ id, name: agent.name, ...(agent.protocol === "pty" ? { terminal: true } : {}) }));
   }
 
   /** Tell every client the agent list changed (agents added or removed from the app). */
@@ -205,6 +205,9 @@ export class SessionManager {
     if (missingMcp) throw new KervanError("bad_message", `no MCP server named '${missingMcp}'`);
     if (!this.agents.has(agent)) throw new KervanError("unknown_agent", `no agent named '${agent}'`);
     if (options.orchestrate && !this.orchestra) throw new KervanError("bad_message", "this server can't start helpers");
+    if (options.orchestrate && this.agents.get(agent)?.protocol === "pty") {
+      throw new KervanError("bad_message", "terminal agents can't use Kervan's tools, so they can't start helpers");
+    }
 
     const id = randomUUID();
     const session: Session = {
@@ -284,9 +287,15 @@ export class SessionManager {
     (async () => {
       if (!session.process) {
         await this.startAgent(session, true);
-        this.record(session, { kind: "notice", text: "Ajan yeniden başlatıldı; konuşma kaldığı yerden devam ediyor." });
+        this.record(session, {
+          kind: "notice",
+          text: this.isTerminal(session)
+            ? "Terminal ajanı yeniden başlatıldı; önceki konuşmayı hatırlamaz."
+            : "Ajan yeniden başlatıldı; konuşma kaldığı yerden devam ediyor.",
+        });
       }
-      const preface = firstMessage ? await this.preface(session) : undefined;
+      // A terminal agent would receive the preface as typed input, so it gets none.
+      const preface = firstMessage && !this.isTerminal(session) ? await this.preface(session) : undefined;
       const stopReason = await session.process!.prompt(text, attachments.map((path) => join(session.cwd, path)), preface);
       this.record(session, { kind: "turn_end", stopReason });
     })()
@@ -431,6 +440,39 @@ export class SessionManager {
     const budget = lead.info.budgetUsd;
     if (budget !== undefined && this.crewCost(lead.info.id) >= budget) {
       throw new KervanError("bad_message", `the budget of $${budget} for you and your helpers is used up; finish with what you have`);
+    }
+  }
+
+  /**
+   * Changes one of the agent's session settings (e.g. its model). Without a running agent the choice
+   * is kept and applied when the agent next starts.
+   */
+  async setConfig(sessionId: string, configId: string, value: string): Promise<void> {
+    const session = this.require(sessionId);
+    const option = session.info.config?.find((o) => o.id === configId) ?? fail(`this agent has no setting '${configId}'`);
+    if (!option.choices.some((c) => c.value === value)) fail(`'${value}' is not one of the choices for ${option.name}`);
+    if (session.process?.setConfig) {
+      this.updateConfig(session, await session.process.setConfig(configId, value));
+    } else {
+      this.updateConfig(session, session.info.config!.map((o) => (o.id === configId ? { ...o, value } : o)));
+    }
+  }
+
+  private updateConfig(session: Session, options: ConfigOption[]): void {
+    session.info.config = options;
+    this.save(session);
+    this.broadcast({ type: "session.updated", session: { ...session.info } });
+  }
+
+  private async restoreConfig(session: Session, chosen: ConfigOption[]): Promise<void> {
+    for (const wanted of chosen) {
+      const live = session.info.config?.find((o) => o.id === wanted.id);
+      if (!live || live.value === wanted.value || !live.choices.some((c) => c.value === wanted.value)) continue;
+      try {
+        this.updateConfig(session, await session.process!.setConfig!(wanted.id, wanted.value));
+      } catch (error) {
+        log("warn", "couldn't restore a setting", { id: session.info.id, option: wanted.id, error: String(error) });
+      }
     }
   }
 
@@ -615,6 +657,8 @@ export class SessionManager {
   /** Starts (or resumes) the session's agent. On failure the session ends up in `error`. */
   private async startAgent(session: Session, resume = false): Promise<void> {
     session.costBase = session.info.usage?.costUsd ?? 0;
+    // What the user chose before the agent stopped; a restarted agent may come back on its defaults.
+    const chosen = session.info.config ?? [];
     try {
       const process = await this.runner.start({
         command: this.agents.get(session.info.agent)!,
@@ -622,6 +666,7 @@ export class SessionManager {
         onEvent: (event) => this.record(session, event),
         onPermission: (request) => this.askPermission(session, request),
         onUsage: (usage) => this.updateUsage(session, usage),
+        onConfig: (options) => this.updateConfig(session, options),
         mcpServers: (supportsHttp) => {
           const { servers, skipped } = this.mcp?.toAcp(session.info.mcpServers, supportsHttp) ?? { servers: [], skipped: [] };
           if (skipped.length > 0) {
@@ -640,6 +685,7 @@ export class SessionManager {
       session.process = process;
       session.agentSessionId = process.sessionId;
       this.save(session);
+      await this.restoreConfig(session, chosen);
       process.exited.then(() => this.onExit(session, process));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -743,14 +789,34 @@ export class SessionManager {
     this.store.saveSession({ info: session.info, agentSessionId: session.agentSessionId, instructions: session.instructions });
   }
 
+  /**
+   * The agent process died on its own. A conversation the agent can resume stays usable: the next
+   * message starts the agent again where it left off, as after a server restart.
+   */
+  /** A PTY agent: typed into, never resumed, and given no hidden preface. */
+  private isTerminal(session: Session): boolean {
+    return this.agents.get(session.info.agent)?.protocol === "pty";
+  }
+
   private onExit(session: Session, process: AgentProcess): void {
     if (session.info.status === "closed" || session.process !== process) return;
     session.process = undefined;
     for (const pending of session.pending.values()) pending.resolve(null);
     session.pending.clear();
     log("warn", "agent process exited", { id: session.info.id });
-    this.record(session, { kind: "error", message: "Ajan süreci beklenmedik şekilde kapandı." });
-    this.setStatus(session, "error", "agent process exited");
+    if (!session.agentSessionId) {
+      this.record(session, { kind: "error", message: "Ajan süreci beklenmedik şekilde kapandı." });
+      this.setStatus(session, "error", "agent process exited");
+      return;
+    }
+    this.record(session, {
+      kind: "notice",
+      text: this.isTerminal(session)
+        ? "Terminal ajanı kapandı. Bir sonraki mesajınızda yeniden başlatılacak; önceki konuşmayı hatırlamaz."
+        : "Ajan süreci beklenmedik şekilde kapandı. Bir sonraki mesajınızda kaldığı yerden yeniden başlatılacak.",
+    });
+    // A turn in progress settles in prompt(), which then marks the session idle.
+    if (session.info.status !== "running" && session.info.status !== "waiting") this.setStatus(session, "idle");
   }
 
   private broadcast(message: ServerMessage): void {

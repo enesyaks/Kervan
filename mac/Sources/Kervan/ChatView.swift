@@ -34,7 +34,7 @@ struct ChatView: View {
                             EmptySession(status: status, agentName: agentName)
                         }
                         ForEach(items) { item in
-                            TranscriptRow(item: item, agentName: agentName, senderName: senderName) { requestId, choice in
+                            TranscriptRow(item: item, agentName: agentName, senderName: senderName, terminal: model.store.isTerminal(sessionID)) { requestId, choice in
                                 Task { await model.store.respond(sessionID, requestId: requestId, optionId: choice.optionId) }
                             }
                             .padding(highlighted == item.id ? 6 : 0)
@@ -104,7 +104,9 @@ struct ChatView: View {
                 send: send,
                 stop: stop,
                 attach: chooseFiles,
-                remove: { id in attachments.removeAll { $0.id == id } }
+                remove: { id in attachments.removeAll { $0.id == id } },
+                options: session.map { ConfigOption.ordered($0.config) } ?? [],
+                choose: { option, value in Task { await model.store.setConfig(sessionID, configId: option.id, value: value) } }
             )
         }
         .overlay { if dropTargeted { DropHint() } }
@@ -266,6 +268,8 @@ struct TranscriptRow: View {
     let item: TranscriptItem
     let agentName: String
     let senderName: (String) -> String
+    /// A terminal agent: its answers are shown as they were printed.
+    var terminal = false
     let respond: (String, PermissionChoice) -> Void
 
     var body: some View {
@@ -294,6 +298,15 @@ struct TranscriptRow: View {
                 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(from.map { "Ana ajan \(senderName($0)): \(text)" } ?? "Siz: \(text)")
+
+        case .agent(_, let text) where terminal:
+            Text(text.trimmingCharacters(in: .newlines))
+                .font(.callout.monospaced())
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
 
         case .agent(_, let text):
             Text(Self.markdown(text))
@@ -508,6 +521,9 @@ private struct Composer: View {
     let stop: () -> Void
     let attach: () -> Void
     let remove: (Attachment.ID) -> Void
+    /// The agent's settings (model, effort, mode), shown under the text field.
+    let options: [ConfigOption]
+    let choose: (ConfigOption, String) -> Void
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -553,14 +569,57 @@ private struct Composer: View {
                         .disabled(!canSend || status != .idle || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
-            Text("↩ gönderir, ⌥↩ yeni satır açar.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            HStack(spacing: 14) {
+                ForEach(options) { option in
+                    SettingMenu(option: option) { choose(option, $0) }
+                }
+                Spacer()
+                Text("↩ gönderir, ⌥↩ yeni satır açar.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(.horizontal, 32)
         .padding(.vertical, 12)
         .background(.bar)
         .onAppear { focused = true }
+    }
+}
+
+/// One agent setting under the composer: the current choice, and a menu of the others.
+private struct SettingMenu: View {
+    let option: ConfigOption
+    let choose: (String) -> Void
+
+    var body: some View {
+        Menu {
+            Picker(option.name, selection: Binding(get: { option.value }, set: choose)) {
+                ForEach(option.choices) { choice in
+                    if let description = choice.description, !description.isEmpty {
+                        Text("\(choice.name) — \(description)").tag(choice.value)
+                    } else {
+                        Text(choice.name).tag(choice.value)
+                    }
+                }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            Label(option.current?.name ?? option.value, systemImage: Self.symbol(option.category))
+                .font(.caption)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help(option.name)
+        .accessibilityLabel("\(option.name): \(option.current?.name ?? option.value)")
+    }
+
+    private static func symbol(_ category: String?) -> String {
+        switch category {
+        case "model": "cpu"
+        case "thought_level": "brain"
+        case "mode": "slider.horizontal.3"
+        default: "gearshape"
+        }
     }
 }
 

@@ -44,7 +44,19 @@ export interface SessionInfo {
   branch?: string;
   /** Last reported by the agent; cost only from agents that report it (Claude). */
   usage?: SessionUsage;
+  /** Choices the agent offers for this session (model, reasoning effort, mode), with the current value. */
+  config?: ConfigOption[];
   error?: string;
+}
+
+/** One of an agent's session settings, e.g. its model. Only select-style options; values are the agent's ids. */
+export interface ConfigOption {
+  id: string;
+  name: string;
+  /** ACP's hint: "model", "thought_level", "mode", … */
+  category?: string;
+  value: string;
+  choices: { value: string; name: string; description?: string }[];
 }
 
 export interface SessionUsage {
@@ -52,6 +64,13 @@ export interface SessionUsage {
   contextSize: number;
   /** Cumulative across agent restarts. */
   costUsd?: number;
+}
+
+/** An agent as clients list it. `terminal` agents run in a pseudo-terminal and answer in plain text. */
+export interface AgentDetail {
+  id: string;
+  name: string;
+  terminal?: boolean;
 }
 
 export interface TeamInfo {
@@ -116,6 +135,7 @@ export type ClientMessage =
   | { type: "ping"; id: string }
   | { type: "session.create"; id: string; agent: string; skills?: string[]; mcpServers?: string[]; orchestrate?: boolean; budgetUsd?: number }
   | { type: "session.list"; id: string }
+  | { type: "session.config"; id: string; sessionId: string; configId: string; value: string }
   | { type: "session.history"; id: string; sessionId: string }
   | { type: "session.prompt"; id: string; sessionId: string; text: string; attachments?: string[] }
   | { type: "session.cancel"; id: string; sessionId: string }
@@ -147,7 +167,7 @@ export type ErrorCode =
   | "unknown_request";
 
 export type ServerMessage =
-  | { type: "welcome"; protocol: number; server: PeerInfo; agents: string[]; agentDetails: { id: string; name: string }[] }
+  | { type: "welcome"; protocol: number; server: PeerInfo; agents: string[]; agentDetails: AgentDetail[] }
   | { type: "pong"; id: string }
   | { type: "ok"; id: string }
   | { type: "error"; code: ErrorCode; message: string; id?: string }
@@ -164,7 +184,7 @@ export type ServerMessage =
   | { type: "team.list.result"; id: string; teams: TeamInfo[] }
   | { type: "team.updated"; team: TeamInfo }
   /** Broadcast after the agent catalog changes, in the same shape as `welcome`. */
-  | { type: "agents.updated"; agents: string[]; agentDetails: { id: string; name: string }[] };
+  | { type: "agents.updated"; agents: string[]; agentDetails: AgentDetail[] };
 
 export type ParseResult =
   | { ok: true; message: ClientMessage }
@@ -192,6 +212,7 @@ function isPeerInfo(value: unknown): value is PeerInfo {
 const STRING_FIELDS: Record<string, readonly string[]> = {
   ping: ["id"],
   "session.create": ["id", "agent"],
+  "session.config": ["id", "sessionId", "configId", "value"],
   "session.list": ["id"],
   "session.history": ["id", "sessionId"],
   "session.prompt": ["id", "sessionId", "text"],

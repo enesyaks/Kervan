@@ -12,7 +12,10 @@ final class AppModel {
         didSet { UserDefaults.standard.set(serverInput, forKey: Self.serverKey) }
     }
     var tokenInput = ""
-    var selectedSessionID: String?
+    var selectedSessionID: String? {
+        didSet { if let selectedSessionID { notifier?.clear(selectedSessionID) } }
+    }
+    private var notifier: Notifier?
     var showFiles = false
     /// The selected session's whole team (or lead and helpers) side by side, instead of its chat alone.
     var showCrew = false
@@ -43,6 +46,15 @@ final class AppModel {
         connection.onConnected = { [weak self] agents in
             self?.isLinked = true
             Task { await store.connected(agents: agents) }
+        }
+        // A bare `swift run` binary has no bundle id, and notifications need one.
+        if Bundle.main.bundleIdentifier != nil {
+            let notifier = Notifier { [weak self] sessionID in
+                self?.showCrew = false
+                self?.selectedSessionID = sessionID
+            }
+            self.notifier = notifier
+            store.onAlert = { [weak self] alert in notifier.post(alert, selected: self?.selectedSessionID) }
         }
         Task { await restoreToken() }
     }

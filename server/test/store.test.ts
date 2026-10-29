@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
@@ -46,11 +46,24 @@ describe("EventStore", () => {
     const usage = { contextUsed: 10, contextSize: 100, costUsd: 0.12 };
     store.saveSession({ info: { ...info, orchestrate: true, budgetUsd: 2 } });
     store.saveSession({ info: { ...info, id: "s2", parentId: "s1", branch: "kervan/a-1" } });
-    store.saveSession({ info: { ...info, orchestrate: true, budgetUsd: 2, usage } });
+    const config = [{ id: "model", name: "Model", value: "opus", choices: [{ value: "opus", name: "Opus" }] }];
+    store.saveSession({ info: { ...info, orchestrate: true, budgetUsd: 2, usage, config } });
     assert.deepEqual(store.loadSessions().map((s) => s.info), [
-      { ...info, orchestrate: true, budgetUsd: 2, usage },
+      { ...info, orchestrate: true, budgetUsd: 2, usage, config },
       { ...info, id: "s2", parentId: "s1", branch: "kervan/a-1" },
     ]);
+  });
+
+  it("backs up once a day and keeps the newest copies", () => {
+    const dir = mkdtempSync(join(tmpdir(), "kervan-backup-"));
+    const store = new EventStore(join(dir, "kervan.db"));
+    store.saveSession({ info });
+    const backups = join(dir, "backups");
+    for (const day of ["01", "02", "03", "04"]) store.backup(backups, 2, new Date(`2026-10-${day}T12:00:00Z`));
+    assert.equal(store.backup(backups, 2, new Date("2026-10-04T18:00:00Z")), undefined, "one a day");
+    assert.deepEqual(readdirSync(backups).sort(), ["kervan-2026-10-03.db", "kervan-2026-10-04.db"]);
+    const copy = new EventStore(join(backups, "kervan-2026-10-04.db"));
+    assert.deepEqual(copy.loadSessions().map((s) => s.info.id), ["s1"]);
   });
 
   it("refuses a duplicate seq", () => {

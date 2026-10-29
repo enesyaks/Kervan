@@ -14,6 +14,10 @@ export interface AgentCommand {
   authMethod?: string;
   /** Workspace folder the agent loads Agent Skills from; others get them in `.kervan/skills`. */
   skillsDir?: string;
+  /** "pty": a command-line agent without ACP, run in a pseudo-terminal (see pty.ts). */
+  protocol?: "pty";
+  /** PTY agents: how long the agent stays quiet before its answer counts as finished. */
+  quietMs?: number;
 }
 
 export interface AgentDefinition extends AgentCommand {
@@ -86,6 +90,13 @@ export function parseAgents(text: string, file = "agents.yaml"): AgentDefinition
       fail(file, `agent '${id}': 'skillsDir' must be a path inside the workspace`);
     }
 
+    const protocol = entry.protocol ?? "acp";
+    if (protocol !== "acp" && protocol !== "pty") fail(file, `agent '${id}': 'protocol' must be 'acp' or 'pty'`);
+    const quietMs = entry.quietMs;
+    if (quietMs !== undefined && (typeof quietMs !== "number" || quietMs < 200 || quietMs > 60_000)) {
+      fail(file, `agent '${id}': 'quietMs' must be 200–60000`);
+    }
+
     ids.push(id);
     definitions.push({
       name,
@@ -94,6 +105,7 @@ export function parseAgents(text: string, file = "agents.yaml"): AgentDefinition
       ...(entry.env ? { env: entry.env as Record<string, string> } : {}),
       ...(authMethod ? { authMethod } : {}),
       ...(skillsDir ? { skillsDir: skillsDir as string } : {}),
+      ...(protocol === "pty" ? { protocol: "pty" as const, ...(quietMs !== undefined ? { quietMs: quietMs as number } : {}) } : {}),
     });
   }
   return Object.assign(definitions, { ids });

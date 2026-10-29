@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { startPty } from "./pty.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
@@ -7,7 +8,7 @@ import { pathToFileURL } from "node:url";
 import * as acp from "@agentclientprotocol/sdk";
 import type { AgentCommand } from "./agents.ts";
 import { log } from "./log.ts";
-import type { PermissionChoice, SessionEventBody } from "./protocol.ts";
+import type { ConfigOption, PermissionChoice, SessionEventBody } from "./protocol.ts";
 
 /** One running agent conversation. */
 export interface AgentProcess {
@@ -17,6 +18,8 @@ export interface AgentProcess {
    */
   prompt(text: string, files?: string[], preface?: string): Promise<string>;
   cancel(): Promise<void>;
+  /** Changes one of the agent's session settings; resolves with all of them. Missing when the agent has none (PTY). */
+  setConfig?(configId: string, value: string): Promise<ConfigOption[]>;
   close(): void;
   /** Settles when the agent process is gone, whether closed or crashed. */
   readonly exited: Promise<void>;
@@ -47,6 +50,8 @@ export interface StartOptions {
   mcpServers?: (supportsHttp: boolean) => acp.McpServer[];
   /** Context and cost as the agent reports them; `costUsd` counts from this agent process's start. */
   onUsage?: (usage: { used: number; size: number; costUsd?: number }) => void;
+  /** The agent's session settings (model, effort, mode) whenever they are first known or change. */
+  onConfig?: (options: ConfigOption[]) => void;
 }
 
 /**
@@ -80,7 +85,9 @@ export async function probeAgent(runner: AgentRunner, command: AgentCommand, tim
 
 /** Runs an ACP agent as a child process on this machine and talks to it over stdio. */
 export class LocalAcpRunner implements AgentRunner {
-  async start({ command, cwd, onEvent, onPermission, resumeSessionId, mcpServers, onUsage }: StartOptions): Promise<AgentProcess> {
+  async start(options: StartOptions): Promise<AgentProcess> {
+    if (options.command.protocol === "pty") return startPty(options);
+    const { command, cwd, onEvent, onPermission, resumeSessionId, mcpServers, onUsage, onConfig } = options;
     const child = spawn(command.command, command.args, {
       cwd,
       env: { ...process.env, ...command.env },
@@ -101,6 +108,10 @@ export class LocalAcpRunner implements AgentRunner {
       .client({ name: "kervan" })
       .onNotification("session/update", ({ params }) => {
         const update = params.update;
+        if (update.sessionUpdate === "config_option_update") {
+          onConfig?.(toConfig(update.configOptions));
+          return;
+        }
         if (update.sessionUpdate === "usage_update") {
           const cost = update.cost?.currency === "USD" ? update.cost.amount : undefined;
           onUsage?.({ used: update.used, size: update.size, ...(cost !== undefined ? { costUsd: cost } : {}) });
@@ -144,10 +155,13 @@ export class LocalAcpRunner implements AgentRunner {
       let sessionId: string;
       if (resumeSessionId) {
         if (!init.agentCapabilities?.sessionCapabilities?.resume) throw new Error("agent cannot resume sessions");
-        await agent.request("session/resume", { sessionId: resumeSessionId, cwd, mcpServers: servers });
+        const resumed = await agent.request("session/resume", { sessionId: resumeSessionId, cwd, mcpServers: servers });
         sessionId = resumeSessionId;
+        if (resumed.configOptions) onConfig?.(toConfig(resumed.configOptions));
       } else {
-        ({ sessionId } = await agent.request("session/new", { cwd, mcpServers: servers }));
+        const created = await agent.request("session/new", { cwd, mcpServers: servers });
+        sessionId = created.sessionId;
+        if (created.configOptions) onConfig?.(toConfig(created.configOptions));
       }
 
       return {
@@ -166,12 +180,33 @@ export class LocalAcpRunner implements AgentRunner {
         async cancel() {
           await agent.notify("session/cancel", { sessionId });
         },
+        async setConfig(configId, value) {
+          const { configOptions } = await agent.request("session/set_config_option", { sessionId, configId, value });
+          return toConfig(configOptions);
+        },
       };
     } catch (error) {
       close();
       throw error;
     }
   }
+}
+
+/** The select-style options in Kervan's flat form; groups of choices are flattened. */
+function toConfig(options: acp.SessionConfigOption[]): ConfigOption[] {
+  return options.flatMap((option): ConfigOption[] => {
+    if (option.type !== "select") return [];
+    const choices = option.options.flatMap((entry) => ("group" in entry ? entry.options : [entry]));
+    return [
+      {
+        id: option.id,
+        name: option.name,
+        ...(option.category ? { category: option.category } : {}),
+        value: option.currentValue,
+        choices: choices.map((c) => ({ value: c.value, name: c.name, ...(c.description ? { description: c.description } : {}) })),
+      },
+    ];
+  });
 }
 
 /** What the user needs to judge a request: the shell command, else the files involved. */

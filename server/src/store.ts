@@ -1,9 +1,9 @@
-import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import type { SessionEvent, SessionInfo } from "./protocol.ts";
 
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 export interface IndexedMessage {
   /** seq of the first event of the message; matches the Mac transcript row id. */
@@ -141,15 +141,16 @@ export class EventStore {
     this.migrate();
     this.upsertSession = this.db.prepare(`
       INSERT INTO sessions (id, agent, title, status, created_at, error, agent_session_id, archived, skills, mcp_servers,
-                            team_id, role, instructions, parent_id, orchestrate, budget_usd, branch, usage)
+                            team_id, role, instructions, parent_id, orchestrate, budget_usd, branch, usage, config)
       VALUES (:id, :agent, :title, :status, :createdAt, :error, :agentSessionId, :archived, :skills, :mcpServers,
-              :teamId, :role, :instructions, :parentId, :orchestrate, :budgetUsd, :branch, :usage)
+              :teamId, :role, :instructions, :parentId, :orchestrate, :budgetUsd, :branch, :usage, :config)
       ON CONFLICT (id) DO UPDATE SET
         title = excluded.title,
         status = excluded.status,
         error = excluded.error,
         archived = excluded.archived,
         usage = excluded.usage,
+        config = excluded.config,
         agent_session_id = COALESCE(excluded.agent_session_id, sessions.agent_session_id)
     `);
     this.insertEvent = this.db.prepare("INSERT INTO events (session_id, seq, at, body) VALUES (?, ?, ?, ?)");
@@ -192,11 +193,15 @@ export class EventStore {
         `);
       }
       // v6 (M11): a lead's budget, a helper's branch, and the last usage the agent reported.
-      this.db.exec(`
-        ALTER TABLE sessions ADD COLUMN budget_usd REAL;
-        ALTER TABLE sessions ADD COLUMN branch TEXT;
-        ALTER TABLE sessions ADD COLUMN usage TEXT;
-      `);
+      if (version < 6) {
+        this.db.exec(`
+          ALTER TABLE sessions ADD COLUMN budget_usd REAL;
+          ALTER TABLE sessions ADD COLUMN branch TEXT;
+          ALTER TABLE sessions ADD COLUMN usage TEXT;
+        `);
+      }
+      // v7: the agent's session settings (model, effort, mode) as last chosen.
+      this.db.exec("ALTER TABLE sessions ADD COLUMN config TEXT");
       this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
       this.db.exec("COMMIT");
     } catch (error) {
@@ -244,6 +249,7 @@ export class EventStore {
       budgetUsd: info.budgetUsd ?? null,
       branch: info.branch ?? null,
       usage: info.usage ? JSON.stringify(info.usage) : null,
+      config: info.config ? JSON.stringify(info.config) : null,
     });
   }
 
@@ -304,6 +310,7 @@ export class EventStore {
         ...(row.budget_usd !== null && row.budget_usd !== undefined ? { budgetUsd: Number(row.budget_usd) } : {}),
         ...(row.branch ? { branch: String(row.branch) } : {}),
         ...(row.usage ? { usage: JSON.parse(String(row.usage)) as SessionInfo["usage"] } : {}),
+        ...(row.config ? { config: JSON.parse(String(row.config)) as SessionInfo["config"] } : {}),
         ...(row.error ? { error: String(row.error) } : {}),
       },
       ...(row.agent_session_id ? { agentSessionId: String(row.agent_session_id) } : {}),
@@ -316,6 +323,23 @@ export class EventStore {
       .prepare("SELECT seq, at, body FROM events WHERE session_id = ? ORDER BY seq")
       .all(sessionId) as { seq: number; at: string; body: string }[];
     return rows.map((row) => ({ ...JSON.parse(row.body), seq: row.seq, at: row.at }));
+  }
+
+  /**
+   * A consistent copy of the database in `dir` as kervan-YYYY-MM-DD.db, at most one a day; only the
+   * newest `keep` are kept. Safe while sessions are running (VACUUM INTO reads a snapshot).
+   */
+  backup(dir: string, keep = 7, now = new Date()): string | undefined {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const file = join(dir, `kervan-${now.toISOString().slice(0, 10)}.db`);
+    if (existsSync(file)) return undefined;
+    this.db.prepare("VACUUM INTO ?").run(file);
+    const old = readdirSync(dir)
+      .filter((name) => /^kervan-\d{4}-\d{2}-\d{2}\.db$/.test(name))
+      .sort()
+      .slice(0, -keep);
+    for (const name of old) rmSync(join(dir, name));
+    return file;
   }
 
   close(): void {

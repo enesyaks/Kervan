@@ -18,3 +18,12 @@ agents:
   #   name: OpenCode
   #   command: opencode
   #   args: [acp]
+
+  # A command-line agent without ACP, run in a terminal. Each message is typed as a line; the answer
+  # is what it prints until it has been quiet for quietMs.
+  # aider:
+  #   name: Aider
+  #   command: aider
+  #   args: ["--no-pretty"]
+  #   protocol: pty
+  #   quietMs: 3000

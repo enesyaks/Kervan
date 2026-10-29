@@ -42,6 +42,19 @@ await orchestra.listen();
 sessions.useOrchestra(orchestra);
 const server = createKervanServer({ token: config.token, sessions, maxUploadBytes: config.maxUploadBytes, skills });
 
+// A daily copy of the database; the first one right after start.
+const backups = join(config.dataDir, "backups");
+const backup = () => {
+  try {
+    const file = store.backup(backups);
+    if (file) log("info", "database backed up", { file });
+  } catch (error) {
+    log("error", "database backup failed", { error: error instanceof Error ? error.message : String(error) });
+  }
+};
+backup();
+setInterval(backup, 60 * 60 * 1000).unref(); // hourly check; writes at most one file a day
+
 server.listen(config.port, config.host, () => {
   log("info", "kervan listening", { host: config.host, port: config.port, version: VERSION });
 });

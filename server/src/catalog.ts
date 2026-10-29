@@ -12,6 +12,8 @@ export interface ManagedAgent {
   args?: string[];
   authMethod?: string;
   skillsDir?: string;
+  protocol?: "pty";
+  quietMs?: number;
   env?: Record<string, string>;
   node: string;
 }
@@ -24,6 +26,8 @@ export interface AgentSummary {
   args: string[];
   authMethod?: string;
   skillsDir?: string;
+  protocol?: "pty";
+  quietMs?: number;
   envKeys: string[];
   node: string;
   /** "app" agents can be edited from the app; the others come with the server or agents.yaml. */
@@ -68,6 +72,8 @@ export class AgentCatalog {
         args: d.args,
         ...(d.authMethod ? { authMethod: d.authMethod } : {}),
         ...(d.skillsDir ? { skillsDir: d.skillsDir } : {}),
+        ...(d.protocol ? { protocol: d.protocol } : {}),
+        ...(d.quietMs ? { quietMs: d.quietMs } : {}),
         envKeys: Object.keys(d.env ?? {}),
         node: "local",
         source: "builtin",
@@ -80,6 +86,8 @@ export class AgentCatalog {
       args: agent.args ?? [],
       ...(agent.authMethod ? { authMethod: agent.authMethod } : {}),
       ...(agent.skillsDir ? { skillsDir: agent.skillsDir } : {}),
+      ...(agent.protocol ? { protocol: agent.protocol } : {}),
+      ...(agent.quietMs ? { quietMs: agent.quietMs } : {}),
       envKeys: Object.keys(agent.env ?? {}),
       node: agent.node,
       source: "app",
@@ -126,6 +134,8 @@ export class AgentCatalog {
       ...(definition.args.length > 0 || raw.args ? { args: definition.args } : {}),
       ...(definition.authMethod ? { authMethod: definition.authMethod } : {}),
       ...(definition.skillsDir ? { skillsDir: definition.skillsDir } : {}),
+      ...(definition.protocol ? { protocol: definition.protocol } : {}),
+      ...(definition.quietMs ? { quietMs: definition.quietMs } : {}),
       ...(env ? { env } : {}),
       node: node as string,
     });

@@ -32,6 +32,9 @@ public final class SessionStore {
     /// True while the latest search is on its way.
     public private(set) var isSearching = false
 
+    /// Called when a live status change deserves a notification (not for lists loaded on connect).
+    public var onAlert: (@MainActor (SessionAlert) -> Void)?
+
     private let send: Sender
     private var pendingCreates: Set<String> = []
     private var latestSearch: String?
@@ -45,6 +48,12 @@ public final class SessionStore {
     /// Display name for an agent id; falls back to the id for agents the server no longer offers.
     public func agentName(_ id: String) -> String {
         agents.first { $0.id == id }?.name ?? id
+    }
+
+    /// True when the session's agent runs in a pseudo-terminal; its answers are terminal text, not Markdown.
+    public func isTerminal(_ sessionID: String) -> Bool {
+        guard let session = session(sessionID) else { return false }
+        return agents.first { $0.id == session.agent }?.terminal ?? false
     }
 
     public func session(_ id: String) -> SessionInfo? {
@@ -78,6 +87,11 @@ public final class SessionStore {
     public func crewCost(_ leadID: String) -> Double? {
         let costs = ([session(leadID)].compactMap { $0 } + helpers(of: leadID)).compactMap { $0.usage?.costUsd }
         return costs.isEmpty ? nil : costs.reduce(0, +)
+    }
+
+    /// Changes one of the session's agent settings, e.g. its model. The server answers with session.updated.
+    public func setConfig(_ sessionID: String, configId: String, value: String) async {
+        await request(.sessionConfig(id: Self.newID(), sessionId: sessionID, configId: configId, value: value))
     }
 
     /// The helpers a lead agent started, oldest first.
@@ -181,7 +195,11 @@ public final class SessionStore {
             if events[session.id] == nil { events[session.id] = [] }
             if pendingCreates.remove(requestID) != nil { lastCreatedSessionID = session.id }
         case .sessionUpdated(let session):
+            let previous = self.session(session.id)?.status
             upsert(session)
+            if let alert = SessionAlert.on(session, from: previous, events: events[session.id] ?? [], agentName: agentName(session.agent)) {
+                onAlert?(alert)
+            }
         case .sessionHistoryResult(_, let sessionID, let history):
             events[sessionID] = history
         case .sessionEvent(let sessionID, let event):

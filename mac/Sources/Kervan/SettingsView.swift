@@ -374,6 +374,8 @@ struct AgentDraft: Identifiable {
     var authMethod = ""
     var skillsDir = ""
     var node = "local"
+    var terminal = false
+    var quietMs: Int?
     var secrets: [McpDraft.Secret] = []
 
     static let builtinIDs = ["claude", "codex", "gemini"]
@@ -391,6 +393,8 @@ struct AgentDraft: Identifiable {
         authMethod = agent.authMethod ?? ""
         skillsDir = agent.skillsDir ?? ""
         node = agent.node
+        terminal = agent.protocol == "pty"
+        quietMs = agent.quietMs
         secrets = agent.envKeys.map { McpDraft.Secret(key: $0, value: "", stored: agent.source == .app) }
     }
 
@@ -406,7 +410,9 @@ struct AgentDraft: Identifiable {
                 secrets.filter { !$0.key.isEmpty }.map { ($0.key, $0.stored && $0.value.isEmpty ? nil : Optional($0.value)) },
                 uniquingKeysWith: { _, last in last }
             ),
-            node: node
+            node: node,
+            protocol: terminal ? "pty" : nil,
+            quietMs: terminal ? quietMs : nil
         )
     }
 
@@ -451,6 +457,24 @@ private struct AgentEditor: View {
                     Text("Sunucuyla gelen adaptör kullanılır; kimlik claude, codex ya da gemini olmalı.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+
+                if draft.kind == .command {
+                    Toggle(isOn: $draft.terminal) {
+                        Text("Terminal üzerinden çalıştır")
+                        Text("ACP desteklemeyen, satır satır çalışan araçlar için. Mesajlar terminale yazılır; ajan sustuğunda yanıt bitmiş sayılır. Onay kartı ve kaldığı yerden devam yoktur.")
+                    }
+                    if draft.terminal {
+                        LabeledContent("Sessizlik süresi") {
+                            HStack(spacing: 4) {
+                                TextField("Sessizlik süresi", value: $draft.quietMs, format: .number, prompt: Text("2000"))
+                                    .labelsHidden()
+                                    .multilineTextAlignment(.trailing)
+                                    .frame(width: 80)
+                                Text("ms").foregroundStyle(.secondary)
+                            }
+                        }
+                    }
                 }
 
                 TextField("Kimlik doğrulama yöntemi", text: $draft.authMethod, prompt: Text("isteğe bağlı, ör. gemini-api-key"))

@@ -564,3 +564,61 @@ import Testing
         #expect(store.crewCost("lead") == 0.75)
     }
 }
+
+@MainActor @Suite struct AlertTests {
+    private func info(_ status: SessionStatus, parent: String? = nil, error: String? = nil) -> SessionInfo {
+        SessionInfo(id: "s", agent: "claude", title: "Sürüm", status: status, createdAt: "1", parentId: parent, error: error)
+    }
+    private let ask = SessionEvent(seq: 2, body: .permissionRequest(requestId: "r", title: "Run npm test", toolKind: "execute", detail: nil, options: []))
+    private let reply = [SessionEvent(seq: 1, body: .userMessage("yap")), SessionEvent(seq: 2, body: .agentMessageChunk("Bitti, testler geçti.\nAyrıntı"))]
+
+    @Test func asksForApprovalsAndEndedTurnsAndErrors() {
+        let waiting = SessionAlert.on(info(.waiting), from: .running, events: [ask], agentName: "Claude Code")
+        #expect(waiting == SessionAlert(sessionID: "s", kind: .waiting, title: "Onay bekliyor: Sürüm", body: "Claude Code şunu yapmak istiyor: Run npm test"))
+        #expect(SessionAlert.on(info(.idle), from: .running, events: reply, agentName: "Claude Code")?.body == "Bitti, testler geçti.")
+        #expect(SessionAlert.on(info(.error, error: "agent exited"), from: .running, events: [], agentName: "x")?.kind == .failed)
+    }
+
+    @Test func staysQuietOtherwise() {
+        #expect(SessionAlert.on(info(.idle), from: nil, events: reply, agentName: "x") == nil, "lists loaded on connect")
+        #expect(SessionAlert.on(info(.idle), from: .starting, events: [], agentName: "x") == nil, "a session that just started")
+        #expect(SessionAlert.on(info(.idle, parent: "lead"), from: .running, events: reply, agentName: "x") == nil, "a helper answers its lead")
+        #expect(SessionAlert.on(info(.waiting, parent: "lead"), from: .running, events: [ask], agentName: "x")?.kind == .waiting, "but its approvals need the user")
+    }
+
+    @Test func storeRaisesAlertsOnlyForLiveChanges() {
+        let store = SessionStore { _ in }
+        var alerts: [SessionAlert.Kind] = []
+        store.onAlert = { alerts.append($0.kind) }
+        store.handle(.sessionListResult(id: "l", sessions: [info(.running)]))
+        store.handle(.sessionUpdated(info(.running)))
+        store.handle(.sessionEvent(sessionId: "s", event: SessionEvent(seq: 1, body: .permissionRequest(requestId: "r", title: "Edit", toolKind: "edit", detail: nil, options: []))))
+        store.handle(.sessionUpdated(info(.waiting)))
+        #expect(alerts == [.waiting])
+    }
+}
+
+@Suite struct TerminalAgentTests {
+    @Test func readsTheTerminalFlagAndSendsTheProtocol() throws {
+        let welcome = try ServerMessage.decode(#"{"type":"agents.updated","agents":["aider"],"agentDetails":[{"id":"aider","name":"Aider","terminal":true},{"id":"claude","name":"Claude"}]}"#)
+        #expect(welcome == .agentsUpdated([AgentInfo(id: "aider", name: "Aider", terminal: true), AgentInfo(id: "claude", name: "Claude")]))
+        let input = AgentInput(id: "aider", name: "Aider", command: "aider", protocol: "pty", quietMs: 1500)
+        let json = try String(decoding: JSONEncoder().encode(input), as: UTF8.self)
+        #expect(json.contains(#""protocol":"pty""#) && json.contains(#""quietMs":1500"#))
+    }
+}
+
+@Suite struct ConfigOptionTests {
+    @Test func decodesSettingsAndAsksForAChange() throws {
+        let updated = try ServerMessage.decode(
+            #"{"type":"session.updated","session":{"id":"s","agent":"claude","title":"A","status":"idle","createdAt":"c","archived":false,"config":[{"id":"mode","name":"Mod","category":"mode","value":"default","choices":[{"value":"default","name":"Varsayılan"}]},{"id":"model","name":"Model","category":"model","value":"opus","choices":[{"value":"opus","name":"Opus"},{"value":"sonnet","name":"Sonnet","description":"Hızlı"}]}]}}"#
+        )
+        guard case .sessionUpdated(let info) = updated else { Issue.record("expected session.updated"); return }
+        #expect(ConfigOption.ordered(info.config).map(\.id) == ["model", "mode"], "model first")
+        #expect(info.config[1].current?.name == "Opus")
+        #expect(
+            try ClientMessage.sessionConfig(id: "r", sessionId: "s", configId: "model", value: "sonnet").jsonString()
+                == #"{"configId":"model","id":"r","sessionId":"s","type":"session.config","value":"sonnet"}"#
+        )
+    }
+}

@@ -11,6 +11,7 @@
 //   "delegate: <task>" → starts a helper through the `kervan` MCP server, waits, answers "helper said: <reply>"
 //   "askperm: <kind> <title>" → asks permission for that tool call, answers "permission: <optionId or cancelled>"
 //   "usage <usd>" → reports a usage update with that cumulative cost
+//   "modelcheck" → the model currently chosen (session setting "model": fast | smart)
 //   "mcptools" → names of the tools the `kervan` MCP server offers
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
@@ -26,6 +27,21 @@ let current = "";
 let authenticated = "none";
 let mcpNames: string[] = [];
 let mcpServers: acp.McpServer[] = [];
+let model = "fast";
+const configOptions = (): acp.SessionConfigOption[] => [
+  {
+    type: "select",
+    id: "model",
+    name: "Model",
+    category: "model",
+    currentValue: model,
+    options: [
+      { group: "small", name: "Küçük", options: [{ value: "fast", name: "Hızlı" }] },
+      { group: "big", name: "Büyük", options: [{ value: "smart", name: "Akıllı", description: "Daha yavaş" }] },
+    ],
+  },
+  { type: "boolean", id: "beta", name: "Beta", currentValue: false },
+];
 
 /** A bare MCP client: starts the named stdio server and returns a function that calls one method on it. */
 async function mcpClient(name: string): Promise<(method: string, params?: object) => Promise<any>> {
@@ -68,13 +84,17 @@ acp
     mcpServers = params.mcpServers;
     mcpNames = params.mcpServers.map((server) => server.name);
     current = `fake-${process.pid}`;
-    return { sessionId: current };
+    return { sessionId: current, configOptions: configOptions() };
   })
   .onRequest("session/resume", ({ params }) => {
     mcpServers = params.mcpServers ?? [];
     mcpNames = mcpServers.map((server) => server.name);
     current = params.sessionId;
-    return {};
+    return { configOptions: configOptions() };
+  })
+  .onRequest("session/set_config_option", ({ params }) => {
+    if (params.configId === "model" && typeof params.value === "string") model = params.value;
+    return { configOptions: configOptions() };
   })
   .onRequest("session/prompt", async ({ params, client }) => {
     const texts = params.prompt.flatMap((block) => (block.type === "text" ? [block.text] : []));
@@ -84,6 +104,10 @@ acp
     if (text.includes("crash")) process.exit(1);
     if (text.includes("mcpcheck")) {
       await update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `mcp: ${mcpNames.join(",")}` } });
+      return { stopReason: "end_turn" };
+    }
+    if (text.includes("modelcheck")) {
+      await update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `model: ${model}` } });
       return { stopReason: "end_turn" };
     }
     if (text.startsWith("usage ")) {

@@ -60,6 +60,9 @@ async function handleRequest(ws: WebSocket, message: Exclude<ClientMessage, { ty
           ...(message.budgetUsd ? { budgetUsd: message.budgetUsd } : {}),
         }),
       });
+    case "session.config":
+      await sessions.setConfig(message.sessionId, message.configId, message.value);
+      return send(ws, { type: "ok", id: message.id });
     case "session.list":
       return send(ws, { type: "session.list.result", id: message.id, sessions: sessions.list() });
     case "session.history":

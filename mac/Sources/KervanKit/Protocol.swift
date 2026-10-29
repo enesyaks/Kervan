@@ -18,10 +18,22 @@ public struct PeerInfo: Codable, Equatable, Sendable {
 public struct AgentInfo: Codable, Equatable, Sendable, Identifiable {
     public let id: String
     public let name: String
+    /// Runs in a pseudo-terminal without ACP: answers are plain terminal text.
+    public let terminal: Bool
 
-    public init(id: String, name: String) {
+    public init(id: String, name: String, terminal: Bool = false) {
         self.id = id
         self.name = name
+        self.terminal = terminal
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, name, terminal }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        terminal = try c.decodeIfPresent(Bool.self, forKey: .terminal) ?? false
     }
 }
 
@@ -72,14 +84,17 @@ public struct SessionInfo: Codable, Equatable, Sendable, Identifiable {
     /// Helpers in a git repository: the branch of their own worktree.
     public var branch: String?
     public var usage: SessionUsage?
+    /// The agent's session settings (model, effort, mode), with the current choice.
+    public var config: [ConfigOption]
     public var error: String?
 
     public init(
         id: String, agent: String, title: String, status: SessionStatus, createdAt: String,
         archived: Bool = false, skills: [String] = [], mcpServers: [String] = [], teamId: String? = nil,
         role: String? = nil, parentId: String? = nil, orchestrate: Bool = false, budgetUsd: Double? = nil,
-        branch: String? = nil, usage: SessionUsage? = nil, error: String? = nil
+        branch: String? = nil, usage: SessionUsage? = nil, config: [ConfigOption] = [], error: String? = nil
     ) {
+        self.config = config
         self.budgetUsd = budgetUsd
         self.branch = branch
         self.usage = usage
@@ -98,7 +113,7 @@ public struct SessionInfo: Codable, Equatable, Sendable, Identifiable {
         self.error = error
     }
 
-    private enum CodingKeys: String, CodingKey { case id, agent, title, status, createdAt, archived, skills, mcpServers, teamId, role, parentId, orchestrate, budgetUsd, branch, usage, error }
+    private enum CodingKeys: String, CodingKey { case id, agent, title, status, createdAt, archived, skills, mcpServers, teamId, role, parentId, orchestrate, budgetUsd, branch, usage, config, error }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -117,7 +132,49 @@ public struct SessionInfo: Codable, Equatable, Sendable, Identifiable {
         budgetUsd = try c.decodeIfPresent(Double.self, forKey: .budgetUsd)
         branch = try c.decodeIfPresent(String.self, forKey: .branch)
         usage = try c.decodeIfPresent(SessionUsage.self, forKey: .usage)
+        config = try c.decodeIfPresent([ConfigOption].self, forKey: .config) ?? []
         error = try c.decodeIfPresent(String.self, forKey: .error)
+    }
+}
+
+/// One of an agent's session settings, such as its model. `value` is the current choice.
+public struct ConfigOption: Codable, Equatable, Sendable, Identifiable {
+    public struct Choice: Codable, Equatable, Sendable, Identifiable {
+        public let value: String
+        public let name: String
+        public let description: String?
+        public var id: String { value }
+
+        public init(value: String, name: String, description: String? = nil) {
+            self.value = value
+            self.name = name
+            self.description = description
+        }
+    }
+
+    public let id: String
+    public let name: String
+    /// ACP's hint: "model", "thought_level", "mode", …
+    public let category: String?
+    public let value: String
+    public let choices: [Choice]
+
+    public init(id: String, name: String, category: String? = nil, value: String, choices: [Choice]) {
+        self.id = id
+        self.name = name
+        self.category = category
+        self.value = value
+        self.choices = choices
+    }
+
+    public var current: Choice? { choices.first { $0.value == value } }
+
+    /// Model first, then reasoning effort, then mode, then anything else, as the composer lists them.
+    public static func ordered(_ options: [ConfigOption]) -> [ConfigOption] {
+        let rank = ["model": 0, "thought_level": 1, "mode": 2]
+        return options.enumerated()
+            .sorted { (rank[$0.element.category ?? ""] ?? 3, $0.offset) < (rank[$1.element.category ?? ""] ?? 3, $1.offset) }
+            .map(\.element)
     }
 }
 
@@ -226,6 +283,9 @@ public struct AgentConfig: Decodable, Equatable, Sendable, Identifiable {
     public let args: [String]
     public let authMethod: String?
     public let skillsDir: String?
+    /// "pty" for terminal agents; nil for ACP.
+    public let `protocol`: String?
+    public let quietMs: Int?
     public let envKeys: [String]
     public let node: String
     public let source: Source
@@ -233,8 +293,11 @@ public struct AgentConfig: Decodable, Equatable, Sendable, Identifiable {
 
     public init(
         id: String, name: String, command: String, args: [String] = [], authMethod: String? = nil, skillsDir: String? = nil,
-        envKeys: [String] = [], node: String = "local", source: Source, available: Bool = true
+        envKeys: [String] = [], node: String = "local", source: Source, available: Bool = true,
+        protocol: String? = nil, quietMs: Int? = nil
     ) {
+        self.protocol = `protocol`
+        self.quietMs = quietMs
         self.id = id
         self.name = name
         self.command = command
@@ -258,11 +321,16 @@ public struct AgentInput: Encodable, Equatable, Sendable {
     public var skillsDir: String?
     public var env: [String: String?]
     public var node: String
+    /// "pty" for a terminal agent; nil for ACP.
+    public var `protocol`: String?
+    public var quietMs: Int?
 
     public init(
         id: String, name: String, command: String, args: [String] = [], authMethod: String? = nil,
-        skillsDir: String? = nil, env: [String: String?] = [:], node: String = "local"
+        skillsDir: String? = nil, env: [String: String?] = [:], node: String = "local", protocol: String? = nil, quietMs: Int? = nil
     ) {
+        self.protocol = `protocol`
+        self.quietMs = quietMs
         self.id = id
         self.name = name
         self.command = command
@@ -273,7 +341,7 @@ public struct AgentInput: Encodable, Equatable, Sendable {
         self.node = node
     }
 
-    private enum CodingKeys: String, CodingKey { case id, name, command, args, authMethod, skillsDir, env, node }
+    private enum CodingKeys: String, CodingKey { case id, name, command, args, authMethod, skillsDir, env, node, `protocol`, quietMs }
 
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
@@ -284,6 +352,8 @@ public struct AgentInput: Encodable, Equatable, Sendable {
         try c.encodeIfPresent(authMethod, forKey: .authMethod)
         try c.encodeIfPresent(skillsDir, forKey: .skillsDir)
         try c.encode(node, forKey: .node)
+        try c.encodeIfPresent(`protocol`, forKey: .protocol)
+        try c.encodeIfPresent(quietMs, forKey: .quietMs)
         try c.encode(McpServerInput.nullable(env), forKey: .env)
     }
 }
@@ -464,6 +534,7 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
     case ping(id: String)
     case sessionCreate(id: String, agent: String, skills: [String] = [], mcpServers: [String] = [], orchestrate: Bool = false, budgetUsd: Double? = nil)
     case sessionList(id: String)
+    case sessionConfig(id: String, sessionId: String, configId: String, value: String)
     case sessionHistory(id: String, sessionId: String)
     case sessionPrompt(id: String, sessionId: String, text: String, attachments: [String] = [])
     case sessionCancel(id: String, sessionId: String)
@@ -485,7 +556,7 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case type, `protocol`, client, id, agent, sessionId, text, requestId, optionId, attachments, title, archived, query
-        case skills, mcpServers, server, name, agentId, role, roleId, roles, orchestrate, budgetUsd
+        case skills, mcpServers, server, name, agentId, role, roleId, roles, orchestrate, budgetUsd, configId, value
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -506,6 +577,12 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
             if !mcpServers.isEmpty { try c.encode(mcpServers, forKey: .mcpServers) }
             if orchestrate { try c.encode(true, forKey: .orchestrate) }
             if orchestrate, let budgetUsd { try c.encode(budgetUsd, forKey: .budgetUsd) }
+        case .sessionConfig(let id, let sessionId, let configId, let value):
+            try c.encode("session.config", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(sessionId, forKey: .sessionId)
+            try c.encode(configId, forKey: .configId)
+            try c.encode(value, forKey: .value)
         case .sessionList(let id):
             try c.encode("session.list", forKey: .type)
             try c.encode(id, forKey: .id)

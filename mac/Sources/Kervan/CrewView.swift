@@ -202,7 +202,7 @@ private struct MemberPanel: View {
                                 .foregroundStyle(.secondary)
                         }
                         ForEach(items) { item in
-                            TranscriptRow(item: item, agentName: agentName, senderName: name) { requestId, choice in
+                            TranscriptRow(item: item, agentName: agentName, senderName: name, terminal: store.isTerminal(session.id)) { requestId, choice in
                                 Task { await store.respond(session.id, requestId: requestId, optionId: choice.optionId) }
                             }
                             .font(.callout)

@@ -200,11 +200,23 @@ describe("sessions", () => {
     assert.equal(history.events.at(-1).kind, "turn_end");
   });
 
-  it("marks the session as errored when the agent crashes", async () => {
+  it("restarts a crashed agent where it left off on the next message", async () => {
     const { ws, inbox } = await client();
     const sessionId = await idleSession(ws, inbox);
+    send(ws, { type: "session.prompt", id: nextId(), sessionId, text: "whoami" });
+    const before = await inbox.waitFor((m) => m.type === "session.event" && m.sessionId === sessionId && m.event.kind === "agent_message_chunk");
+
     send(ws, { type: "session.prompt", id: nextId(), sessionId, text: "crash" });
-    await inbox.waitFor((m) => m.type === "session.updated" && m.session.id === sessionId && m.session.status === "error");
+    await inbox.waitFor(
+      (m) => m.type === "session.event" && m.sessionId === sessionId && m.event.kind === "notice" && /yeniden başlatılacak/.test(m.event.text),
+    );
+    await inbox.waitFor((m) => m.type === "session.updated" && m.session.id === sessionId && m.session.status === "idle");
+
+    send(ws, { type: "session.prompt", id: nextId(), sessionId, text: "whoami" });
+    const after = await inbox.waitFor(
+      (m) => m.type === "session.event" && m.sessionId === sessionId && m.event.kind === "agent_message_chunk" && m.event.seq > before.event.seq,
+    );
+    assert.equal(after.event.text, before.event.text, "the same agent conversation, resumed");
   });
 
   it("reports unknown sessions", async () => {

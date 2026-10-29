@@ -23,6 +23,13 @@ const runner = new LocalAcpRunner();
 const catalog = new AgentCatalog(join(dataDir, "agents.json"), new Map([
     ["claude", { ...fakeAgent, name: "Claude (sahte)" }],
     ["codex", { ...fakeAgent, name: "Codex (sahte)" }],
+    ["terminal", {
+      name: "Terminal (sahte)",
+      command: process.execPath,
+      args: [join(import.meta.dirname, "../test/fixtures/fake-terminal.ts")],
+      protocol: "pty" as const,
+      quietMs: 600,
+    }],
 ]), (definition) => probeAgent(runner, definition));
 const roles = new RoleRegistry(join(dataDir, "roles.json"), {
   hasAgent: (id) => catalog.live.has(id),
