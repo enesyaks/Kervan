@@ -64,10 +64,15 @@ public final class SessionStore {
         await request(.teamList(id: Self.newID()))
     }
 
-    public func create(agent: String, skills: [String] = [], mcpServers: [String] = []) async {
+    public func create(agent: String, skills: [String] = [], mcpServers: [String] = [], orchestrate: Bool = false) async {
         let id = Self.newID()
         pendingCreates.insert(id)
-        await request(.sessionCreate(id: id, agent: agent, skills: skills, mcpServers: mcpServers))
+        await request(.sessionCreate(id: id, agent: agent, skills: skills, mcpServers: mcpServers, orchestrate: orchestrate))
+    }
+
+    /// The helpers a lead agent started, oldest first.
+    public func helpers(of leadID: String) -> [SessionInfo] {
+        sessions.filter { $0.parentId == leadID }.sorted { $0.createdAt < $1.createdAt }
     }
 
     public func saveRole(_ role: Role) async {
@@ -245,7 +250,7 @@ public final class SessionStore {
     /// The server's error codes in the app's language; unknown codes keep the server's text.
     static func describe(code: String, message: String) -> String {
         switch code {
-        case "session_busy": "Claude hâlâ önceki mesajı yanıtlıyor."
+        case "session_busy": "Ajan hâlâ önceki mesajı yanıtlıyor."
         case "session_unavailable": "Bu oturum şu anda mesaj kabul etmiyor."
         case "unknown_session": "Oturum sunucuda bulunamadı."
         case "unknown_agent": "Bu ajan sunucuda kurulu değil."

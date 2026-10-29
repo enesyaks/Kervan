@@ -98,6 +98,7 @@ final class AppModel {
 
     static let lastSkillsKey = "lastSkills"
     static let lastMcpKey = "lastMcpServers"
+    static let lastOrchestrateKey = "lastOrchestrate"
 
     /// Set to an agent id to show the new-session sheet with that agent picked.
     var newSessionAgent: String?
@@ -108,11 +109,12 @@ final class AppModel {
         newSessionAgent = agent
     }
 
-    func startSession(agent: String, skills: [String], mcpServers: [String]) {
+    func startSession(agent: String, skills: [String], mcpServers: [String], orchestrate: Bool = false) {
         lastAgentID = agent
         UserDefaults.standard.set(skills, forKey: Self.lastSkillsKey)
         UserDefaults.standard.set(mcpServers, forKey: Self.lastMcpKey)
-        Task { await store.create(agent: agent, skills: skills, mcpServers: mcpServers) }
+        UserDefaults.standard.set(orchestrate, forKey: Self.lastOrchestrateKey)
+        Task { await store.create(agent: agent, skills: skills, mcpServers: mcpServers, orchestrate: orchestrate) }
     }
 
     private func restoreToken() async {

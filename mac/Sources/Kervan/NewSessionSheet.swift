@@ -8,6 +8,7 @@ struct NewSessionSheet: View {
     @State private var agent: String
     @State private var skills: Set<String>
     @State private var mcpServers: Set<String>
+    @State private var orchestrate: Bool
     @State private var available: [SkillInfo]?
     @State private var loadError: String?
 
@@ -15,6 +16,7 @@ struct NewSessionSheet: View {
         _agent = State(initialValue: agent)
         _skills = State(initialValue: Set(UserDefaults.standard.stringArray(forKey: AppModel.lastSkillsKey) ?? []))
         _mcpServers = State(initialValue: Set(UserDefaults.standard.stringArray(forKey: AppModel.lastMcpKey) ?? []))
+        _orchestrate = State(initialValue: UserDefaults.standard.bool(forKey: AppModel.lastOrchestrateKey))
     }
 
     var body: some View {
@@ -22,8 +24,14 @@ struct NewSessionSheet: View {
 
         VStack(alignment: .leading, spacing: 0) {
             Form {
-                Picker("Ajan", selection: $agent) {
-                    ForEach(model.store.agents) { Text($0.name).tag($0.id) }
+                Section {
+                    Picker("Ajan", selection: $agent) {
+                        ForEach(model.store.agents) { Text($0.name).tag($0.id) }
+                    }
+                    Toggle(isOn: $orchestrate) {
+                        Text("Yardımcı ajan başlatabilsin")
+                        Text("Alt görevleri başka ajanlara verir; yardımcılar aynı klasörde çalışır ve kenar çubuğunda bu oturumun altında görünür.")
+                    }
                 }
 
                 Section("Skill'ler") {
@@ -72,7 +80,8 @@ struct NewSessionSheet: View {
                     model.startSession(
                         agent: agent,
                         skills: skills.filter(names.contains).sorted(),
-                        mcpServers: mcpServers.filter { name in servers.contains { $0.name == name } }.sorted()
+                        mcpServers: mcpServers.filter { name in servers.contains { $0.name == name } }.sorted(),
+                        orchestrate: orchestrate
                     )
                     dismiss()
                 }
@@ -82,7 +91,7 @@ struct NewSessionSheet: View {
             }
             .padding(16)
         }
-        .frame(width: 460, height: 520)
+        .frame(width: 460, height: 560)
         .navigationTitle("Yeni oturum")
         .task { await loadSkills() }
     }

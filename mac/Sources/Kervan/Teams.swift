@@ -16,9 +16,11 @@ struct TeamsSection: View {
             }
             ForEach(store.teams) { team in
                 DisclosureGroup {
-                    ForEach(team.sessionIds, id: \.self) { id in
-                        if let session = store.session(id) {
-                            MemberRow(session: session).tag(id)
+                    // Helpers a lead started join its team; they're listed under that lead.
+                    ForEach(team.sessionIds.compactMap(store.session).filter { $0.parentId == nil }) { session in
+                        MemberRow(session: session).tag(session.id)
+                        ForEach(store.helpers(of: session.id)) { helper in
+                            HelperRow(session: helper).tag(helper.id)
                         }
                     }
                 } label: {
@@ -37,13 +39,47 @@ private struct MemberRow: View {
         HStack(spacing: 8) {
             Circle().fill(session.status.tint).frame(width: 7, height: 7)
             VStack(alignment: .leading, spacing: 1) {
-                Text(session.role ?? session.title).lineLimit(1)
+                HStack(spacing: 4) {
+                    Text(session.role ?? session.title).lineLimit(1)
+                    if session.orchestrate {
+                        Image(systemName: "flag.fill")
+                            .font(.caption2)
+                            .foregroundStyle(Color.kervanSaffron)
+                            .help("Ana ajan: yardımcı başlatabilir")
+                            .accessibilityLabel("ana ajan")
+                    }
+                }
                 Text("\(model.store.agentName(session.agent)), \(session.status.label.lowercased())")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// A helper under the lead that started it, in the sidebar.
+struct HelperRow: View {
+    let session: SessionInfo
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: "arrow.turn.down.right")
+                .font(.caption)
+                .foregroundStyle(Color.kervanSaffron)
+            Circle().fill(session.status.tint).frame(width: 6, height: 6)
+                .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
+            VStack(alignment: .leading, spacing: 1) {
+                Text(session.title).lineLimit(1)
+                Text("\(model.store.agentName(session.agent)), \(session.status.label.lowercased())")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.leading, 12)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Yardımcı \(session.title), \(model.store.agentName(session.agent)), \(session.status.label.lowercased())")
     }
 }
 
@@ -178,6 +214,10 @@ private struct RoleEditor: View {
                 TextField("Ad", text: $role.name, prompt: Text("Kod inceleyici"))
                 Picker("Ajan", selection: $role.agent) {
                     ForEach(model.store.agents) { Text($0.name).tag($0.id) }
+                }
+                Toggle(isOn: $role.lead) {
+                    Text("Ana ajan")
+                    Text("Takımda yardımcı ajan başlatıp onlara görev verebilir.")
                 }
                 Section("Talimat") {
                     TextEditor(text: $role.instructions)

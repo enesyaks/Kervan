@@ -25,11 +25,16 @@ struct ChatView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 16) {
+                        if let leadID = session?.parentId {
+                            LeadLink(leadTitle: model.store.session(leadID)?.title ?? "Ana ajan") {
+                                model.selectedSessionID = leadID
+                            }
+                        }
                         if items.isEmpty {
                             EmptySession(status: status, agentName: agentName)
                         }
                         ForEach(items) { item in
-                            TranscriptRow(item: item, agentName: agentName) { requestId, choice in
+                            TranscriptRow(item: item, agentName: agentName, senderName: senderName) { requestId, choice in
                                 Task { await model.store.respond(sessionID, requestId: requestId, optionId: choice.optionId) }
                             }
                             .padding(highlighted == item.id ? 6 : 0)
@@ -127,6 +132,11 @@ struct ChatView: View {
 
     private static let bottom = "bottom"
 
+    /// Who wrote a message the user didn't: the lead agent's session title.
+    private func senderName(_ sessionID: String) -> String {
+        model.store.session(sessionID)?.title ?? "Ana ajan"
+    }
+
     /// Changes whenever the transcript grows, including chunks appended to the last message.
     private static func scrollKey(_ items: [TranscriptItem], _ status: SessionStatus) -> String {
         let tail: Int = switch items.last {
@@ -202,15 +212,37 @@ private struct EmptySession: View {
     }
 }
 
+/// Top of a helper's chat: who started it, and the way back.
+private struct LeadLink: View {
+    let leadTitle: String
+    let open: () -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "arrow.turn.down.right").foregroundStyle(Color.kervanSaffron)
+            Text("Bu yardımcıyı \(leadTitle) başlattı.").foregroundStyle(.secondary)
+            Button("Ana ajana git", action: open).buttonStyle(.link)
+        }
+        .font(.callout)
+    }
+}
+
 private struct TranscriptRow: View {
     let item: TranscriptItem
     let agentName: String
+    let senderName: (String) -> String
     let respond: (String, PermissionChoice) -> Void
 
     var body: some View {
         switch item {
-        case .user(_, let text, let attached):
+        case .user(_, let text, let attached, let from):
+            let accent = from == nil ? Color.kervanLapis : Color.kervanSaffron
             VStack(alignment: .leading, spacing: 8) {
+                if let from {
+                    Label(senderName(from), systemImage: "flag.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Color.kervanSaffron)
+                }
                 Text(text).textSelection(.enabled)
                 if !attached.isEmpty {
                     FlowChips(names: attached.map { $0.split(separator: "/").last.map(String.init) ?? $0 })
@@ -219,13 +251,14 @@ private struct TranscriptRow: View {
                 .padding(.vertical, 8)
                 .padding(.horizontal, 12)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.kervanLapis.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
+                .background(accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
                 .overlay(alignment: .leading) {
                     UnevenRoundedRectangle(topLeadingRadius: 8, bottomLeadingRadius: 8)
-                        .fill(Color.kervanLapis)
+                        .fill(accent)
                         .frame(width: 3)
                 }
-                .accessibilityLabel("Siz: \(text)")
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(from.map { "Ana ajan \(senderName($0)): \(text)" } ?? "Siz: \(text)")
 
         case .agent(_, let text):
             Text(Self.markdown(text))

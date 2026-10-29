@@ -192,7 +192,7 @@ import Testing
     @Test func selectsOnlySessionsItCreated() async {
         let (store, outbox) = makeStore()
         await store.create(agent: "claude")
-        guard case .sessionCreate(let requestID, "claude", _, _)? = outbox.sent.last else {
+        guard case .sessionCreate(let requestID, "claude", _, _, false)? = outbox.sent.last else {
             Issue.record("expected a session.create")
             return
         }
@@ -206,7 +206,7 @@ import Testing
     @Test func surfacesRequestErrors() {
         let (store, _) = makeStore()
         store.handle(.error(code: "session_busy", message: "the agent is still answering", id: "r9"))
-        #expect(store.lastError == "Claude hâlâ önceki mesajı yanıtlıyor.")
+        #expect(store.lastError == "Ajan hâlâ önceki mesajı yanıtlıyor.")
     }
 }
 
@@ -454,5 +454,41 @@ import Testing
         #expect([info.teamId, info.role] == ["t", "Yazar"])
         let roles = try ServerMessage.decode(#"{"type":"role.list.result","id":"r","roles":[{"id":"yazar","name":"Yazar","agent":"claude","instructions":"Yaz.","skills":[],"mcpServers":[]}]}"#)
         #expect(roles == .roleListResult(id: "r", roles: [Role(id: "yazar", name: "Yazar", agent: "claude", instructions: "Yaz.")]))
+    }
+}
+
+@MainActor @Suite struct HelperTests {
+    @Test func asksForTheOrchestrationToolsOnlyWhenWanted() throws {
+        #expect(try ClientMessage.sessionCreate(id: "r", agent: "claude").jsonString() == #"{"agent":"claude","id":"r","type":"session.create"}"#)
+        #expect(
+            try ClientMessage.sessionCreate(id: "r", agent: "claude", orchestrate: true).jsonString()
+                == #"{"agent":"claude","id":"r","orchestrate":true,"type":"session.create"}"#
+        )
+    }
+
+    @Test func listsHelpersUnderTheirLeadOldestFirst() {
+        let store = SessionStore { _ in }
+        let lead = SessionInfo(id: "lead", agent: "claude", title: "Şef", status: .running, createdAt: "1", orchestrate: true)
+        store.handle(.sessionUpdated(lead))
+        store.handle(.sessionUpdated(SessionInfo(id: "h2", agent: "codex", title: "B", status: .idle, createdAt: "3", parentId: "lead")))
+        store.handle(.sessionUpdated(SessionInfo(id: "h1", agent: "codex", title: "A", status: .idle, createdAt: "2", parentId: "lead")))
+        #expect(store.helpers(of: "lead").map(\.id) == ["h1", "h2"])
+        #expect(store.helpers(of: "h1").isEmpty)
+    }
+
+    @Test func marksMessagesFromTheLead() throws {
+        let message = try ServerMessage.decode(#"{"type":"session.event","sessionId":"h","event":{"seq":1,"kind":"user_message","text":"testleri yaz","from":"lead"}}"#)
+        guard case .sessionEvent(_, let event) = message else { Issue.record("expected event"); return }
+        #expect(Transcript.build([event]) == [.user(id: 1, text: "testleri yaz", from: "lead")])
+    }
+
+    @Test func decodesHelperFieldsAndLeadRoles() throws {
+        let updated = try ServerMessage.decode(#"{"type":"session.updated","session":{"id":"h","agent":"codex","title":"A","status":"idle","createdAt":"c","archived":false,"parentId":"lead"}}"#)
+        guard case .sessionUpdated(let info) = updated else { Issue.record("expected session.updated"); return }
+        #expect(info.parentId == "lead")
+        #expect(info.orchestrate == false)
+        let role = try JSONDecoder().decode(Role.self, from: Data(#"{"id":"sef","name":"Şef","agent":"claude","instructions":"","skills":[],"mcpServers":[],"lead":true}"#.utf8))
+        #expect(role.lead)
+        #expect(try JSONDecoder().decode(Role.self, from: Data(#"{"id":"x","name":"X","agent":"claude"}"#.utf8)).lead == false)
     }
 }

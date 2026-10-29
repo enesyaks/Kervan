@@ -51,8 +51,11 @@ private struct SidebarView: View {
     var body: some View {
         @Bindable var model = model
         let store = model.store
-        // Team members are listed under their team, not on their own.
-        let (groups, archived) = SessionGroups.group(store.sessions.filter { $0.teamId == nil }, lastActivity: { store.lastActivity($0.id) })
+        // Team members are listed under their team, helpers under their lead, not on their own.
+        let (groups, archived) = SessionGroups.group(
+            store.sessions.filter { $0.teamId == nil && $0.parentId == nil },
+            lastActivity: { store.lastActivity($0.id) }
+        )
         let searching = !query.trimmingCharacters(in: .whitespaces).isEmpty
 
         List(selection: $model.selectedSessionID) {
@@ -68,6 +71,9 @@ private struct SidebarView: View {
                     Section(group.title) {
                         ForEach(group.sessions) { session in
                             SessionRow(session: session).tag(session.id).contextMenu { menu(for: session) }
+                            ForEach(store.helpers(of: session.id)) { helper in
+                                HelperRow(session: helper).tag(helper.id).contextMenu { menu(for: helper) }
+                            }
                         }
                     }
                 }
@@ -196,8 +202,17 @@ private struct SessionRow: View {
                 .frame(width: 7, height: 7)
                 .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
             VStack(alignment: .leading, spacing: 2) {
-                Text(session.title)
-                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    Text(session.title)
+                        .lineLimit(1)
+                    if session.orchestrate {
+                        Image(systemName: "flag.fill")
+                            .font(.caption2)
+                            .foregroundStyle(Color.kervanSaffron)
+                            .help("Ana ajan: yardımcı başlatabilir")
+                            .accessibilityLabel("ana ajan")
+                    }
+                }
                 Text("\(agentName), \(session.status.label.lowercased())")
                     .font(.caption)
                     .foregroundStyle(.secondary)
