@@ -1,0 +1,23 @@
+[Unit]
+Description=Kervan gateway
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kervan
+Group=kervan
+WorkingDirectory=/opt/kervan/server
+EnvironmentFile=/etc/kervan/env
+ExecStart=/usr/bin/node src/main.ts
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=10
+# Hardening. /home/kervan stays writable because agent CLIs keep their login state there.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/kervan /srv/kervan /home/kervan
+
+[Install]
+WantedBy=multi-user.target
