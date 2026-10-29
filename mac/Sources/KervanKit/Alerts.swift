@@ -28,7 +28,7 @@ public struct SessionAlert: Equatable, Sendable {
         case .waiting:
             let request = events.last { if case .permissionRequest = $0.body { true } else { false } }
             guard case .permissionRequest(_, let title, _, _, _)? = request?.body else { return nil }
-            return SessionAlert(sessionID: session.id, kind: .waiting, title: "Onay bekliyor: \(session.title)", body: "\(agentName) şunu yapmak istiyor: \(title)")
+            return SessionAlert(sessionID: session.id, kind: .waiting, title: "Onayınızı bekliyor: \(session.title)", body: "\(agentName) şunu yapmak istiyor: \(title)")
         case .idle where previous == .running || previous == .waiting:
             // A helper answers its lead, who reads the reply; the user hears from the lead.
             guard session.parentId == nil else { return nil }

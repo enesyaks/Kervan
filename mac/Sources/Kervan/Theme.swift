@@ -5,9 +5,12 @@ import SwiftUI
 // Lapis, saffron and oasis: the route a caravan takes. Each has a lighter dark-mode variant
 // so the line keeps its contrast on dark window backgrounds.
 extension Color {
-    static let kervanLapis = Color(light: 0x2F5D8A, dark: 0x6F9BD1)
-    static let kervanSaffron = Color(light: 0xC98A1E, dark: 0xE8B65A)
-    static let kervanOasis = Color(light: 0x2F7D5B, dark: 0x5DB38C)
+    // Calm by design: blue for trust, sage for "all is well", honey for "your turn", never alarm red.
+    static let kervanLapis = Color(light: 0x4A6FA5, dark: 0x8AAEDB)
+    static let kervanSaffron = Color(light: 0xC9953A, dark: 0xE6BE6E)
+    static let kervanOasis = Color(light: 0x5E9C7E, dark: 0x7FC0A0)
+    /// Problems in a soft coral: noticeable, not frightening.
+    static let kervanCoral = Color(light: 0xD27466, dark: 0xE8968A)
 
     init(light: UInt32, dark: UInt32) {
         self.init(nsColor: NSColor(name: nil) { appearance in
@@ -35,7 +38,7 @@ extension ConnectionState {
         case .disconnected: .secondary
         case .connecting, .retrying: .kervanSaffron
         case .connected: .kervanOasis
-        case .failed: .red
+        case .failed: .kervanCoral
         }
     }
 
@@ -72,18 +75,18 @@ extension SessionStatus {
         switch self {
         case .starting, .running, .waiting: .kervanSaffron
         case .idle: .kervanOasis
-        case .error: .red
+        case .error: .kervanCoral
         case .closed, .unknown: .secondary
         }
     }
 
     var label: String {
         switch self {
-        case .starting: "Başlatılıyor"
+        case .starting: "Hazırlanıyor"
         case .idle: "Hazır"
-        case .running: "Yanıtlıyor"
-        case .waiting: "Onay bekliyor"
-        case .error: "Sona erdi"
+        case .running: "Çalışıyor"
+        case .waiting: "Onayınızı bekliyor"
+        case .error: "Durdu"
         case .closed: "Kapandı"
         case .unknown: "Bilinmiyor"
         }
@@ -133,7 +136,9 @@ extension SessionStore {
 
 extension Color {
     /// The window's floor: a night-blue tint (mist by day) instead of neutral gray, taken from the icon.
-    static let kervanCanvas = Color(light: 0xF3F6FA, dark: 0x111925)
+    static let kervanCanvas = Color(light: 0xF4F6F9, dark: 0x131B27)
+    /// The sidebar, a shade off the canvas so the two read as one calm room.
+    static let kervanSidebar = Color(light: 0xECF0F5, dark: 0x0F1620)
     /// One step up from the canvas: cards, bubbles, the composer.
     static let kervanSurface = Color(light: 0xFFFFFF, dark: 0x1A2433)
     /// Recessed inside a surface: code, tool rows, chips.
@@ -255,4 +260,9 @@ extension View {
         frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(Color.kervanCanvas)
     }
+}
+
+extension ShapeStyle where Self == Color {
+    /// Lets `.foregroundStyle(.kervanCoral)` read like the system colors it replaced.
+    static var kervanCoral: Color { Color.kervanCoral }
 }

@@ -206,7 +206,7 @@ import Testing
     @Test func surfacesRequestErrors() {
         let (store, _) = makeStore()
         store.handle(.error(code: "session_busy", message: "the agent is still answering", id: "r9"))
-        #expect(store.lastError == "Ajan hâlâ önceki mesajı yanıtlıyor.")
+        #expect(store.lastError == "Ajan hâlâ önceki mesajınız üzerinde çalışıyor; bitince yazabilirsiniz.")
     }
 }
 
@@ -574,7 +574,7 @@ import Testing
 
     @Test func asksForApprovalsAndEndedTurnsAndErrors() {
         let waiting = SessionAlert.on(info(.waiting), from: .running, events: [ask], agentName: "Claude Code")
-        #expect(waiting == SessionAlert(sessionID: "s", kind: .waiting, title: "Onay bekliyor: Sürüm", body: "Claude Code şunu yapmak istiyor: Run npm test"))
+        #expect(waiting == SessionAlert(sessionID: "s", kind: .waiting, title: "Onayınızı bekliyor: Sürüm", body: "Claude Code şunu yapmak istiyor: Run npm test"))
         #expect(SessionAlert.on(info(.idle), from: .running, events: reply, agentName: "Claude Code")?.body == "Bitti, testler geçti.")
         #expect(SessionAlert.on(info(.error, error: "agent exited"), from: .running, events: [], agentName: "x")?.kind == .failed)
     }

@@ -19,10 +19,12 @@ struct OverviewView: View {
                         .frame(width: 96, height: 96)
                         .shadow(color: .black.opacity(0.18), radius: 16, y: 8)
                         .accessibilityHidden(true)
-                    Text(state.isConnected ? "\(host) sunucusuna bağlısınız" : "\(host) sunucusuna yeniden bağlanılıyor…")
-                        .font(.title2.weight(.semibold))
-                        .multilineTextAlignment(.center)
-                    Text("Oturumlar sunucuda çalışır. Mac uyusa da kapansa da devam eder; tekrar bağlandığınızda kaldığı yerden görürsünüz.")
+                    Text(Self.greeting())
+                        .font(.system(size: 28, weight: .semibold, design: .rounded))
+                    Text(state.isConnected ? "\(host) sunucusuna bağlısınız" : "\(host) sunucusuna yeniden bağlanıyoruz…")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                    Text("Ajanlarınız sunucuda çalışır. Mac uyusa da kapansa da işleriniz sürer; döndüğünüzde kaldığınız yerden devam edersiniz.")
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
@@ -71,6 +73,16 @@ struct OverviewView: View {
             .frame(maxWidth: .infinity)
         }
         .background(Color.kervanCanvas)
+    }
+
+    /// A small human touch: the greeting follows the time of day.
+    static func greeting(at date: Date = Date()) -> String {
+        switch Calendar.current.component(.hour, from: date) {
+        case 5..<12: "Günaydın"
+        case 12..<18: "İyi günler"
+        case 18..<23: "İyi akşamlar"
+        default: "İyi geceler"
+        }
     }
 
     private var latencyText: String {

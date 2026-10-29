@@ -45,7 +45,7 @@ struct AttachmentChip: View {
             case .ready:
                 Image(systemName: "doc").foregroundStyle(.secondary)
             case .failed:
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.kervanCoral)
             }
             Text(attachment.name)
                 .lineLimit(1)
@@ -135,7 +135,7 @@ struct FilesPanel: View {
             if let error {
                 Label(error, systemImage: "exclamationmark.triangle")
                     .font(.callout)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(.kervanCoral)
                     .padding(12)
             } else if let listing, listing.entries.isEmpty {
                 Text("Klasör boş. Sohbete dosya sürükleyin ya da ajandan bir şey üretmesini isteyin.")

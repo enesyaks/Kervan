@@ -127,7 +127,7 @@ private struct SkillsSettings: View {
 
             HStack {
                 if let error {
-                    Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.red).font(.callout)
+                    Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.kervanCoral).font(.callout)
                 }
                 Spacer()
                 if busy { ProgressView().controlSize(.small) }
@@ -400,7 +400,7 @@ private struct AgentsSettings: View {
                                     Text("yerleşik").font(.caption2).foregroundStyle(.secondary)
                                 }
                                 if !agent.available {
-                                    Text("çalışmıyor").font(.caption2).foregroundStyle(.red)
+                                    Text("çalışmıyor").font(.caption2).foregroundStyle(.kervanCoral)
                                 }
                             }
                             Text(([agent.command] + agent.args).joined(separator: " "))
@@ -599,7 +599,7 @@ private struct AgentEditor: View {
                     Text("Ajan sunucuda deneniyor…").foregroundStyle(.secondary)
                 } else if let error = model.store.agentSaveError {
                     Label(error, systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.red)
+                        .foregroundStyle(.kervanCoral)
                         .lineLimit(3)
                         .font(.callout)
                 }

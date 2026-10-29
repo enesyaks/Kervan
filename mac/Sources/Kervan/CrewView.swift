@@ -176,7 +176,7 @@ private struct FlowStop: View {
         case .assigned, .waiting: .kervanSaffron
         case .userWrote: .kervanLapis
         case .replied: .kervanOasis
-        case .failed: .red
+        case .failed: .kervanCoral
         }
     }
 }
@@ -222,7 +222,7 @@ private struct MemberPanel: View {
                         if session.status == .running {
                             HStack(spacing: 6) {
                                 CaravanDots()
-                                Text("yanıtlıyor…").font(.callout).foregroundStyle(.secondary)
+                                Text("çalışıyor…").font(.callout).foregroundStyle(.secondary)
                             }
                         }
                         Color.clear.frame(height: 1).id("bottom")

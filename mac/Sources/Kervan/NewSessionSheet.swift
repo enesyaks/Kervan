@@ -49,7 +49,7 @@ struct NewSessionSheet: View {
                             }
                         }
                     } else if let loadError {
-                        Label(loadError, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
+                        Label(loadError, systemImage: "exclamationmark.triangle").foregroundStyle(.kervanCoral)
                     } else {
                         ProgressView().controlSize(.small)
                     }

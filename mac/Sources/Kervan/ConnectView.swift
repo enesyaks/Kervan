@@ -17,9 +17,9 @@ struct ConnectView: View {
                     .frame(maxWidth: 460)
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Sunucuya bağlanın")
-                        .font(.title2.weight(.semibold))
-                    Text("Ajanlar kendi sunucunuzda çalışır. Kervan ona Tailscale üzerinden bağlanır; Mac kapansa da işler sunucuda sürer.")
+                    Text("Hoş geldiniz")
+                        .font(.system(size: 28, weight: .semibold, design: .rounded))
+                    Text("Kervan'ı kendi sunucunuza bağlayalım. Ajanlarınız orada çalışır; Mac kapansa da işleriniz sürer.")
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -116,14 +116,14 @@ private struct StatusMessage: View {
             }
         case .failed(let failure):
             Label(Self.text(for: failure), systemImage: "exclamationmark.triangle.fill")
-                .foregroundStyle(.red)
+                .foregroundStyle(.kervanCoral)
         }
     }
 
     private static func text(for failure: ConnectionFailure) -> String {
         switch failure {
         case .unauthorized:
-            "Sunucu bu anahtarı kabul etmedi. Sunucudaki değerle karşılaştırıp yeniden girin."
+            "Sunucu bu anahtarı tanımadı. Sunucudaki değerle karşılaştırıp yeniden girmeyi deneyin."
         case .unsupportedProtocol:
             "Sunucu ile uygulama farklı protokol sürümleri kullanıyor. İkisini de güncelleyin."
         case .unreachable(let reason):

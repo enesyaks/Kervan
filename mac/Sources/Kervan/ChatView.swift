@@ -19,7 +19,7 @@ struct ChatView: View {
 
         VStack(spacing: 0) {
             if !model.connection.state.isConnected {
-                Banner(text: "Sunucuyla bağlantı koptu. Yeniden bağlanılıyor…", systemImage: "wifi.exclamationmark", tint: .kervanSaffron)
+                Banner(text: "Bağlantı bir anlığına koptu; arka planda yeniden bağlanıyoruz. İşleriniz sunucuda sürüyor.", systemImage: "wifi.exclamationmark", tint: .kervanSaffron)
             }
 
             ScrollViewReader { proxy in
@@ -60,11 +60,11 @@ struct ChatView: View {
                         if status == .running {
                             HStack(spacing: 8) {
                                 CaravanDots()
-                                Text("\(agentName) yanıtlıyor…").foregroundStyle(.secondary)
+                                Text("\(agentName) üzerinde çalışıyor…").foregroundStyle(.secondary)
                             }
                         }
                         if status == .error {
-                            Banner(text: "Bu oturum sona erdi. Devam etmek için yeni bir oturum başlatın.", systemImage: "xmark.octagon", tint: .red)
+                            Banner(text: "Bu oturumun ajanı durdu. Yeni bir oturum açarak kaldığınız yerden devam edebilirsiniz.", systemImage: "pause.circle", tint: .kervanCoral)
                         }
                         Color.clear.frame(height: 1).id(Self.bottom)
                     }
@@ -102,7 +102,7 @@ struct ChatView: View {
             }
 
             if let error = model.store.lastError {
-                Banner(text: error, systemImage: "exclamationmark.triangle", tint: .red) {
+                Banner(text: error, systemImage: "exclamationmark.triangle", tint: .kervanCoral) {
                     model.store.lastError = nil
                 }
             }
@@ -229,10 +229,10 @@ private struct EmptySession: View {
         case .starting:
             HStack(spacing: 8) {
                 CaravanDots()
-                Text("\(agentName) başlatılıyor…").foregroundStyle(.secondary)
+                Text("\(agentName) hazırlanıyor…").foregroundStyle(.secondary)
             }
         case .idle:
-            Text("Oturum hazır: \(agentName). Ne yapılmasını istediğinizi yazın.")
+            Text("\(agentName) hazır. Aklınızdakini yazın; birlikte başlayalım.")
                 .foregroundStyle(.secondary)
         default:
             EmptyView()
@@ -299,8 +299,9 @@ struct TranscriptRow: View {
                             .foregroundStyle(Color.kervanSaffron)
                     }
                     Text(text)
+                        .font(.system(size: 14, design: .rounded))
                         .textSelection(.enabled)
-                        .lineSpacing(2)
+                        .lineSpacing(3)
                     if !attached.isEmpty {
                         FlowChips(names: attached.map { $0.split(separator: "/").last.map(String.init) ?? $0 })
                     }
@@ -323,8 +324,9 @@ struct TranscriptRow: View {
 
         case .agent(_, let text):
             Text(Self.markdown(text))
+                .font(.system(size: 14, design: .rounded))
                 .textSelection(.enabled)
-                .lineSpacing(4)
+                .lineSpacing(5)
                 .fixedSize(horizontal: false, vertical: true)
 
         case .thought(_, let text):
@@ -363,7 +365,7 @@ struct TranscriptRow: View {
         case .error(_, let message):
             Label(message, systemImage: "exclamationmark.triangle.fill")
                 .font(.callout)
-                .foregroundStyle(.red)
+                .foregroundStyle(.kervanCoral)
         }
     }
 
@@ -425,7 +427,7 @@ private struct ToolRow: View {
         switch status {
         case "in_progress": .kervanSaffron
         case "completed": .kervanOasis
-        case "failed": .red
+        case "failed": .kervanCoral
         default: .secondary
         }
     }
@@ -461,7 +463,7 @@ private struct PermissionCard: View {
 
     private var openCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("\(agentName) izin istiyor", systemImage: "hand.raised.fill")
+            Label("\(agentName) onayınızı bekliyor", systemImage: "hand.raised.fill")
                 .font(.headline)
                 .foregroundStyle(Color.kervanSaffron)
 
@@ -499,7 +501,7 @@ private struct PermissionCard: View {
                 .strokeBorder(Color.kervanSaffron.opacity(0.35), lineWidth: 1)
         )
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(agentName) izin istiyor: \(prompt.title)")
+        .accessibilityLabel("\(agentName) onayınızı bekliyor: \(prompt.title)")
     }
 
     private func resolvedLine(_ resolution: PermissionPrompt.Resolution) -> some View {
@@ -574,9 +576,9 @@ private struct Composer: View {
                 .help("Dosya ekle; sohbete sürükleyip bırakabilirsiniz de")
                 .accessibilityLabel("Dosya ekle")
 
-                TextField("Bir görev ya da soru yazın", text: $draft, axis: .vertical)
+                TextField("Ne yapmak istersiniz?", text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
-                    .font(.body)
+                    .font(.system(size: 14, design: .rounded))
                     .lineLimit(1...8)
                     .focused($focused)
                     .onSubmit(send)

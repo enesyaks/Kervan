@@ -53,8 +53,8 @@ struct RouteView: View {
 
         case .failed:
             let style = StrokeStyle(lineWidth: 2, lineCap: .round)
-            canvas.stroke(segment(0, 0.44), with: .color(.red.opacity(0.8)), style: style)
-            canvas.stroke(segment(0.56, 1), with: .color(.red.opacity(0.35)), style: style)
+            canvas.stroke(segment(0, 0.44), with: .color(.kervanCoral.opacity(0.8)), style: style)
+            canvas.stroke(segment(0.56, 1), with: .color(.kervanCoral.opacity(0.35)), style: style)
 
         case .connecting, .retrying:
             canvas.stroke(segment(0, 1), with: .color(.kervanSaffron.opacity(0.3)),

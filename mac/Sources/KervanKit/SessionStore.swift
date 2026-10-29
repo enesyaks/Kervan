@@ -309,9 +309,9 @@ public final class SessionStore {
     /// The server's error codes in the app's language; unknown codes keep the server's text.
     static func describe(code: String, message: String) -> String {
         switch code {
-        case "session_busy": "Ajan hâlâ önceki mesajı yanıtlıyor."
-        case "session_unavailable": "Bu oturum şu anda mesaj kabul etmiyor."
-        case "unknown_session": "Oturum sunucuda bulunamadı."
+        case "session_busy": "Ajan hâlâ önceki mesajınız üzerinde çalışıyor; bitince yazabilirsiniz."
+        case "session_unavailable": "Bu oturum şu an mesaj alamıyor."
+        case "unknown_session": "Bu oturum sunucuda bulunamadı."
         case "unknown_agent": "Bu ajan sunucuda kurulu değil."
         case "unknown_request": "Bu izin isteği artık geçerli değil."
         case "node_offline": "Ajanın çalıştığı makine (node) şu an bağlı değil. Bağlandığında oturum kaldığı yerden devam eder."

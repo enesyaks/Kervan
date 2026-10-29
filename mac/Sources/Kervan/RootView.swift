@@ -107,6 +107,8 @@ private struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
+        .background(Color.kervanSidebar)
         .searchable(text: $query, placement: .sidebar, prompt: "Konuşmalarda ara")
         .onChange(of: query) { typing = true }
         .task(id: query) {

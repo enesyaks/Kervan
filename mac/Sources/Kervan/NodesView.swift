@@ -135,7 +135,7 @@ private struct AddNodeSheet: View {
                             }
                             if let failure = installer.failure {
                                 Label(failure, systemImage: "exclamationmark.triangle")
-                                    .foregroundStyle(.red)
+                                    .foregroundStyle(.kervanCoral)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                             if !installer.output.isEmpty {
