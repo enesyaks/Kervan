@@ -104,12 +104,17 @@ export class LocalAcpRunner implements AgentRunner {
       Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
     );
 
+    const settings = new AgentSettings((options) => onConfig?.(options));
     const app = acp
       .client({ name: "kervan" })
       .onNotification("session/update", ({ params }) => {
         const update = params.update;
         if (update.sessionUpdate === "config_option_update") {
-          onConfig?.(toConfig(update.configOptions));
+          settings.native(update.configOptions);
+          return;
+        }
+        if (update.sessionUpdate === "current_mode_update") {
+          settings.modeChanged(update.currentModeId);
           return;
         }
         if (update.sessionUpdate === "usage_update") {
@@ -157,11 +162,11 @@ export class LocalAcpRunner implements AgentRunner {
         if (!init.agentCapabilities?.sessionCapabilities?.resume) throw new Error("agent cannot resume sessions");
         const resumed = await agent.request("session/resume", { sessionId: resumeSessionId, cwd, mcpServers: servers });
         sessionId = resumeSessionId;
-        if (resumed.configOptions) onConfig?.(toConfig(resumed.configOptions));
+        settings.started(resumed);
       } else {
         const created = await agent.request("session/new", { cwd, mcpServers: servers });
         sessionId = created.sessionId;
-        if (created.configOptions) onConfig?.(toConfig(created.configOptions));
+        settings.started(created);
       }
 
       return {
@@ -181,14 +186,94 @@ export class LocalAcpRunner implements AgentRunner {
           await agent.notify("session/cancel", { sessionId });
         },
         async setConfig(configId, value) {
+          if (configId === LEGACY_MODEL) {
+            await agent.request("session/set_model", { sessionId, modelId: value });
+            return settings.legacyChanged(configId, value);
+          }
+          if (configId === LEGACY_MODE) {
+            await agent.request("session/set_mode", { sessionId, modeId: value });
+            return settings.legacyChanged(configId, value);
+          }
           const { configOptions } = await agent.request("session/set_config_option", { sessionId, configId, value });
-          return toConfig(configOptions);
+          return settings.native(configOptions);
         },
       };
     } catch (error) {
       close();
       throw error;
     }
+  }
+}
+
+// Settings offered the older ACP way (Gemini CLI): `models` / `modes` on session/new and session/resume,
+// changed with session/set_model / session/set_mode. Shown like config options under these ids.
+const LEGACY_MODEL = "acp:model";
+const LEGACY_MODE = "acp:mode";
+
+interface LegacyState {
+  models?: { currentModelId: string; availableModels: { modelId: string; name: string; description?: string | null }[] } | null;
+  modes?: acp.SessionModeState | null;
+  configOptions?: acp.SessionConfigOption[] | null;
+}
+
+/**
+ * An agent's session settings, whichever way it offers them: ACP config options, or the older
+ * models/modes fields. The older ones fill in only what config options don't already cover.
+ */
+class AgentSettings {
+  private nativeOptions: ConfigOption[] = [];
+  private legacy: ConfigOption[] = [];
+  private readonly publish: (options: ConfigOption[]) => void;
+
+  constructor(publish: (options: ConfigOption[]) => void) {
+    this.publish = publish;
+  }
+
+  started(response: LegacyState): void {
+    this.nativeOptions = toConfig(response.configOptions ?? []);
+    const has = (category: string) => this.nativeOptions.some((o) => o.category === category);
+    const { models, modes } = response;
+    this.legacy = [
+      ...(models && models.availableModels.length > 0 && !has("model")
+        ? [{
+            id: LEGACY_MODEL,
+            name: "Model",
+            category: "model",
+            value: models.currentModelId,
+            choices: models.availableModels.map((m) => ({ value: m.modelId, name: m.name, ...(m.description ? { description: m.description } : {}) })),
+          }]
+        : []),
+      ...(modes && modes.availableModes.length > 0 && !has("mode")
+        ? [{
+            id: LEGACY_MODE,
+            name: "Mod",
+            category: "mode",
+            value: modes.currentModeId,
+            choices: modes.availableModes.map((m) => ({ value: m.id, name: m.name, ...(m.description ? { description: m.description } : {}) })),
+          }]
+        : []),
+    ];
+    if (this.all.length > 0) this.publish(this.all);
+  }
+
+  native(options: acp.SessionConfigOption[]): ConfigOption[] {
+    this.nativeOptions = toConfig(options);
+    this.publish(this.all);
+    return this.all;
+  }
+
+  legacyChanged(id: string, value: string): ConfigOption[] {
+    this.legacy = this.legacy.map((o) => (o.id === id ? { ...o, value } : o));
+    this.publish(this.all);
+    return this.all;
+  }
+
+  modeChanged(modeId: string): void {
+    if (this.legacy.some((o) => o.id === LEGACY_MODE)) this.legacyChanged(LEGACY_MODE, modeId);
+  }
+
+  private get all(): ConfigOption[] {
+    return [...this.nativeOptions, ...this.legacy];
   }
 }
 

@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import type WebSocket from "ws";
-import type { SessionManager } from "../src/sessions.ts";
-import { HELLO, Inbox, openSocket, opened, send, startServer } from "./helpers.ts";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { LocalAcpRunner } from "../src/runner.ts";
+import { SessionManager } from "../src/sessions.ts";
+import { EventStore } from "../src/store.ts";
+import { HELLO, Inbox, fakeAgent, openSocket, opened, send, startServer } from "./helpers.ts";
 
 describe("agent settings (model, effort, mode)", () => {
   let sessions: SessionManager;
@@ -74,5 +79,32 @@ describe("agent settings (model, effort, mode)", () => {
     await inbox.waitFor((m) => m.type === "session.event" && m.sessionId === session.id && m.event.kind === "notice");
     await inbox.waitFor((m) => m.type === "session.updated" && m.session.id === session.id && m.session.status === "idle" && inbox.received.indexOf(m) > inbox.received.findIndex((x) => x.event?.kind === "notice"));
     assert.equal(await ask(session.id, "modelcheck"), "model: smart", "the choice is put back after the restart");
+  });
+});
+
+describe("agents that offer models the older way (Gemini CLI)", () => {
+  it("shows their models and modes, and switches them", async () => {
+    const gemini = { ...fakeAgent, name: "Gemini gibi", args: [...fakeAgent.args, "--legacy"] };
+    const sessions = new SessionManager(new LocalAcpRunner(), new Map([["gemini", gemini]]), mkdtempSync(join(tmpdir(), "kervan-legacy-")), new EventStore(":memory:"));
+    const until = async (check: () => boolean) => {
+      for (let i = 0; i < 400 && !check(); i++) await new Promise((resolve) => setTimeout(resolve, 25));
+      assert.ok(check(), "timed out");
+    };
+    const reply = () => sessions.history(id).flatMap((e) => (e.kind === "agent_message_chunk" ? [e.text] : [])).at(-1);
+    const { id } = await sessions.create("gemini");
+    await until(() => sessions.list()[0].status === "idle" && sessions.list()[0].config !== undefined);
+
+    const [model, mode] = sessions.list()[0].config!;
+    assert.deepEqual([model.id, model.category, model.value, model.choices.map((c) => c.value)], ["acp:model", "model", "fast", ["fast", "smart"]]);
+    assert.deepEqual([mode.id, mode.value, mode.choices.map((c) => c.name)], ["acp:mode", "default", ["Varsayılan", "Her şeye izin ver"]]);
+
+    await sessions.setConfig(id, "acp:model", "smart");
+    await sessions.setConfig(id, "acp:mode", "yolo");
+    sessions.prompt(id, "modelcheck");
+    await until(() => reply() === "model: smart");
+    sessions.prompt(id, "modecheck");
+    await until(() => reply() === "mode: yolo");
+    assert.deepEqual(sessions.list()[0].config!.map((o) => o.value), ["smart", "yolo"]);
+    sessions.closeAll();
   });
 });

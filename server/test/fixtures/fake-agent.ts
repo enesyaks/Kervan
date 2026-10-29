@@ -12,6 +12,8 @@
 //   "askperm: <kind> <title>" → asks permission for that tool call, answers "permission: <optionId or cancelled>"
 //   "usage <usd>" → reports a usage update with that cumulative cost
 //   "modelcheck" → the model currently chosen (session setting "model": fast | smart)
+//   with --legacy, models and modes come the older way (session/new `models` and `modes`, session/set_model,
+//   session/set_mode), as Gemini CLI does, instead of config options; "modecheck" → the current mode
 //   "mcptools" → names of the tools the `kervan` MCP server offers
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
@@ -28,6 +30,24 @@ let authenticated = "none";
 let mcpNames: string[] = [];
 let mcpServers: acp.McpServer[] = [];
 let model = "fast";
+let mode = "default";
+const legacy = process.argv.includes("--legacy");
+const legacyState = () => ({
+  models: {
+    currentModelId: model,
+    availableModels: [
+      { modelId: "fast", name: "Hızlı" },
+      { modelId: "smart", name: "Akıllı", description: "Daha yavaş" },
+    ],
+  },
+  modes: {
+    currentModeId: mode,
+    availableModes: [
+      { id: "default", name: "Varsayılan" },
+      { id: "yolo", name: "Her şeye izin ver" },
+    ],
+  },
+});
 const configOptions = (): acp.SessionConfigOption[] => [
   {
     type: "select",
@@ -84,13 +104,22 @@ acp
     mcpServers = params.mcpServers;
     mcpNames = params.mcpServers.map((server) => server.name);
     current = `fake-${process.pid}`;
-    return { sessionId: current, configOptions: configOptions() };
+    return legacy ? { sessionId: current, ...legacyState() } : { sessionId: current, configOptions: configOptions() };
   })
   .onRequest("session/resume", ({ params }) => {
     mcpServers = params.mcpServers ?? [];
     mcpNames = mcpServers.map((server) => server.name);
     current = params.sessionId;
-    return { configOptions: configOptions() };
+    return legacy ? legacyState() : { configOptions: configOptions() };
+  })
+  // Not in the stable schema; Gemini CLI still answers it.
+  .onRequest("session/set_model", { parse: (value: unknown) => value as { modelId: string } }, ({ params }) => {
+    model = params.modelId;
+    return {};
+  })
+  .onRequest("session/set_mode", ({ params }) => {
+    mode = params.modeId;
+    return {};
   })
   .onRequest("session/set_config_option", ({ params }) => {
     if (params.configId === "model" && typeof params.value === "string") model = params.value;
@@ -104,6 +133,10 @@ acp
     if (text.includes("crash")) process.exit(1);
     if (text.includes("mcpcheck")) {
       await update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `mcp: ${mcpNames.join(",")}` } });
+      return { stopReason: "end_turn" };
+    }
+    if (text.includes("modecheck")) {
+      await update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `mode: ${mode}` } });
       return { stopReason: "end_turn" };
     }
     if (text.includes("modelcheck")) {
