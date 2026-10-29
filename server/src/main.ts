@@ -20,17 +20,15 @@ const skills = new SkillLibrary(join(config.dataDir, "skills"));
 const mcp = new McpRegistry(join(config.dataDir, "mcp.json"));
 // Agents assigned to another machine run on its kervan-node; the rest here.
 let sessions: SessionManager;
-const nodes = config.nodeToken
-  ? new NodeHub(join(config.dataDir, "nodes.json"), () => {
-      sessions?.nodesChanged();
-    })
-  : undefined;
-const runner = nodes ? nodes.runner(new LocalAcpRunner()) : new LocalAcpRunner();
+const nodes = new NodeHub(join(config.dataDir, "nodes.json"), () => {
+  sessions?.nodesChanged();
+});
+const runner = nodes.runner(new LocalAcpRunner());
 const catalog = new AgentCatalog(
   join(config.dataDir, "agents.json"),
   loadAgents(config.agentsFile),
   (definition) => probeAgent(runner, definition),
-  nodes ? () => nodes.names() : undefined,
+  () => nodes.names(),
 );
 const roles = new RoleRegistry(join(config.dataDir, "roles.json"), {
   hasAgent: (id) => catalog.live.has(id),
@@ -38,7 +36,7 @@ const roles = new RoleRegistry(join(config.dataDir, "roles.json"), {
   hasMcp: (name) => mcp.has(name),
 });
 sessions = new SessionManager(runner, catalog.live, config.workspacesDir, store, {
-  ...(nodes ? { nodes } : {}),
+  nodes,
   skills,
   mcp,
   catalog,
@@ -81,7 +79,7 @@ function shutdown(signal: string): void {
   log("info", "shutting down", { signal });
   sessions.closeAll();
   orchestra.close();
-  nodes?.close();
+  nodes.close();
   server.close(() => {
     store.close();
     process.exit(0);

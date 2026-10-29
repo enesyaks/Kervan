@@ -68,13 +68,17 @@ Hub (ana Kervan sunucusu) ajanları başka makinelerde de çalıştırabilir. He
 hub'a Tailscale üzerinden kendisi bağlanır (node'da açık port gerekmez) ve hub'ın verdiği ajanları kendi
 `/srv/kervan/workspaces` klasöründe başlatır. Sohbet, onaylar, model seçimi ve dosyalar uygulamada aynı görünür.
 
-Kurulum (node makinesinde, vm-setup.sh'tan sonra):
+Node ekleme uygulamadan yapılır: Ayarlar › Ajanlar › **Node ekle…** Bir ad verilir; uygulama hub'dan tek
+kullanımlık, 30 dakika geçerli bir davet alır ve iki yol sunar:
 
-1. Hub'da `/etc/kervan/env` dosyasına `KERVAN_NODE_TOKEN=<en az 16 karakter>` ekleyip `kervan`'ı yeniden başlatın.
-2. Node'da `/etc/kervan/node.env`: `KERVAN_HUB_URL=ws://kervan:7420`, aynı `KERVAN_NODE_TOKEN`, isterseniz `KERVAN_NODE_NAME=gpu`.
-3. `infra/kervan-node.service` dosyasını `/etc/systemd/system/` altına kopyalayıp `systemctl enable --now kervan-node`.
-4. Kod güncellemesi: `infra/deploy.sh ubuntu@<node> kervan-node`.
-5. Uygulamada Ayarlar › Ajanlar'da node bağlı görünür; bir ajanı düzenleyip Node alanından seçin.
+- **Komut:** `curl -fsSL 'http://kervan:7420/v1/node/install?code=…' | sudo bash` yeni makinede çalıştırılır.
+  Betik (onboarding.ts) Node.js 24'ü, Kervan kodunu (hub'dan), kervan kullanıcısını ve `kervan-node` servisini
+  kurar, daveti node'a özel bir anahtarla takas eder (`/etc/kervan/node.env`). Ubuntu/Debian, Tailscale ağında.
+- **SSH:** adres ve kullanıcı yazılır; uygulama Mac'in SSH anahtarıyla aynı komutu `sudo -n` ile çalıştırır.
+  Parola sormaz; sudo parola istiyorsa komut yoluna yönlendirir.
+
+Node bağlanınca sayfa bunu canlı gösterir. Her node'un kendi anahtarı vardır; "Kaldır" anahtarı geçersiz kılar.
+Elle kurulum için paylaşılan `KERVAN_NODE_TOKEN` hâlâ desteklenir. Kod güncellemesi: `infra/deploy.sh ubuntu@<node> kervan-node`.
 
 İlk sürümün sınırları: ana ajanlar (yardımcı başlatan) ve skill'li oturumlar hub'da çalışır; node'daki yardımcılar
 ana ajanın klasörünü göremez, kendi klasörlerinde çalışır. Node'dan inen/yüklenen dosyalar 50 MB ile sınırlı.

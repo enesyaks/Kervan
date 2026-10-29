@@ -53,6 +53,21 @@ public final class SessionStore {
     /// Machines running kervan-node for this server; empty when it has none.
     public private(set) var nodeInfos: [NodeInfo] = []
 
+    /// The invite the add-node sheet asked for: the node's name and its single-use code.
+    public private(set) var nodeInvite: (name: String, code: String, expiresAt: String)?
+    private var pendingInvite: String?
+
+    public func inviteNode(_ name: String) async {
+        nodeInvite = nil
+        let id = Self.newID()
+        pendingInvite = id
+        await request(.nodeInvite(id: id, name: name))
+    }
+
+    public func removeNode(_ name: String) async {
+        await request(.nodeRemove(id: Self.newID(), name: name))
+    }
+
     /// True when the session's agent runs in a pseudo-terminal; its answers are terminal text, not Markdown.
     public func isTerminal(_ sessionID: String) -> Bool {
         guard let session = session(sessionID) else { return false }
@@ -219,6 +234,9 @@ public final class SessionStore {
             if id == pendingAgentSave { pendingAgentSave = nil }
         case .agentsUpdated(let agents):
             self.agents = agents
+        case .nodeInvited(let id, let name, let code, let expiresAt) where id == pendingInvite:
+            pendingInvite = nil
+            nodeInvite = (name, code, expiresAt)
         case .nodeListResult(_, let nodes), .nodesUpdated(let nodes):
             nodeInfos = nodes
             // A node coming or going changes which nodes agents can be assigned to.

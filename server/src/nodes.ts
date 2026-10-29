@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import type * as acp from "@agentclientprotocol/sdk";
@@ -12,6 +12,15 @@ import type { AgentProcess, AgentRunner, PermissionDecision, PermissionRequest, 
 
 export const LOCAL_NODE = "local";
 export const NODE_NAME = /^[a-z0-9][a-z0-9-]{0,31}$/;
+/** How long an invite to add a node stays usable. */
+export const INVITE_MINUTES = 30;
+
+const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
+
+/** A node as stored: its own token is kept only as a hash. */
+interface StoredNode extends NodeInfo {
+  tokenHash?: string;
+}
 
 export interface NodeInfo {
   name: string;
@@ -39,14 +48,16 @@ interface Connection {
  */
 export class NodeHub {
   private readonly file: string;
-  private readonly known = new Map<string, NodeInfo>();
+  private readonly known = new Map<string, StoredNode>();
+  /** Single-use invite codes for adding a node, with the name it will get and when the code expires. */
+  private readonly invites = new Map<string, { name: string; expires: number }>();
   private readonly connections = new Map<string, Connection>();
   private readonly onChange: () => void;
 
   constructor(file: string, onChange: () => void = () => {}) {
     this.file = file;
     this.onChange = onChange;
-    const stored = existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as NodeInfo[]) : [];
+    const stored = existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as StoredNode[]) : [];
     for (const node of stored) this.known.set(node.name, { ...node, connected: false });
   }
 
@@ -60,7 +71,57 @@ export class NodeHub {
   }
 
   list(): NodeInfo[] {
-    return [...this.known.values()].sort((a, b) => a.name.localeCompare(b.name));
+    return [...this.known.values()]
+      .map(({ tokenHash: _secret, ...node }) => node)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /** True when `token` is the one this node got when it joined. */
+  authorize(name: string, token: string): boolean {
+    const hash = this.known.get(name)?.tokenHash;
+    return hash !== undefined && timingSafeEqual(Buffer.from(hash), Buffer.from(sha256(token)));
+  }
+
+  /**
+   * A code for adding a node named `name`: the install script carries it, and the node trades it once
+   * for a token of its own. Inviting a known name again gives that node a new token when it joins.
+   */
+  invite(name: string, now = Date.now()): { code: string; expiresAt: string } {
+    if (!NODE_NAME.test(name) || name === LOCAL_NODE) {
+      throw new KervanError("bad_message", "a node name is lowercase letters, digits or '-', and not 'local'");
+    }
+    for (const [code, invite] of this.invites) if (invite.expires < now) this.invites.delete(code);
+    const code = randomBytes(18).toString("base64url");
+    const expires = now + INVITE_MINUTES * 60_000;
+    this.invites.set(code, { name, expires });
+    return { code, expiresAt: new Date(expires).toISOString() };
+  }
+
+  /** The name an unused, unexpired invite is for; throws otherwise. Doesn't use the code up. */
+  invited(code: string, now = Date.now()): string {
+    const invite = this.invites.get(code);
+    if (!invite || invite.expires < now) throw new KervanError("bad_message", "this invite is unknown or has expired; create a new one in the app");
+    return invite.name;
+  }
+
+  /** Uses the invite up and gives the node its token. */
+  join(code: string, now = Date.now()): { name: string; token: string } {
+    const name = this.invited(code, now);
+    this.invites.delete(code);
+    const token = randomBytes(32).toString("hex");
+    const previous = this.known.get(name);
+    this.remember({ ...(previous ?? { name }), connected: this.connections.has(name), tokenHash: sha256(token) });
+    log("info", "node joined", { node: name });
+    return { name, token };
+  }
+
+  /** Forgets a node: its token stops working and it is disconnected. Agents assigned to it stay, unavailable. */
+  remove(name: string): void {
+    if (!this.known.delete(name)) throw new KervanError("bad_message", `no node named '${name}'`);
+    this.connections.get(name)?.ws.terminate();
+    this.connections.delete(name);
+    this.persist();
+    this.onChange();
   }
 
   /** A node connected (its token already checked by the upgrade handler). A second connection replaces the first. */
@@ -73,7 +134,13 @@ export class NodeHub {
     const find = (processId: string) => connection.processes.get(processId);
     rpc
       .on("hello", (params: { version?: string }) => {
-        this.remember({ name, connected: true, ...(params.version ? { version: params.version } : {}), lastSeen: new Date().toISOString() });
+        this.remember({
+          ...this.known.get(name),
+          name,
+          connected: true,
+          ...(params.version ? { version: params.version } : {}),
+          lastSeen: new Date().toISOString(),
+        });
         log("info", "node connected", { node: name, version: params.version });
       })
       .on("event", (params: { processId: string; event: SessionEventBody }) => find(params.processId)?.options.onEvent(params.event))
@@ -95,7 +162,8 @@ export class NodeHub {
       // Its agents are gone with the connection; sessions treat this like a crash and resume later.
       for (const process of connection.processes.values()) process.markExited();
       connection.processes.clear();
-      this.remember({ ...(this.known.get(name) ?? { name }), connected: false, lastSeen: new Date().toISOString() });
+      const known = this.known.get(name);
+      if (known) this.remember({ ...known, connected: false, lastSeen: new Date().toISOString() }); // a removed node stays gone
       log("warn", "node disconnected", { node: name });
     });
   }
@@ -183,12 +251,17 @@ export class NodeHub {
     };
   }
 
-  private remember(node: NodeInfo): void {
+  private remember(node: StoredNode): void {
     this.known.set(node.name, node);
-    const temp = `${this.file}.tmp`;
-    writeFileSync(temp, JSON.stringify(this.list().map(({ connected: _c, ...rest }) => rest), null, 2), { mode: 0o600 });
-    renameSync(temp, this.file);
+    this.persist();
     this.onChange();
+  }
+
+  private persist(): void {
+    const temp = `${this.file}.tmp`;
+    const stored = [...this.known.values()].map(({ connected: _c, ...rest }) => rest);
+    writeFileSync(temp, JSON.stringify(stored, null, 2), { mode: 0o600 });
+    renameSync(temp, this.file);
   }
 }
 

@@ -558,6 +558,8 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
     case sessionCreate(id: String, agent: String, skills: [String] = [], mcpServers: [String] = [], orchestrate: Bool = false, budgetUsd: Double? = nil)
     case sessionList(id: String)
     case nodeList(id: String)
+    case nodeInvite(id: String, name: String)
+    case nodeRemove(id: String, name: String)
     case sessionConfig(id: String, sessionId: String, configId: String, value: String)
     case sessionHistory(id: String, sessionId: String)
     case sessionPrompt(id: String, sessionId: String, text: String, attachments: [String] = [])
@@ -610,6 +612,14 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
         case .nodeList(let id):
             try c.encode("node.list", forKey: .type)
             try c.encode(id, forKey: .id)
+        case .nodeInvite(let id, let name):
+            try c.encode("node.invite", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(name, forKey: .name)
+        case .nodeRemove(let id, let name):
+            try c.encode("node.remove", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(name, forKey: .name)
         case .sessionList(let id):
             try c.encode("session.list", forKey: .type)
             try c.encode(id, forKey: .id)
@@ -715,6 +725,7 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
     case agentsUpdated([AgentInfo])
     case nodeListResult(id: String, nodes: [NodeInfo])
     case nodesUpdated([NodeInfo])
+    case nodeInvited(id: String, name: String, code: String, expiresAt: String)
     case roleListResult(id: String, roles: [Role])
     case teamCreated(id: String, team: TeamInfo)
     case teamListResult(id: String, teams: [TeamInfo])
@@ -724,7 +735,7 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case type, `protocol`, server, agents, agentDetails, id, code, message, session, sessions, sessionId, events, event, hits, servers
-        case nodes, roles, team, teams
+        case nodes, roles, team, teams, name, expiresAt
     }
 
     public init(from decoder: any Decoder) throws {
@@ -779,6 +790,13 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
             self = .agentsUpdated(try c.decode([AgentInfo].self, forKey: .agentDetails))
         case "node.list.result":
             self = .nodeListResult(id: try c.decode(String.self, forKey: .id), nodes: try c.decode([NodeInfo].self, forKey: .nodes))
+        case "node.invited":
+            self = .nodeInvited(
+                id: try c.decode(String.self, forKey: .id),
+                name: try c.decode(String.self, forKey: .name),
+                code: try c.decode(String.self, forKey: .code),
+                expiresAt: try c.decode(String.self, forKey: .expiresAt)
+            )
         case "nodes.updated":
             self = .nodesUpdated(try c.decode([NodeInfo].self, forKey: .nodes))
         case "mcp.list.result":

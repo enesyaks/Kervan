@@ -27,14 +27,14 @@ export async function startServer(
   const skills = new SkillLibrary(join(dataDir, "skills"));
   const mcp = new McpRegistry(join(dataDir, "mcp.json"));
   let sessions: SessionManager | undefined;
-  const nodes = options.nodeToken ? new NodeHub(join(dataDir, "nodes.json"), () => sessions?.nodesChanged()) : undefined;
-  const runner = nodes ? nodes.runner(new LocalAcpRunner()) : new LocalAcpRunner();
+  const nodes = new NodeHub(join(dataDir, "nodes.json"), () => sessions?.nodesChanged());
+  const runner = nodes.runner(new LocalAcpRunner());
   const base = new Map([["fake", { ...fakeAgent, skillsDir: ".fake/skills" }]]);
   const catalog = new AgentCatalog(
     join(dataDir, "agents.json"),
     base,
     (definition) => probeAgent(runner, definition, 10_000),
-    nodes ? () => nodes.names() : undefined,
+    () => nodes.names(),
   );
   const roles = new RoleRegistry(join(dataDir, "roles.json"), {
     hasAgent: (id) => catalog.live.has(id),
@@ -42,7 +42,7 @@ export async function startServer(
     hasMcp: (name) => mcp.has(name),
   });
   sessions = new SessionManager(runner, catalog.live, workspaces, new EventStore(":memory:"), {
-    ...(nodes ? { nodes } : {}),
+    nodes,
     skills,
     mcp,
     catalog,
@@ -65,7 +65,7 @@ export async function startServer(
     new Promise<void>((resolve) => {
       sessions!.closeAll();
       orchestra.close();
-      nodes?.close();
+      nodes.close();
       server.close(() => resolve());
     });
   return { server, port, sessions: sessions!, dataDir, stop };

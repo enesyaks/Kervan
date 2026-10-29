@@ -653,3 +653,32 @@ import Testing
         #expect(text == Transcript.resumePrompt)
     }
 }
+
+@MainActor @Suite struct NodeSetupTests {
+    @Test func buildsTheInstallCommandFromTheAppsAddress() {
+        let address = ServerAddress("kervan")!
+        #expect(NodeSetup.command(address: address, code: "abc") == "curl -fsSL 'http://kervan:7420/v1/node/install?code=abc' | sudo bash")
+        #expect(NodeSetup.command(address: ServerAddress("wss://hub.example:443")!, code: "x").hasPrefix("curl -fsSL 'https://hub.example:443/"))
+        let ssh = NodeSetup.sshArguments(user: "ubuntu", host: "gpu", address: address, code: "abc")
+        #expect(ssh.contains("BatchMode=yes"), "never waits for a password")
+        #expect(ssh.last == "curl -fsSL 'http://kervan:7420/v1/node/install?code=abc' | sudo -n bash")
+    }
+
+    @Test func explainsCommonSSHFailures() {
+        #expect(NodeSetup.explain(output: "sudo: a password is required").contains("sudo parola istiyor"))
+        #expect(NodeSetup.explain(output: "ubuntu@gpu: Permission denied (publickey).").contains("ssh-copy-id"))
+        #expect(NodeSetup.explain(output: "ssh: Could not resolve hostname gpu").contains("Tailscale"))
+    }
+
+    @Test func keepsOnlyTheInviteItAskedFor() async {
+        final class Box { var sent: [ClientMessage] = [] }
+        let box = Box()
+        let store = SessionStore { box.sent.append($0) }
+        await store.inviteNode("gpu")
+        guard case .nodeInvite(let id, "gpu")? = box.sent.last else { Issue.record("expected node.invite"); return }
+        store.handle(.nodeInvited(id: "other", name: "x", code: "c0", expiresAt: "t"))
+        #expect(store.nodeInvite == nil)
+        store.handle(.nodeInvited(id: id, name: "gpu", code: "c1", expiresAt: "t"))
+        #expect(store.nodeInvite?.code == "c1")
+    }
+}

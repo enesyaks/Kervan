@@ -13,13 +13,16 @@ import { EventStore } from "../src/store.ts";
 import { McpRegistry } from "../src/mcp.ts";
 import { SkillLibrary } from "../src/skills.ts";
 import { OrchestraHub } from "../src/orchestra.ts";
+import { NodeHub } from "../src/nodes.ts";
 
 const dataDir = mkdtempSync(join(tmpdir(), "kervan-dev-data-"));
 const skills = new SkillLibrary(join(dataDir, "skills"));
 const mcp = new McpRegistry(join(dataDir, "mcp.json"));
 
 const fakeAgent = { name: "Fake", command: process.execPath, args: [join(import.meta.dirname, "../test/fixtures/fake-agent.ts")] };
-const runner = new LocalAcpRunner();
+let sessions: SessionManager | undefined;
+const nodes = new NodeHub(join(dataDir, "nodes.json"), () => sessions?.nodesChanged());
+const runner = nodes.runner(new LocalAcpRunner());
 const catalog = new AgentCatalog(join(dataDir, "agents.json"), new Map([
     ["claude", { ...fakeAgent, name: "Claude (sahte)" }],
     ["codex", { ...fakeAgent, name: "Codex (sahte)" }],
@@ -30,13 +33,14 @@ const catalog = new AgentCatalog(join(dataDir, "agents.json"), new Map([
       protocol: "pty" as const,
       quietMs: 600,
     }],
-]), (definition) => probeAgent(runner, definition));
+]), (definition) => probeAgent(runner, definition), () => nodes.names());
 const roles = new RoleRegistry(join(dataDir, "roles.json"), {
   hasAgent: (id) => catalog.live.has(id),
   hasSkill: (name) => skills.has(name),
   hasMcp: (name) => mcp.has(name),
 });
-const sessions = new SessionManager(runner, catalog.live, mkdtempSync(join(tmpdir(), "kervan-dev-")), new EventStore(":memory:"), {
+sessions = new SessionManager(runner, catalog.live, mkdtempSync(join(tmpdir(), "kervan-dev-")), new EventStore(":memory:"), {
+  nodes,
   skills,
   mcp,
   catalog,

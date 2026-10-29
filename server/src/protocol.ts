@@ -141,6 +141,8 @@ export type ClientMessage =
   | { type: "session.create"; id: string; agent: string; skills?: string[]; mcpServers?: string[]; orchestrate?: boolean; budgetUsd?: number }
   | { type: "session.list"; id: string }
   | { type: "node.list"; id: string }
+  | { type: "node.invite"; id: string; name: string }
+  | { type: "node.remove"; id: string; name: string }
   | { type: "session.config"; id: string; sessionId: string; configId: string; value: string }
   | { type: "session.history"; id: string; sessionId: string }
   | { type: "session.prompt"; id: string; sessionId: string; text: string; attachments?: string[] }
@@ -194,6 +196,7 @@ export type ServerMessage =
   /** Broadcast after the agent catalog changes, in the same shape as `welcome`. */
   | { type: "agents.updated"; agents: string[]; agentDetails: AgentDetail[] }
   | { type: "node.list.result"; id: string; nodes: NodeInfo[] }
+  | { type: "node.invited"; id: string; name: string; code: string; expiresAt: string }
   | { type: "nodes.updated"; nodes: NodeInfo[] };
 
 export type ParseResult =
@@ -223,6 +226,8 @@ const STRING_FIELDS: Record<string, readonly string[]> = {
   ping: ["id"],
   "session.create": ["id", "agent"],
   "node.list": ["id"],
+  "node.invite": ["id", "name"],
+  "node.remove": ["id", "name"],
   "session.config": ["id", "sessionId", "configId", "value"],
   "session.list": ["id"],
   "session.history": ["id", "sessionId"],

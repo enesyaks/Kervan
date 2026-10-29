@@ -5,6 +5,7 @@ import { VERSION } from "./version.ts";
 import { handleFiles } from "./files.ts";
 import { handleSkills, type SkillLibrary } from "./skills.ts";
 import { attachWebSocket, isAuthorized } from "./ws.ts";
+import { handleOnboarding } from "./onboarding.ts";
 
 export { VERSION };
 
@@ -48,6 +49,12 @@ export function createKervanServer({
         version: VERSION,
         uptimeSec: Math.floor((Date.now() - startedAt) / 1000),
       });
+      return;
+    }
+
+    // Node setup: the invite code in the request is the credential (see onboarding.ts).
+    if (url.pathname.startsWith("/v1/node/") && sessions.nodes) {
+      void handleOnboarding(req, res, sessions.nodes);
       return;
     }
 

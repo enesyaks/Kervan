@@ -39,6 +39,11 @@ function agentList(id: string, sessions: SessionManager): ServerMessage {
   return { type: "agent.list.result", id, agents: catalog.list(), nodes: catalog.nodes() };
 }
 
+function requireNodes(sessions: SessionManager) {
+  if (!sessions.nodes) throw new KervanError("bad_message", "this server doesn't take nodes");
+  return sessions.nodes;
+}
+
 function requireRoles(sessions: SessionManager) {
   if (!sessions.roles) throw new KervanError("bad_message", "this server has no roles");
   return sessions.roles;
@@ -67,6 +72,13 @@ async function handleRequest(ws: WebSocket, message: Exclude<ClientMessage, { ty
       return send(ws, { type: "ok", id: message.id });
     case "node.list":
       return send(ws, { type: "node.list.result", id: message.id, nodes: sessions.nodes?.list() ?? [] });
+    case "node.invite": {
+      const { code, expiresAt } = requireNodes(sessions).invite(message.name);
+      return send(ws, { type: "node.invited", id: message.id, name: message.name, code, expiresAt });
+    }
+    case "node.remove":
+      requireNodes(sessions).remove(message.name);
+      return send(ws, { type: "node.list.result", id: message.id, nodes: requireNodes(sessions).list() });
     case "session.list":
       return send(ws, { type: "session.list.result", id: message.id, sessions: sessions.list() });
     case "session.history":
@@ -211,9 +223,14 @@ export function attachWebSocket(
   server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
     const path = new URL(req.url ?? "/", "http://localhost").pathname;
     // Nodes use their own token, so a leaked node token can't drive the app's API.
-    if (path === NODE_PATH && nodeToken && sessions.nodes) {
+    if (path === NODE_PATH && sessions.nodes) {
       const name = req.headers["x-kervan-node"];
-      if (!isAuthorized(req.headers.authorization, nodeToken)) {
+      const bearer = req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice(7) : "";
+      // A node's own token from joining, or the shared KERVAN_NODE_TOKEN for nodes set up by hand.
+      const allowed =
+        (typeof name === "string" && sessions.nodes.authorize(name, bearer)) ||
+        (nodeToken !== undefined && isAuthorized(req.headers.authorization, nodeToken));
+      if (!allowed) {
         log("warn", "node auth rejected", { remote: req.socket.remoteAddress });
         rejectUpgrade(socket, 401, "Unauthorized");
         return;
