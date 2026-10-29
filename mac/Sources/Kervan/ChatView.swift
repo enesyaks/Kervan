@@ -157,6 +157,11 @@ private struct TranscriptRow: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
 
+        case .notice(_, let text):
+            Label(text, systemImage: "arrow.triangle.2.circlepath")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+
         case .error(_, let message):
             Label(message, systemImage: "exclamationmark.triangle.fill")
                 .font(.callout)
@@ -175,6 +180,7 @@ private struct TranscriptRow: View {
         case "max_tokens": "Yanıt uzunluk sınırına ulaştı."
         case "max_turn_requests": "Adım sınırına ulaşıldı."
         case "refusal": "Ajan bu isteği yanıtlamadı."
+        case "interrupted": "Sunucu yeniden başladığı için yarıda kaldı. Devam etmek için yeni bir mesaj yazın."
         default: "Tur bitti: \(reason)"
         }
     }

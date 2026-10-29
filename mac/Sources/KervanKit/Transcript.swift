@@ -35,13 +35,14 @@ public enum TranscriptItem: Equatable, Sendable, Identifiable {
     case tool(id: Int, toolCallId: String, title: String, kind: String, status: String)
     case permission(id: Int, PermissionPrompt)
     case stopped(id: Int, reason: String)
+    case notice(id: Int, text: String)
     case error(id: Int, message: String)
 
     /// The seq of the event that started the row; stable while chunks stream in.
     public var id: Int {
         switch self {
         case .user(let id, _), .agent(let id, _), .thought(let id, _), .tool(let id, _, _, _, _),
-             .permission(let id, _), .stopped(let id, _), .error(let id, _):
+             .permission(let id, _), .stopped(let id, _), .notice(let id, _), .error(let id, _):
             id
         }
     }
@@ -91,6 +92,8 @@ public enum Transcript {
                 items[index] = .permission(id: id, prompt)
             case .turnEnd(let reason):
                 if reason != "end_turn" { items.append(.stopped(id: event.seq, reason: reason)) }
+            case .notice(let text):
+                items.append(.notice(id: event.seq, text: text))
             case .error(let message):
                 items.append(.error(id: event.seq, message: message))
             case .unknown:

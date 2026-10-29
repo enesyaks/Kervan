@@ -45,6 +45,8 @@ export type SessionEventBody =
     }
   | { kind: "permission_resolved"; requestId: string; outcome: "selected" | "cancelled"; optionId?: string }
   | { kind: "turn_end"; stopReason: string }
+  /** Something Kervan itself did, e.g. recovering the session after a server restart. */
+  | { kind: "notice"; text: string }
   | { kind: "error"; message: string };
 
 export type SessionEvent = SessionEventBody & { seq: number; at: string };

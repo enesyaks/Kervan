@@ -13,6 +13,8 @@ export interface AgentProcess {
   close(): void;
   /** Settles when the agent process is gone, whether closed or crashed. */
   readonly exited: Promise<void>;
+  /** The agent's own session id; pass it back as `resumeSessionId` to continue after a restart. */
+  readonly sessionId: string;
 }
 
 export interface PermissionRequest {
@@ -32,6 +34,8 @@ export interface StartOptions {
   onEvent: (event: SessionEventBody) => void;
   /** Resolves once the user answers; may stay pending for as long as the user is away. */
   onPermission: (request: PermissionRequest) => Promise<PermissionDecision>;
+  /** Continue this earlier agent session instead of starting a new one. */
+  resumeSessionId?: string;
 }
 
 /**
@@ -44,7 +48,7 @@ export interface AgentRunner {
 
 /** Runs an ACP agent as a child process on this machine and talks to it over stdio. */
 export class LocalAcpRunner implements AgentRunner {
-  async start({ command, cwd, onEvent, onPermission }: StartOptions): Promise<AgentProcess> {
+  async start({ command, cwd, onEvent, onPermission, resumeSessionId }: StartOptions): Promise<AgentProcess> {
     const child = spawn(command.command, command.args, {
       cwd,
       env: { ...process.env, ...command.env },
@@ -85,14 +89,23 @@ export class LocalAcpRunner implements AgentRunner {
     };
 
     try {
-      await Promise.race([
+      const init = await Promise.race([
         agent.request("initialize", { protocolVersion: acp.PROTOCOL_VERSION, clientCapabilities: {} }),
         failedToSpawn,
         exited.then(() => Promise.reject(new Error("agent exited during startup"))),
       ]);
-      const { sessionId } = await agent.request("session/new", { cwd, mcpServers: [] });
+
+      let sessionId: string;
+      if (resumeSessionId) {
+        if (!init.agentCapabilities?.sessionCapabilities?.resume) throw new Error("agent cannot resume sessions");
+        await agent.request("session/resume", { sessionId: resumeSessionId, cwd, mcpServers: [] });
+        sessionId = resumeSessionId;
+      } else {
+        ({ sessionId } = await agent.request("session/new", { cwd, mcpServers: [] }));
+      }
 
       return {
+        sessionId,
         exited,
         close,
         async prompt(text) {

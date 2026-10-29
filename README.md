@@ -56,7 +56,7 @@ Mac'ten kontrol: `curl http://kervan:7420/health`
 |---|---|
 | `/opt/kervan/server` | Uygulama kodu |
 | `/etc/kervan/env` | Ortam değişkenleri (`KERVAN_HOST`, `KERVAN_PORT`, `KERVAN_DATA_DIR`, `KERVAN_TOKEN`) |
-| `/var/lib/kervan` | SQLite veritabanı (konuşma geçmişi, M3'ten itibaren) |
+| `/var/lib/kervan/kervan.db` | SQLite: oturumlar ve tüm olaylar |
 | `/var/lib/kervan/workspaces` | Oturum çalışma klasörleri (`KERVAN_WORKSPACES_DIR` ile değiştirilebilir) |
 
 Loglar: `journalctl -u kervan -f`

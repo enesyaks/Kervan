@@ -7,14 +7,15 @@ import WebSocket from "ws";
 import { LocalAcpRunner } from "../src/runner.ts";
 import { createKervanServer } from "../src/server.ts";
 import { SessionManager } from "../src/sessions.ts";
+import { EventStore } from "../src/store.ts";
 
 export const TEST_TOKEN = "test-token-0123456789";
 
-const fakeAgent = { command: process.execPath, args: [join(import.meta.dirname, "fixtures/fake-agent.ts")] };
+export const fakeAgent = { command: process.execPath, args: [join(import.meta.dirname, "fixtures/fake-agent.ts")] };
 
 export async function startServer(): Promise<{ server: Server; port: number; stop: () => Promise<void> }> {
   const workspaces = mkdtempSync(join(tmpdir(), "kervan-test-"));
-  const sessions = new SessionManager(new LocalAcpRunner(), new Map([["fake", fakeAgent]]), workspaces);
+  const sessions = new SessionManager(new LocalAcpRunner(), new Map([["fake", fakeAgent]]), workspaces, new EventStore(":memory:"));
   const server = createKervanServer({ token: TEST_TOKEN, sessions });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const port = (server.address() as AddressInfo).port;

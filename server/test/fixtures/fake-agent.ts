@@ -3,6 +3,7 @@
 //   "tool"   → also reports a tool call and asks for permission; completes the tool only if allowed
 //   "slow"   → waits 300 ms before answering
 //   "crash"  → exits mid-turn
+//   "whoami" → answers with the ACP session id it is running (new or resumed)
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 
@@ -11,15 +12,31 @@ const stream = acp.ndJsonStream(
   Readable.toWeb(process.stdin) as ReadableStream<Uint8Array>,
 );
 
+let current = "";
+
 acp
   .agent({ name: "fake" })
-  .onRequest("initialize", () => ({ protocolVersion: acp.PROTOCOL_VERSION }))
-  .onRequest("session/new", () => ({ sessionId: "fake-session" }))
+  .onRequest("initialize", () => ({
+    protocolVersion: acp.PROTOCOL_VERSION,
+    agentCapabilities: { sessionCapabilities: { resume: {} } },
+  }))
+  .onRequest("session/new", () => {
+    current = `fake-${process.pid}`;
+    return { sessionId: current };
+  })
+  .onRequest("session/resume", ({ params }) => {
+    current = params.sessionId;
+    return {};
+  })
   .onRequest("session/prompt", async ({ params, client }) => {
     const text = params.prompt.map((block) => (block.type === "text" ? block.text : "")).join("");
     const update = (u: acp.SessionUpdate) => client.notify("session/update", { sessionId: params.sessionId, update: u });
 
     if (text.includes("crash")) process.exit(1);
+    if (text.includes("whoami")) {
+      await update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: current } });
+      return { stopReason: "end_turn" };
+    }
     if (text.includes("slow")) await new Promise((resolve) => setTimeout(resolve, 300));
 
     await update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "echo: " } });

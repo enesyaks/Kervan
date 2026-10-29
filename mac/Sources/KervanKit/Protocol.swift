@@ -69,6 +69,8 @@ public struct SessionEvent: Decodable, Equatable, Sendable {
         /// `optionId` is nil when the request was cancelled.
         case permissionResolved(requestId: String, optionId: String?)
         case turnEnd(stopReason: String)
+        /// Something Kervan itself did, e.g. resuming the agent after a server restart.
+        case notice(String)
         case error(String)
         /// A kind this client doesn't know yet; ignored.
         case unknown(kind: String)
@@ -125,6 +127,7 @@ public struct SessionEvent: Decodable, Equatable, Sendable {
                 optionId: try c.decodeIfPresent(String.self, forKey: .optionId)
             )
         case "turn_end": body = .turnEnd(stopReason: try c.decode(String.self, forKey: .stopReason))
+        case "notice": body = .notice(try c.decode(String.self, forKey: .text))
         case "error": body = .error(try c.decode(String.self, forKey: .message))
         default: body = .unknown(kind: kind)
         }

@@ -237,3 +237,16 @@ import Testing
         #expect(store.waitingCount == 1)
     }
 }
+
+@Suite struct RecoveryTests {
+    @Test func showsNoticesAndInterruptedTurns() throws {
+        let notice = try ServerMessage.decode(#"{"type":"session.event","sessionId":"s1","event":{"seq":7,"kind":"notice","text":"Ajan yeniden başlatıldı"}}"#)
+        #expect(notice == .sessionEvent(sessionId: "s1", event: SessionEvent(seq: 7, body: .notice("Ajan yeniden başlatıldı"))))
+
+        let items = Transcript.build([
+            SessionEvent(seq: 1, body: .turnEnd(stopReason: "interrupted")),
+            SessionEvent(seq: 2, body: .notice("Ajan yeniden başlatıldı")),
+        ])
+        #expect(items == [.stopped(id: 1, reason: "interrupted"), .notice(id: 2, text: "Ajan yeniden başlatıldı")])
+    }
+}

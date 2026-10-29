@@ -7,7 +7,7 @@ Her adım tek başına çalışan, test edilebilir bir özellik bırakır.
 | M0 | VM, systemd servisi, `/health` | ✅ |
 | M1 | Protokol v1, token'lı WebSocket, Mac bağlantı ekranı | ✅ |
 | M2 | Tek ajan oturumu (Claude Code, ACP), Mac sohbet ekranı, cevap akışı | ✅ |
-| M3 | Kalıcılık: SQLite olay günlüğü, yeniden bağlanınca geçmişin gelmesi | |
+| M3 | Kalıcılık: SQLite olay günlüğü, yeniden başlatmada kurtarma ve devam | ✅ |
 | M4 | Araç çağrıları ve izin onayı (Onayla / Reddet) | ✅ |
 | M5 | Çoklu oturum, geçmiş ekranı, tam metin arama | |
 | M6 | Dosya yükleme / indirme, çalışma klasörü tarayıcısı | |
