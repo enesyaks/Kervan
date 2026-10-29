@@ -3,6 +3,7 @@ import { request } from "node:http";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import type WebSocket from "ws";
+import { isOrchestraCall } from "../src/orchestra.ts";
 import { MAX_HELPERS, type SessionManager } from "../src/sessions.ts";
 import { HELLO, Inbox, openSocket, opened, send, startServer } from "./helpers.ts";
 
@@ -103,6 +104,31 @@ describe("lead agents and helpers", () => {
     assert.equal(early.done, false);
     const late = await sessions.waitForHelper(lead.id, helper.helperId, 5000);
     assert.deepEqual([late.done, late.reply], [true, "echo: slow"]);
+  });
+
+  it("recognises calls to its own tools by exact title only", () => {
+    for (const title of ["mcp__kervan__start_helper", "kervan.wait_for_helper", "list_agents (kervan MCP Server)"]) {
+      assert.ok(isOrchestraCall(title, "other"), title);
+    }
+    assert.ok(!isOrchestraCall("mcp__kervan__start_helper", "execute"));
+    assert.ok(!isOrchestraCall("echo mcp__kervan__start_helper && touch x", "other"));
+    assert.ok(!isOrchestraCall("mcp__github__list_agents", "other"));
+  });
+
+  it("lets a lead call its tools without asking, but still asks for anything else", async () => {
+    const lead = await create({ orchestrate: true });
+    send(ws, { type: "session.prompt", id: "q1", sessionId: lead.id, text: "askperm: other mcp__kervan__list_helpers" });
+    await answer(lead.id, /^permission: yes$/);
+    assert.ok(!sessions.history(lead.id).some((e) => e.kind === "permission_request"), "no card for the user");
+
+    send(ws, { type: "session.prompt", id: "q2", sessionId: lead.id, text: "askperm: execute mcp__kervan__list_helpers" });
+    await inbox.waitFor((m) => m.type === "session.updated" && m.session.id === lead.id && m.session.status === "waiting");
+    await sessions.cancel(lead.id);
+
+    const plain = await create();
+    send(ws, { type: "session.prompt", id: "q3", sessionId: plain.id, text: "askperm: other mcp__kervan__list_helpers" });
+    await inbox.waitFor((m) => m.type === "session.updated" && m.session.id === plain.id && m.session.status === "waiting");
+    await sessions.cancel(plain.id);
   });
 
   it("refuses tool calls without a lead's token", async () => {

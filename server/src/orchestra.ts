@@ -80,6 +80,19 @@ export const TOOLS: Tool[] = [
   },
 ];
 
+const NAMES = TOOLS.map((tool) => tool.name).join("|");
+/** How adapters title a call to one of these tools: Claude `mcp__kervan__x`, Codex `kervan.x`, Gemini `x (kervan MCP Server)`. */
+const TOOL_TITLE = new RegExp(`^(?:(?:mcp__)?kervan(?:__|\\.|/|: ?| )(?:${NAMES})|(?:${NAMES}) \\(kervan MCP Server\\))$`);
+const NEVER_AUTO = new Set(["execute", "edit", "delete", "move", "fetch"]);
+
+/**
+ * True for a permission request that is only a call to Kervan's own tools. The title is the agent's,
+ * so it must match exactly: a shell command that merely mentions a tool name is not one.
+ */
+export function isOrchestraCall(title: string, toolKind: string): boolean {
+  return !NEVER_AUTO.has(toolKind) && TOOL_TITLE.test(title.trim());
+}
+
 type Args = Record<string, unknown>;
 
 const str = (args: Args, key: string, required = true): string | undefined => {

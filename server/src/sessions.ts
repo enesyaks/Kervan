@@ -12,6 +12,7 @@ import type { SkillLibrary } from "./skills.ts";
 import type { EventStore, IndexedMessage, SearchHit, StoredTeam } from "./store.ts";
 import type { RoleRegistry } from "./roles.ts";
 import type * as acp from "@agentclientprotocol/sdk";
+import { isOrchestraCall } from "./orchestra.ts";
 
 const fail = (message: string): never => {
   throw new KervanError("bad_message", message);
@@ -543,6 +544,11 @@ export class SessionManager {
   }
 
   private askPermission(session: Session, request: PermissionRequest): Promise<PermissionDecision> {
+    // Choosing "may start helpers" already said yes to Kervan's own tools; don't ask again per call.
+    if (session.info.orchestrate && isOrchestraCall(request.title, request.toolKind)) {
+      const allow = request.options.find((o) => o.kind === "allow_once") ?? request.options.find((o) => o.kind === "allow_always");
+      if (allow) return Promise.resolve(allow.optionId);
+    }
     const requestId = randomUUID();
     return new Promise((resolve) => {
       session.pending.set(requestId, { optionIds: request.options.map((o) => o.optionId), resolve });

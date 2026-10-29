@@ -9,6 +9,7 @@
 //   "authstate" → answers with the auth method chosen via `authenticate`, or "none"
 //   "whoami" → answers with the ACP session id it is running (new or resumed)
 //   "delegate: <task>" → starts a helper through the `kervan` MCP server, waits, answers "helper said: <reply>"
+//   "askperm: <kind> <title>" → asks permission for that tool call, answers "permission: <optionId or cancelled>"
 //   "mcptools" → names of the tools the `kervan` MCP server offers
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
@@ -82,6 +83,20 @@ acp
     if (text.includes("crash")) process.exit(1);
     if (text.includes("mcpcheck")) {
       await update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `mcp: ${mcpNames.join(",")}` } });
+      return { stopReason: "end_turn" };
+    }
+    if (text.startsWith("askperm: ")) {
+      const [kind, ...rest] = text.slice("askperm: ".length).split(" ");
+      const answer = await client.request("session/request_permission", {
+        sessionId: params.sessionId,
+        toolCall: { toolCallId: "p1", title: rest.join(" "), kind: kind as acp.ToolKind },
+        options: [
+          { optionId: "yes", name: "Allow", kind: "allow_once" },
+          { optionId: "no", name: "Reject", kind: "reject_once" },
+        ],
+      });
+      const chosen = answer.outcome.outcome === "selected" ? answer.outcome.optionId : "cancelled";
+      await update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `permission: ${chosen}` } });
       return { stopReason: "end_turn" };
     }
     if (text.includes("mcptools")) {
