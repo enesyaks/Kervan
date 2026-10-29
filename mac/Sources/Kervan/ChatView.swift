@@ -25,7 +25,10 @@ struct ChatView: View {
                             EmptySession(status: status, agentName: agentName)
                         }
                         ForEach(items) { item in
-                            TranscriptRow(item: item).id(item.id)
+                            TranscriptRow(item: item, agentName: agentName) { requestId, choice in
+                                Task { await model.store.respond(sessionID, requestId: requestId, optionId: choice.optionId) }
+                            }
+                            .id(item.id)
                         }
                         if status == .running {
                             HStack(spacing: 8) {
@@ -109,6 +112,8 @@ private struct EmptySession: View {
 
 private struct TranscriptRow: View {
     let item: TranscriptItem
+    let agentName: String
+    let respond: (String, PermissionChoice) -> Void
 
     var body: some View {
         switch item {
@@ -144,14 +149,8 @@ private struct TranscriptRow: View {
         case .tool(_, _, let title, let kind, let status):
             ToolRow(title: title, kind: kind, status: status)
 
-        case .permissionRejected(_, let title):
-            Label {
-                Text("İzin istendi: \(title). Onay ekranı henüz olmadığı için reddedildi.")
-            } icon: {
-                Image(systemName: "hand.raised")
-            }
-            .font(.callout)
-            .foregroundStyle(Color.kervanSaffron)
+        case .permission(_, let prompt):
+            PermissionCard(prompt: prompt, agentName: agentName) { respond(prompt.requestId, $0) }
 
         case .stopped(_, let reason):
             Label(Self.stopText(reason), systemImage: "stop.circle")
@@ -206,19 +205,7 @@ private struct ToolRow: View {
         .accessibilityElement(children: .combine)
     }
 
-    private static func symbol(_ kind: String) -> String {
-        switch kind {
-        case "read": "doc.text"
-        case "edit": "pencil"
-        case "delete": "trash"
-        case "move": "arrow.right.doc.on.clipboard"
-        case "search": "magnifyingglass"
-        case "execute": "terminal"
-        case "think": "brain"
-        case "fetch": "globe"
-        default: "wrench.and.screwdriver"
-        }
-    }
+    private static func symbol(_ kind: String) -> String { toolSymbol(kind) }
 
     private static func statusLabel(_ status: String) -> String {
         switch status {
@@ -236,6 +223,108 @@ private struct ToolRow: View {
         case "completed": .kervanOasis
         case "failed": .red
         default: .secondary
+        }
+    }
+}
+
+private func toolSymbol(_ kind: String) -> String {
+    switch kind {
+    case "read": "doc.text"
+    case "edit": "pencil"
+    case "delete": "trash"
+    case "move": "arrow.right.doc.on.clipboard"
+    case "search": "magnifyingglass"
+    case "execute": "terminal"
+    case "think": "brain"
+    case "fetch": "globe"
+    default: "wrench.and.screwdriver"
+    }
+}
+
+/// An open request asks; an answered one shrinks to a single line recording the decision.
+private struct PermissionCard: View {
+    let prompt: PermissionPrompt
+    let agentName: String
+    let choose: (PermissionChoice) -> Void
+
+    var body: some View {
+        if let resolution = prompt.resolution {
+            resolvedLine(resolution)
+        } else {
+            openCard
+        }
+    }
+
+    private var openCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("\(agentName) izin istiyor", systemImage: "hand.raised.fill")
+                .font(.headline)
+                .foregroundStyle(Color.kervanSaffron)
+
+            Label {
+                Text(prompt.title).font(.callout.monospaced())
+            } icon: {
+                Image(systemName: toolSymbol(prompt.toolKind)).foregroundStyle(.secondary)
+            }
+
+            if let detail = prompt.detail, detail != prompt.title {
+                Text(detail)
+                    .font(.callout.monospaced())
+                    .textSelection(.enabled)
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
+            }
+
+            HStack(spacing: 8) {
+                ForEach(Self.ordered(prompt.options)) { option in
+                    if option.kind == "allow_once" {
+                        Button(Self.label(option)) { choose(option) }.buttonStyle(.borderedProminent)
+                    } else {
+                        Button(Self.label(option)) { choose(option) }
+                    }
+                }
+            }
+            .controlSize(.large)
+        }
+        .padding(14)
+        .background(Color.kervanSaffron.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.kervanSaffron.opacity(0.5)))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(agentName) izin istiyor: \(prompt.title)")
+    }
+
+    private func resolvedLine(_ resolution: PermissionPrompt.Resolution) -> some View {
+        let (text, symbol, tint): (String, String, Color) = switch resolution {
+        case .chose(let option) where option.allows:
+            (option.kind == "allow_always" ? "Her zaman izin verildi" : "İzin verildi", "checkmark.shield", .kervanOasis)
+        case .chose:
+            ("Reddedildi", "xmark.shield", .secondary)
+        case .cancelled:
+            ("İptal edildi", "xmark.shield", .secondary)
+        }
+        return Label {
+            Text("\(text): ") + Text(prompt.title).font(.callout.monospaced())
+        } icon: {
+            Image(systemName: symbol)
+        }
+        .font(.callout)
+        .foregroundStyle(tint)
+    }
+
+    /// Allow first, the one-off before the permanent one, then rejections.
+    private static func ordered(_ options: [PermissionChoice]) -> [PermissionChoice] {
+        let rank = ["allow_once": 0, "allow_always": 1, "reject_once": 2, "reject_always": 3]
+        return options.sorted { (rank[$0.kind] ?? 4) < (rank[$1.kind] ?? 4) }
+    }
+
+    private static func label(_ option: PermissionChoice) -> String {
+        switch option.kind {
+        case "allow_once": "İzin ver"
+        case "allow_always": "Her zaman izin ver"
+        case "reject_once": "Reddet"
+        case "reject_always": "Her zaman reddet"
+        default: option.name
         }
     }
 }
@@ -261,7 +350,7 @@ private struct Composer: View {
                     .background(.background, in: RoundedRectangle(cornerRadius: 9))
                     .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(focused ? Color.kervanLapis.opacity(0.6) : Color(nsColor: .separatorColor)))
 
-                if status == .running {
+                if status == .running || status == .waiting {
                     Button("Durdur", action: stop)
                         .keyboardShortcut(".", modifiers: .command)
                         .controlSize(.large)

@@ -1,3 +1,4 @@
+import AppKit
 import KervanKit
 import SwiftUI
 
@@ -22,6 +23,10 @@ struct RootView: View {
         }
         .onChange(of: model.store.lastCreatedSessionID) { _, created in
             if let created { model.selectedSessionID = created }
+        }
+        // Agents blocked on an approval show up on the Dock icon, so a backgrounded app still asks.
+        .onChange(of: model.store.waitingCount, initial: true) { _, waiting in
+            NSApp.dockTile.badgeLabel = waiting > 0 ? "\(waiting)" : nil
         }
     }
 }

@@ -1,12 +1,39 @@
 import Foundation
 
+public struct PermissionPrompt: Equatable, Sendable {
+    public enum Resolution: Equatable, Sendable {
+        case chose(PermissionChoice)
+        case cancelled
+    }
+
+    public var requestId: String
+    public var title: String
+    public var toolKind: String
+    public var detail: String?
+    public var options: [PermissionChoice]
+    /// nil while the agent is still waiting for an answer.
+    public var resolution: Resolution?
+
+    public init(
+        requestId: String, title: String, toolKind: String, detail: String?,
+        options: [PermissionChoice], resolution: Resolution? = nil
+    ) {
+        self.requestId = requestId
+        self.title = title
+        self.toolKind = toolKind
+        self.detail = detail
+        self.options = options
+        self.resolution = resolution
+    }
+}
+
 /// One row of a chat as the UI shows it. Built from the raw event log by `Transcript.build`.
 public enum TranscriptItem: Equatable, Sendable, Identifiable {
     case user(id: Int, text: String)
     case agent(id: Int, text: String)
     case thought(id: Int, text: String)
     case tool(id: Int, toolCallId: String, title: String, kind: String, status: String)
-    case permissionRejected(id: Int, title: String)
+    case permission(id: Int, PermissionPrompt)
     case stopped(id: Int, reason: String)
     case error(id: Int, message: String)
 
@@ -14,7 +41,7 @@ public enum TranscriptItem: Equatable, Sendable, Identifiable {
     public var id: Int {
         switch self {
         case .user(let id, _), .agent(let id, _), .thought(let id, _), .tool(let id, _, _, _, _),
-             .permissionRejected(let id, _), .stopped(let id, _), .error(let id, _):
+             .permission(let id, _), .stopped(let id, _), .error(let id, _):
             id
         }
     }
@@ -26,6 +53,7 @@ public enum Transcript {
     public static func build(_ events: [SessionEvent]) -> [TranscriptItem] {
         var items: [TranscriptItem] = []
         var toolRows: [String: Int] = [:]
+        var permissionRows: [String: Int] = [:]
 
         for event in events {
             switch event.body {
@@ -51,8 +79,16 @@ public enum Transcript {
                       case .tool(let id, _, let title, let kind, let status) = items[index]
                 else { continue }
                 items[index] = .tool(id: id, toolCallId: toolCallId, title: newTitle ?? title, kind: kind, status: newStatus ?? status)
-            case .permissionAutoRejected(let title):
-                items.append(.permissionRejected(id: event.seq, title: title))
+            case .permissionRequest(let requestId, let title, let toolKind, let detail, let options):
+                permissionRows[requestId] = items.count
+                let prompt = PermissionPrompt(requestId: requestId, title: title, toolKind: toolKind, detail: detail, options: options)
+                items.append(.permission(id: event.seq, prompt))
+            case .permissionResolved(let requestId, let optionId):
+                guard let index = permissionRows[requestId], case .permission(let id, var prompt) = items[index] else { continue }
+                prompt.resolution = optionId
+                    .flatMap { chosen in prompt.options.first { $0.optionId == chosen } }
+                    .map(PermissionPrompt.Resolution.chose) ?? .cancelled
+                items[index] = .permission(id: id, prompt)
             case .turnEnd(let reason):
                 if reason != "end_turn" { items.append(.stopped(id: event.seq, reason: reason)) }
             case .error(let message):

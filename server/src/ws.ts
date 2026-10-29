@@ -48,6 +48,9 @@ async function handleRequest(ws: WebSocket, message: Exclude<ClientMessage, { ty
     case "session.cancel":
       await sessions.cancel(message.sessionId);
       return send(ws, { type: "ok", id: message.id });
+    case "session.permission":
+      sessions.respond(message.sessionId, message.requestId, message.optionId);
+      return send(ws, { type: "ok", id: message.id });
   }
 }
 

@@ -9,7 +9,15 @@ export interface PeerInfo {
   version: string;
 }
 
-export type SessionStatus = "starting" | "idle" | "running" | "error" | "closed";
+/** `waiting`: the agent is blocked on a permission request the user hasn't answered yet. */
+export type SessionStatus = "starting" | "idle" | "running" | "waiting" | "error" | "closed";
+
+export interface PermissionChoice {
+  optionId: string;
+  name: string;
+  /** ACP option kind: allow_once | allow_always | reject_once | reject_always */
+  kind: string;
+}
 
 export interface SessionInfo {
   id: string;
@@ -27,7 +35,15 @@ export type SessionEventBody =
   | { kind: "agent_thought_chunk"; text: string }
   | { kind: "tool_call"; toolCallId: string; title: string; toolKind: string; status: string }
   | { kind: "tool_call_update"; toolCallId: string; title?: string; status?: string }
-  | { kind: "permission_auto_rejected"; title: string }
+  | {
+      kind: "permission_request";
+      requestId: string;
+      title: string;
+      toolKind: string;
+      detail?: string;
+      options: PermissionChoice[];
+    }
+  | { kind: "permission_resolved"; requestId: string; outcome: "selected" | "cancelled"; optionId?: string }
   | { kind: "turn_end"; stopReason: string }
   | { kind: "error"; message: string };
 
@@ -40,7 +56,8 @@ export type ClientMessage =
   | { type: "session.list"; id: string }
   | { type: "session.history"; id: string; sessionId: string }
   | { type: "session.prompt"; id: string; sessionId: string; text: string }
-  | { type: "session.cancel"; id: string; sessionId: string };
+  | { type: "session.cancel"; id: string; sessionId: string }
+  | { type: "session.permission"; id: string; sessionId: string; requestId: string; optionId: string };
 
 export type ErrorCode =
   | "bad_message"
@@ -50,7 +67,8 @@ export type ErrorCode =
   | "unknown_agent"
   | "unknown_session"
   | "session_busy"
-  | "session_unavailable";
+  | "session_unavailable"
+  | "unknown_request";
 
 export type ServerMessage =
   | { type: "welcome"; protocol: number; server: PeerInfo; agents: string[] }
@@ -91,6 +109,7 @@ const STRING_FIELDS: Record<string, readonly string[]> = {
   "session.history": ["id", "sessionId"],
   "session.prompt": ["id", "sessionId", "text"],
   "session.cancel": ["id", "sessionId"],
+  "session.permission": ["id", "sessionId", "requestId", "optionId"],
 };
 
 export function parseClientMessage(raw: string): ParseResult {

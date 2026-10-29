@@ -88,16 +88,88 @@ describe("sessions", () => {
     assert.equal(running.session.title, "merhaba kervan");
   });
 
-  it("auto-rejects permission requests until approvals exist", async () => {
-    const { ws, inbox } = await client();
+  async function pendingPermission(ws: WebSocket, inbox: Inbox): Promise<{ sessionId: string; request: any }> {
     const sessionId = await idleSession(ws, inbox);
     send(ws, { type: "session.prompt", id: nextId(), sessionId, text: "use a tool" });
-    await inbox.waitFor((m) => m.type === "session.event" && m.sessionId === sessionId && m.event.kind === "turn_end");
+    const { event } = await inbox.waitFor(
+      (m) => m.type === "session.event" && m.sessionId === sessionId && m.event.kind === "permission_request",
+    );
+    await inbox.waitFor((m) => m.type === "session.updated" && m.session.id === sessionId && m.session.status === "waiting");
+    return { sessionId, request: event };
+  }
 
-    const kinds = eventsOf(inbox, sessionId).map((e) => e.kind);
-    assert.deepEqual(kinds.slice(3, 6), ["tool_call", "permission_auto_rejected", "tool_call_update"]);
-    const update = eventsOf(inbox, sessionId).find((e) => e.kind === "tool_call_update");
-    assert.equal(update.status, "failed");
+  const toolStatus = async (inbox: Inbox, sessionId: string) =>
+    (
+      await inbox.waitFor(
+        (m) => m.type === "session.event" && m.sessionId === sessionId && m.event.kind === "tool_call_update",
+      )
+    ).event.status;
+
+  it("holds a permission request until the user allows it", async () => {
+    const { ws, inbox } = await client();
+    const { sessionId, request } = await pendingPermission(ws, inbox);
+    assert.equal(request.title, "Edit README.md");
+    assert.equal(request.toolKind, "edit");
+    assert.equal(request.detail, "sed -i s/a/b/ README.md");
+    assert.deepEqual(request.options.map((o: any) => o.kind), ["allow_once", "reject_once"]);
+
+    const id = nextId();
+    send(ws, { type: "session.permission", id, sessionId, requestId: request.requestId, optionId: "yes" });
+    await inbox.waitFor((m) => m.type === "ok" && m.id === id);
+
+    assert.equal(await toolStatus(inbox, sessionId), "completed");
+    const resolved = eventsOf(inbox, sessionId).find((e) => e.kind === "permission_resolved");
+    assert.deepEqual([resolved.requestId, resolved.outcome, resolved.optionId], [request.requestId, "selected", "yes"]);
+    await inbox.waitFor((m) => m.type === "session.updated" && m.session.id === sessionId && m.session.status === "idle");
+  });
+
+  it("passes a rejection to the agent", async () => {
+    const { ws, inbox } = await client();
+    const { sessionId, request } = await pendingPermission(ws, inbox);
+    send(ws, { type: "session.permission", id: nextId(), sessionId, requestId: request.requestId, optionId: "no" });
+    assert.equal(await toolStatus(inbox, sessionId), "failed");
+  });
+
+  it("shows a pending request to a client that connects later", async () => {
+    const first = await client();
+    const { sessionId, request } = await pendingPermission(first.ws, first.inbox);
+
+    const late = await client();
+    const historyId = nextId();
+    send(late.ws, { type: "session.history", id: historyId, sessionId });
+    const history = await late.inbox.waitFor((m) => m.type === "session.history.result" && m.id === historyId);
+    assert.equal(history.events.at(-1).requestId, request.requestId);
+
+    send(late.ws, { type: "session.permission", id: nextId(), sessionId, requestId: request.requestId, optionId: "yes" });
+    assert.equal(await toolStatus(first.inbox, sessionId), "completed");
+  });
+
+  it("cancels open requests when the turn is cancelled", async () => {
+    const { ws, inbox } = await client();
+    const { sessionId, request } = await pendingPermission(ws, inbox);
+    send(ws, { type: "session.cancel", id: nextId(), sessionId });
+    const { event } = await inbox.waitFor(
+      (m) => m.type === "session.event" && m.sessionId === sessionId && m.event.kind === "permission_resolved",
+    );
+    assert.deepEqual([event.requestId, event.outcome], [request.requestId, "cancelled"]);
+    assert.equal(await toolStatus(inbox, sessionId), "failed");
+  });
+
+  it("rejects options the agent did not offer and unknown requests", async () => {
+    const { ws, inbox } = await client();
+    const { sessionId, request } = await pendingPermission(ws, inbox);
+
+    const busy = nextId();
+    send(ws, { type: "session.prompt", id: busy, sessionId, text: "another" });
+    assert.equal((await inbox.waitFor((m) => m.type === "error" && m.id === busy)).code, "session_busy");
+
+    const bogus = nextId();
+    send(ws, { type: "session.permission", id: bogus, sessionId, requestId: request.requestId, optionId: "maybe" });
+    assert.equal((await inbox.waitFor((m) => m.type === "error" && m.id === bogus)).code, "bad_message");
+
+    const unknown = nextId();
+    send(ws, { type: "session.permission", id: unknown, sessionId, requestId: "nope", optionId: "yes" });
+    assert.equal((await inbox.waitFor((m) => m.type === "error" && m.id === unknown)).code, "unknown_request");
   });
 
   it("refuses a second prompt while the agent is answering", async () => {

@@ -51,6 +51,15 @@ public final class SessionStore {
         await request(.sessionCancel(id: Self.newID(), sessionId: sessionID))
     }
 
+    public func respond(_ sessionID: String, requestId: String, optionId: String) async {
+        await request(.sessionPermission(id: Self.newID(), sessionId: sessionID, requestId: requestId, optionId: optionId))
+    }
+
+    /// Sessions whose agent is blocked on the user; drives the Dock badge.
+    public var waitingCount: Int {
+        sessions.filter { $0.status == .waiting }.count
+    }
+
     public func handle(_ message: ServerMessage) {
         switch message {
         case .sessionListResult(_, let list):
@@ -113,6 +122,7 @@ public final class SessionStore {
         case "session_unavailable": "Bu oturum şu anda mesaj kabul etmiyor."
         case "unknown_session": "Oturum sunucuda bulunamadı."
         case "unknown_agent": "Bu ajan sunucuda kurulu değil."
+        case "unknown_request": "Bu izin isteği artık geçerli değil."
         default: message
         }
     }

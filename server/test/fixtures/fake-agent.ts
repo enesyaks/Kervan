@@ -1,6 +1,6 @@
 // A tiny ACP agent for tests. Behaviour is driven by the prompt text:
 //   default  → echoes "echo: <text>" in two chunks
-//   "tool"   → also reports a tool call, asks for permission, then fails the tool
+//   "tool"   → also reports a tool call and asks for permission; completes the tool only if allowed
 //   "slow"   → waits 300 ms before answering
 //   "crash"  → exits mid-turn
 import { Readable, Writable } from "node:stream";
@@ -29,7 +29,7 @@ acp
       await update({ sessionUpdate: "tool_call", toolCallId: "t1", title: "Edit README.md", kind: "edit", status: "pending" });
       const answer = await client.request("session/request_permission", {
         sessionId: params.sessionId,
-        toolCall: { toolCallId: "t1", title: "Edit README.md" },
+        toolCall: { toolCallId: "t1", title: "Edit README.md", kind: "edit", rawInput: { command: "sed -i s/a/b/ README.md" } },
         options: [
           { optionId: "yes", name: "Allow", kind: "allow_once" },
           { optionId: "no", name: "Reject", kind: "reject_once" },

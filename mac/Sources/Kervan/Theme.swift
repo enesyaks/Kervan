@@ -70,7 +70,7 @@ extension ConnectionState {
 extension SessionStatus {
     var tint: Color {
         switch self {
-        case .starting, .running: .kervanSaffron
+        case .starting, .running, .waiting: .kervanSaffron
         case .idle: .kervanOasis
         case .error: .red
         case .closed, .unknown: .secondary
@@ -82,6 +82,7 @@ extension SessionStatus {
         case .starting: "Başlatılıyor"
         case .idle: "Hazır"
         case .running: "Yanıtlıyor"
+        case .waiting: "Onay bekliyor"
         case .error: "Sona erdi"
         case .closed: "Kapandı"
         case .unknown: "Bilinmiyor"

@@ -14,8 +14,25 @@ public struct PeerInfo: Codable, Equatable, Sendable {
     }
 }
 
+public struct PermissionChoice: Codable, Equatable, Sendable, Identifiable {
+    public var optionId: String
+    public var name: String
+    /// allow_once | allow_always | reject_once | reject_always
+    public var kind: String
+
+    public var id: String { optionId }
+    public var allows: Bool { kind.hasPrefix("allow") }
+
+    public init(optionId: String, name: String, kind: String) {
+        self.optionId = optionId
+        self.name = name
+        self.kind = kind
+    }
+}
+
 public enum SessionStatus: String, Codable, Equatable, Sendable {
-    case starting, idle, running, error, closed, unknown
+    /// `waiting`: blocked on a permission request the user hasn't answered.
+    case starting, idle, running, waiting, error, closed, unknown
 
     public init(from decoder: any Decoder) throws {
         let raw = try decoder.singleValueContainer().decode(String.self)
@@ -48,7 +65,9 @@ public struct SessionEvent: Decodable, Equatable, Sendable {
         case agentThoughtChunk(String)
         case toolCall(id: String, title: String, kind: String, status: String)
         case toolCallUpdate(id: String, title: String?, status: String?)
-        case permissionAutoRejected(title: String)
+        case permissionRequest(requestId: String, title: String, toolKind: String, detail: String?, options: [PermissionChoice])
+        /// `optionId` is nil when the request was cancelled.
+        case permissionResolved(requestId: String, optionId: String?)
         case turnEnd(stopReason: String)
         case error(String)
         /// A kind this client doesn't know yet; ignored.
@@ -67,6 +86,7 @@ public struct SessionEvent: Decodable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case seq, at, kind, text, toolCallId, title, toolKind, status, stopReason, message
+        case requestId, detail, options, optionId
     }
 
     public init(from decoder: any Decoder) throws {
@@ -91,7 +111,19 @@ public struct SessionEvent: Decodable, Equatable, Sendable {
                 title: try c.decodeIfPresent(String.self, forKey: .title),
                 status: try c.decodeIfPresent(String.self, forKey: .status)
             )
-        case "permission_auto_rejected": body = .permissionAutoRejected(title: try c.decode(String.self, forKey: .title))
+        case "permission_request":
+            body = .permissionRequest(
+                requestId: try c.decode(String.self, forKey: .requestId),
+                title: try c.decode(String.self, forKey: .title),
+                toolKind: try c.decodeIfPresent(String.self, forKey: .toolKind) ?? "other",
+                detail: try c.decodeIfPresent(String.self, forKey: .detail),
+                options: try c.decode([PermissionChoice].self, forKey: .options)
+            )
+        case "permission_resolved":
+            body = .permissionResolved(
+                requestId: try c.decode(String.self, forKey: .requestId),
+                optionId: try c.decodeIfPresent(String.self, forKey: .optionId)
+            )
         case "turn_end": body = .turnEnd(stopReason: try c.decode(String.self, forKey: .stopReason))
         case "error": body = .error(try c.decode(String.self, forKey: .message))
         default: body = .unknown(kind: kind)
@@ -107,9 +139,10 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
     case sessionHistory(id: String, sessionId: String)
     case sessionPrompt(id: String, sessionId: String, text: String)
     case sessionCancel(id: String, sessionId: String)
+    case sessionPermission(id: String, sessionId: String, requestId: String, optionId: String)
 
     private enum CodingKeys: String, CodingKey {
-        case type, `protocol`, client, id, agent, sessionId, text
+        case type, `protocol`, client, id, agent, sessionId, text, requestId, optionId
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -142,6 +175,12 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
             try c.encode("session.cancel", forKey: .type)
             try c.encode(id, forKey: .id)
             try c.encode(sessionId, forKey: .sessionId)
+        case .sessionPermission(let id, let sessionId, let requestId, let optionId):
+            try c.encode("session.permission", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(sessionId, forKey: .sessionId)
+            try c.encode(requestId, forKey: .requestId)
+            try c.encode(optionId, forKey: .optionId)
         }
     }
 

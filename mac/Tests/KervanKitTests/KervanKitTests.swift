@@ -112,12 +112,39 @@ import Testing
 
     @Test func showsStopsAndErrors() {
         let items = Transcript.build([
-            event(1, .permissionAutoRejected(title: "Edit a.txt")),
-            event(2, .turnEnd(stopReason: "cancelled")),
-            event(3, .error("boom")),
-            event(4, .unknown(kind: "plan")),
+            event(1, .turnEnd(stopReason: "cancelled")),
+            event(2, .error("boom")),
+            event(3, .unknown(kind: "plan")),
         ])
-        #expect(items == [.permissionRejected(id: 1, title: "Edit a.txt"), .stopped(id: 2, reason: "cancelled"), .error(id: 3, message: "boom")])
+        #expect(items == [.stopped(id: 1, reason: "cancelled"), .error(id: 2, message: "boom")])
+    }
+
+    private let allow = PermissionChoice(optionId: "yes", name: "Allow", kind: "allow_once")
+    private let reject = PermissionChoice(optionId: "no", name: "Reject", kind: "reject_once")
+
+    private func request(_ seq: Int, _ requestId: String) -> SessionEvent {
+        event(seq, .permissionRequest(requestId: requestId, title: "Run tests", toolKind: "execute", detail: "npm test", options: [allow, reject]))
+    }
+
+    @Test func keepsAPermissionOpenUntilResolved() {
+        let items = Transcript.build([request(1, "p1")])
+        #expect(items == [.permission(id: 1, PermissionPrompt(requestId: "p1", title: "Run tests", toolKind: "execute", detail: "npm test", options: [allow, reject]))])
+    }
+
+    @Test func foldsTheAnswerIntoItsRequest() {
+        let items = Transcript.build([
+            request(1, "p1"),
+            request(2, "p2"),
+            event(3, .permissionResolved(requestId: "p2", optionId: nil)),
+            event(4, .permissionResolved(requestId: "p1", optionId: "yes")),
+        ])
+        guard case .permission(_, let first) = items[0], case .permission(_, let second) = items[1] else {
+            Issue.record("expected two permission rows")
+            return
+        }
+        #expect(items.count == 2)
+        #expect(first.resolution == .chose(allow))
+        #expect(second.resolution == .cancelled)
     }
 }
 
@@ -176,5 +203,37 @@ import Testing
         let (store, _) = makeStore()
         store.handle(.error(code: "session_busy", message: "the agent is still answering", id: "r9"))
         #expect(store.lastError == "Claude hâlâ önceki mesajı yanıtlıyor.")
+    }
+}
+
+@Suite struct PermissionProtocolTests {
+    @Test func decodesARequestAndItsAnswer() throws {
+        let request = try ServerMessage.decode(
+            #"{"type":"session.event","sessionId":"s1","event":{"seq":5,"kind":"permission_request","requestId":"p1","title":"Run tests","toolKind":"execute","detail":"npm test","options":[{"optionId":"yes","name":"Allow","kind":"allow_once"}]}}"#
+        )
+        let choice = PermissionChoice(optionId: "yes", name: "Allow", kind: "allow_once")
+        #expect(request == .sessionEvent(sessionId: "s1", event: SessionEvent(seq: 5, body: .permissionRequest(requestId: "p1", title: "Run tests", toolKind: "execute", detail: "npm test", options: [choice]))))
+        #expect(choice.allows)
+
+        let cancelled = try ServerMessage.decode(
+            #"{"type":"session.event","sessionId":"s1","event":{"seq":6,"kind":"permission_resolved","requestId":"p1","outcome":"cancelled"}}"#
+        )
+        #expect(cancelled == .sessionEvent(sessionId: "s1", event: SessionEvent(seq: 6, body: .permissionResolved(requestId: "p1", optionId: nil))))
+    }
+
+    @Test func encodesTheAnswer() throws {
+        #expect(
+            try ClientMessage.sessionPermission(id: "r1", sessionId: "s1", requestId: "p1", optionId: "yes").jsonString()
+                == #"{"id":"r1","optionId":"yes","requestId":"p1","sessionId":"s1","type":"session.permission"}"#
+        )
+    }
+
+    @MainActor @Test func countsSessionsWaitingForTheUser() {
+        let store = SessionStore { _ in }
+        store.handle(.sessionListResult(id: "r", sessions: [
+            SessionInfo(id: "a", agent: "claude", title: "A", status: .waiting, createdAt: "1"),
+            SessionInfo(id: "b", agent: "claude", title: "B", status: .running, createdAt: "2"),
+        ]))
+        #expect(store.waitingCount == 1)
     }
 }
