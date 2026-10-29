@@ -15,9 +15,14 @@ public final class SessionStore {
     public private(set) var lastCreatedSessionID: String?
     /// The most recent failed request, in the server's words.
     public var lastError: String?
+    /// Hits for the latest search only; older, slower answers are dropped.
+    public private(set) var searchHits: [SearchHit] = []
+    /// True while the latest search is on its way.
+    public private(set) var isSearching = false
 
     private let send: Sender
     private var pendingCreates: Set<String> = []
+    private var latestSearch: String?
 
     public init(send: @escaping Sender) {
         self.send = send
@@ -55,6 +60,34 @@ public final class SessionStore {
         await request(.sessionPermission(id: Self.newID(), sessionId: sessionID, requestId: requestId, optionId: optionId))
     }
 
+    public func rename(_ sessionID: String, title: String) async {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        await request(.sessionRename(id: Self.newID(), sessionId: sessionID, title: String(trimmed.prefix(120))))
+    }
+
+    public func setArchived(_ sessionID: String, _ archived: Bool) async {
+        await request(.sessionArchive(id: Self.newID(), sessionId: sessionID, archived: archived))
+    }
+
+    public func search(_ query: String) async {
+        guard !query.trimmingCharacters(in: .whitespaces).isEmpty else {
+            latestSearch = nil
+            searchHits = []
+            isSearching = false
+            return
+        }
+        let id = Self.newID()
+        latestSearch = id
+        isSearching = true
+        await request(.sessionSearch(id: id, query: query))
+    }
+
+    /// When the session last saw activity: its newest event, else its creation.
+    public func lastActivity(_ sessionID: String) -> String {
+        events[sessionID]?.last?.at ?? session(sessionID)?.createdAt ?? ""
+    }
+
     /// Sessions whose agent is blocked on the user; drives the Dock badge.
     public var waitingCount: Int {
         sessions.filter { $0.status == .waiting }.count
@@ -75,6 +108,9 @@ public final class SessionStore {
             events[sessionID] = history
         case .sessionEvent(let sessionID, let event):
             append(event, to: sessionID)
+        case .sessionSearchResult(let id, let hits) where id == latestSearch:
+            searchHits = hits
+            isSearching = false
         case .error(let code, let message, let id?):
             pendingCreates.remove(id)
             lastError = Self.describe(code: code, message: message)

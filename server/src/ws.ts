@@ -51,6 +51,18 @@ async function handleRequest(ws: WebSocket, message: Exclude<ClientMessage, { ty
     case "session.permission":
       sessions.respond(message.sessionId, message.requestId, message.optionId);
       return send(ws, { type: "ok", id: message.id });
+    case "session.rename":
+      sessions.rename(message.sessionId, message.title);
+      return send(ws, { type: "ok", id: message.id });
+    case "session.archive":
+      sessions.archive(message.sessionId, message.archived);
+      return send(ws, { type: "ok", id: message.id });
+    case "session.search":
+      return send(ws, {
+        type: "session.search.result",
+        id: message.id,
+        hits: sessions.search(message.query).map(({ sessionId, seq, role, snippet }) => ({ sessionId, seq, role, snippet })),
+      });
   }
 }
 
@@ -67,7 +79,7 @@ function handleConnection(ws: WebSocket, req: IncomingMessage, sessions: Session
     }
     const parsed = parseClientMessage(data.toString());
     if (!parsed.ok) {
-      send(ws, { type: "error", code: parsed.code, message: parsed.message });
+      send(ws, { type: "error", code: parsed.code, message: parsed.message, ...(parsed.id ? { id: parsed.id } : {}) });
       return;
     }
 

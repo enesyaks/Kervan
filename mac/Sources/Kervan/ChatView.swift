@@ -9,6 +9,7 @@ struct ChatView: View {
     @State private var draft = ""
     @State private var attachments: [Attachment] = []
     @State private var dropTargeted = false
+    @State private var highlighted: Int?
 
     var body: some View {
         let session = model.store.session(sessionID)
@@ -31,6 +32,15 @@ struct ChatView: View {
                             TranscriptRow(item: item, agentName: agentName) { requestId, choice in
                                 Task { await model.store.respond(sessionID, requestId: requestId, optionId: choice.optionId) }
                             }
+                            .padding(highlighted == item.id ? 6 : 0)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(Color.kervanLapis.opacity(highlighted == item.id ? 0.14 : 0))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .strokeBorder(Color.kervanLapis.opacity(highlighted == item.id ? 0.7 : 0), lineWidth: 1.5)
+                            )
                             .id(item.id)
                         }
                         if status == .running {
@@ -50,6 +60,24 @@ struct ChatView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .onAppear { proxy.scrollTo(Self.bottom, anchor: .bottom) }
+                .task(id: model.focus?.seq) {
+                    guard let focus = model.focus, focus.sessionID == sessionID else { return }
+                    // The row for a seq is the message that contains it: the last row starting at or before it.
+                    guard let target = items.last(where: { $0.id <= focus.seq })?.id else { return }
+                    try? await Task.sleep(for: .milliseconds(100)) // let the history lay out first
+                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
+                        proxy.scrollTo(target, anchor: .center)
+                        highlighted = target
+                    }
+                    // Clearing focus changes this task's id and cancels it, so the fade-out runs on its own.
+                    model.focus = nil
+                    Task {
+                        try? await Task.sleep(for: .seconds(2.5))
+                        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.4)) {
+                            if highlighted == target { highlighted = nil }
+                        }
+                    }
+                }
                 .onChange(of: Self.scrollKey(items, status)) {
                     withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
                         proxy.scrollTo(Self.bottom, anchor: .bottom)

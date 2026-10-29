@@ -6,7 +6,7 @@ import { isSafeRelativePath } from "./files.ts";
 import { log } from "./log.ts";
 import { KervanError, type ServerMessage, type SessionEvent, type SessionEventBody, type SessionInfo } from "./protocol.ts";
 import type { AgentProcess, AgentRunner, PermissionDecision, PermissionRequest } from "./runner.ts";
-import type { EventStore } from "./store.ts";
+import type { EventStore, IndexedMessage, SearchHit } from "./store.ts";
 
 const DEFAULT_TITLE = "Yeni oturum";
 const TITLE_CHARS = 60;
@@ -25,6 +25,8 @@ interface Session {
   agentSessionId?: string;
   /** Unanswered permission requests by requestId. They wait for as long as the user is away. */
   pending: Map<string, PendingPermission>;
+  /** The agent message currently streaming, kept whole for the search index. */
+  streaming?: IndexedMessage;
 }
 
 type Listener = (message: ServerMessage) => void;
@@ -90,7 +92,7 @@ export class SessionManager {
 
     const id = randomUUID();
     const session: Session = {
-      info: { id, agent, title: DEFAULT_TITLE, status: "starting", createdAt: new Date().toISOString() },
+      info: { id, agent, title: DEFAULT_TITLE, status: "starting", createdAt: new Date().toISOString(), archived: false },
       events: [],
       cwd: join(this.workspacesDir, id),
       pending: new Map(),
@@ -144,6 +146,24 @@ export class SessionManager {
       .finally(() => {
         if (session.info.status === "running" || session.info.status === "waiting") this.setStatus(session, "idle");
       });
+  }
+
+  rename(sessionId: string, title: string): void {
+    const session = this.require(sessionId);
+    session.info.title = title.trim();
+    this.save(session);
+    this.broadcast({ type: "session.updated", session: { ...session.info } });
+  }
+
+  archive(sessionId: string, archived: boolean): void {
+    const session = this.require(sessionId);
+    session.info.archived = archived;
+    this.save(session);
+    this.broadcast({ type: "session.updated", session: { ...session.info } });
+  }
+
+  search(query: string): SearchHit[] {
+    return this.store.search(query);
   }
 
   /** Answers a pending permission request with one of the options the agent offered. */
@@ -257,8 +277,21 @@ export class SessionManager {
     if (this.shuttingDown) return; // recover() on the next start closes whatever was cut off
     const event = { ...body, seq: session.events.length + 1, at: new Date().toISOString() } as SessionEvent;
     this.store.appendEvent(session.info.id, event);
+    this.index(session, event);
     session.events.push(event);
     this.broadcast({ type: "session.event", sessionId: session.info.id, event });
+  }
+
+  /** Keeps the search index in step: user messages at once, agent messages as they grow. */
+  private index(session: Session, event: SessionEvent): void {
+    if (event.kind === "agent_message_chunk") {
+      if (session.streaming) session.streaming.text += event.text;
+      else session.streaming = { seq: event.seq, role: "agent", text: event.text };
+      this.store.indexMessage(session.info.id, session.streaming);
+      return;
+    }
+    if (event.kind !== "agent_thought_chunk") session.streaming = undefined;
+    if (event.kind === "user_message") this.store.indexMessage(session.info.id, { seq: event.seq, role: "user", text: event.text });
   }
 
   private setStatus(session: Session, status: SessionInfo["status"], error?: string): void {

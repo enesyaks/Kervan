@@ -298,3 +298,53 @@ import Testing
         #expect(Transcript.build([event]) == [.user(id: 1, text: "oku", attachments: ["uploads/a.txt"])])
     }
 }
+
+@Suite struct HistoryTests {
+    private func session(_ id: String, archived: Bool = false) -> SessionInfo {
+        SessionInfo(id: id, agent: "claude", title: id, status: .idle, createdAt: "2026-01-01T00:00:00Z", archived: archived)
+    }
+
+    @Test func groupsByLastActivityAndKeepsArchiveApart() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let now = try #require(SessionGroups.parse("2026-10-29T15:00:00.000Z"))
+        let activity = [
+            "today": "2026-10-29T09:00:00.000Z", "today2": "2026-10-29T14:00:00Z",
+            "yesterday": "2026-10-28T23:59:00.000Z", "week": "2026-10-25T10:00:00.000Z",
+            "old": "2026-09-01T10:00:00.000Z", "gone": "2026-10-29T12:00:00.000Z",
+        ]
+        let sessions = ["today", "yesterday", "week", "old", "today2"].map { session($0) } + [session("gone", archived: true)]
+        let (active, archived) = SessionGroups.group(sessions, lastActivity: { activity[$0.id]! }, now: now, calendar: calendar)
+        #expect(active.map(\.title) == ["Bugün", "Dün", "Son 7 gün", "Daha eski"])
+        #expect(active[0].sessions.map(\.id) == ["today2", "today"])
+        #expect(archived.map(\.id) == ["gone"])
+    }
+
+    @Test func splitsSnippetsIntoMatchedRuns() {
+        let hit = SearchHit(sessionId: "s", seq: 2, role: .agent, snippet: "…karavan \u{1}rotası\u{2} hazır \u{1}ipek\u{2}")
+        #expect(hit.parts.map(\.text) == ["…karavan ", "rotası", " hazır ", "ipek"])
+        #expect(hit.parts.map(\.matched) == [false, true, false, true])
+    }
+
+    @Test func decodesSearchResultsAndArchivedSessions() throws {
+        let message = try ServerMessage.decode(#"{"type":"session.search.result","id":"q","hits":[{"sessionId":"s","seq":1,"role":"user","snippet":"x"}]}"#)
+        #expect(message == .sessionSearchResult(id: "q", hits: [SearchHit(sessionId: "s", seq: 1, role: .user, snippet: "x")]))
+        let updated = try ServerMessage.decode(#"{"type":"session.updated","session":{"id":"s","agent":"claude","title":"T","status":"idle","createdAt":"c","archived":true}}"#)
+        #expect(updated == .sessionUpdated(SessionInfo(id: "s", agent: "claude", title: "T", status: .idle, createdAt: "c", archived: true)))
+    }
+
+    @MainActor @Test func keepsOnlyTheLatestSearch() async {
+        final class Box { var sent: [ClientMessage] = [] }
+        let box = Box()
+        let store = SessionStore { box.sent.append($0) }
+        await store.search("ilk")
+        await store.search("ikinci")
+        let ids = box.sent.compactMap { if case .sessionSearch(let id, _) = $0 { id } else { nil } }
+        store.handle(.sessionSearchResult(id: ids[0], hits: [SearchHit(sessionId: "s", seq: 1, role: .user, snippet: "eski")]))
+        #expect(store.searchHits.isEmpty)
+        store.handle(.sessionSearchResult(id: ids[1], hits: [SearchHit(sessionId: "s", seq: 2, role: .user, snippet: "yeni")]))
+        #expect(store.searchHits.map(\.snippet) == ["yeni"])
+        await store.search("  ")
+        #expect(store.searchHits.isEmpty)
+    }
+}

@@ -9,9 +9,10 @@ Her adım tek başına çalışan, test edilebilir bir özellik bırakır.
 | M2 | Tek ajan oturumu (Claude Code, ACP), Mac sohbet ekranı, cevap akışı | ✅ |
 | M3 | Kalıcılık: SQLite olay günlüğü, yeniden başlatmada kurtarma ve devam | ✅ |
 | M4 | Araç çağrıları ve izin onayı (Onayla / Reddet) | ✅ |
-| M5 | Çoklu oturum, geçmiş ekranı, tam metin arama | |
+| M5 | Çoklu oturum, geçmiş ekranı, tam metin arama | ✅ |
 | M6 | Dosya yükleme / indirme, çalışma klasörü tarayıcısı | ✅ |
 | M7 | Ajan kayıt defteri (`agents.yaml`): Codex, Gemini, OpenCode | |
+| M7b | Skill ve MCP yönetimi: skill kütüphanesi, oturum/rol başına açma | |
 | M8 | Takımlar ve roller (`roles.yaml`), takımı elle kurma | |
 | M9 | Orkestrasyon MCP sunucusu: ana ajan yardımcı başlatır ve mesajlaşır | |
 | M10 | Takım görünümü: çok panelli ekran, akış şeridi | |
@@ -19,6 +20,19 @@ Her adım tek başına çalışan, test edilebilir bir özellik bırakır.
 | M12 | PTY yedeği, bildirimler, dayanıklılık | |
 | M13 | Çoklu sunucu (node) | |
 | sonra | Ekip: kullanıcılar, giriş, paylaşım | |
+
+## M7b: Skill ve MCP yönetimi
+
+Ajanlara yetenek eklemek, Mac uygulamasından.
+
+- **Skill kütüphanesi:** sunucuda `/var/lib/kervan/skills/<ad>/SKILL.md` (+ yardımcı dosyalar). Mac'ten klasör olarak
+  yüklenir, listelenir, silinir.
+- **Oturum / rol başına seçim:** yeni oturum açarken (ve M8'de rol tanımında) hangi skill'lerin açık olacağı seçilir.
+- **Ajana iletme:** Claude için seçilen skill'ler oturum başlarken çalışma klasörüne `.claude/skills/` olarak bağlanır
+  (kopya ya da sembolik bağlantı). Skill kavramı olmayan ajanlar için içerik sistem talimatına eklenir.
+- **MCP sunucuları:** aynı ekrandan tanımlanır (komut + argümanlar ya da HTTP adresi + başlıklar) ve ACP
+  `session/new` / `session/resume` içindeki `mcpServers` ile her ajana verilir; böylece Claude, Codex ve Gemini aynı
+  araçları kullanır. Gizli değerler (API anahtarları) Mac'te değil sunucuda, `/etc/kervan/` altında tutulur.
 
 ## M13: Çoklu sunucu
 

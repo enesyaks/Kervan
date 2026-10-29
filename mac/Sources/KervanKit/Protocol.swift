@@ -46,15 +46,70 @@ public struct SessionInfo: Codable, Equatable, Sendable, Identifiable {
     public var title: String
     public var status: SessionStatus
     public var createdAt: String
+    public var archived: Bool
     public var error: String?
 
-    public init(id: String, agent: String, title: String, status: SessionStatus, createdAt: String, error: String? = nil) {
+    public init(
+        id: String, agent: String, title: String, status: SessionStatus, createdAt: String,
+        archived: Bool = false, error: String? = nil
+    ) {
         self.id = id
         self.agent = agent
         self.title = title
         self.status = status
         self.createdAt = createdAt
+        self.archived = archived
         self.error = error
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, agent, title, status, createdAt, archived, error }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        agent = try c.decode(String.self, forKey: .agent)
+        title = try c.decode(String.self, forKey: .title)
+        status = try c.decode(SessionStatus.self, forKey: .status)
+        createdAt = try c.decode(String.self, forKey: .createdAt)
+        archived = try c.decodeIfPresent(Bool.self, forKey: .archived) ?? false
+        error = try c.decodeIfPresent(String.self, forKey: .error)
+    }
+}
+
+public struct SearchHit: Decodable, Equatable, Sendable, Identifiable {
+    public enum Role: String, Decodable, Sendable { case user, agent }
+
+    public let sessionId: String
+    public let seq: Int
+    public let role: Role
+    /// Matches are wrapped in U+0001 … U+0002 by the server.
+    public let snippet: String
+
+    public var id: String { "\(sessionId)-\(seq)" }
+
+    public init(sessionId: String, seq: Int, role: Role, snippet: String) {
+        self.sessionId = sessionId
+        self.seq = seq
+        self.role = role
+        self.snippet = snippet
+    }
+
+    /// The snippet split into runs, `true` for the matched ones.
+    public var parts: [(text: String, matched: Bool)] {
+        var parts: [(String, Bool)] = []
+        var current = ""
+        var matched = false
+        for ch in snippet {
+            if ch == "\u{1}" || ch == "\u{2}" {
+                if !current.isEmpty { parts.append((current, matched)) }
+                current = ""
+                matched = ch == "\u{1}"
+            } else {
+                current.append(ch)
+            }
+        }
+        if !current.isEmpty { parts.append((current, matched)) }
+        return parts
     }
 }
 
@@ -147,9 +202,12 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
     case sessionPrompt(id: String, sessionId: String, text: String, attachments: [String] = [])
     case sessionCancel(id: String, sessionId: String)
     case sessionPermission(id: String, sessionId: String, requestId: String, optionId: String)
+    case sessionRename(id: String, sessionId: String, title: String)
+    case sessionArchive(id: String, sessionId: String, archived: Bool)
+    case sessionSearch(id: String, query: String)
 
     private enum CodingKeys: String, CodingKey {
-        case type, `protocol`, client, id, agent, sessionId, text, requestId, optionId, attachments
+        case type, `protocol`, client, id, agent, sessionId, text, requestId, optionId, attachments, title, archived, query
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -189,6 +247,20 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
             try c.encode(sessionId, forKey: .sessionId)
             try c.encode(requestId, forKey: .requestId)
             try c.encode(optionId, forKey: .optionId)
+        case .sessionRename(let id, let sessionId, let title):
+            try c.encode("session.rename", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(sessionId, forKey: .sessionId)
+            try c.encode(title, forKey: .title)
+        case .sessionArchive(let id, let sessionId, let archived):
+            try c.encode("session.archive", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(sessionId, forKey: .sessionId)
+            try c.encode(archived, forKey: .archived)
+        case .sessionSearch(let id, let query):
+            try c.encode("session.search", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(query, forKey: .query)
         }
     }
 
@@ -209,11 +281,12 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
     case sessionHistoryResult(id: String, sessionId: String, events: [SessionEvent])
     case sessionUpdated(SessionInfo)
     case sessionEvent(sessionId: String, event: SessionEvent)
+    case sessionSearchResult(id: String, hits: [SearchHit])
     /// A type this client doesn't know yet. Ignored, so the server can add types without a version bump.
     case unknown(type: String)
 
     private enum CodingKeys: String, CodingKey {
-        case type, `protocol`, server, agents, id, code, message, session, sessions, sessionId, events, event
+        case type, `protocol`, server, agents, id, code, message, session, sessions, sessionId, events, event, hits
     }
 
     public init(from decoder: any Decoder) throws {
@@ -247,6 +320,8 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
         case "session.updated": self = .sessionUpdated(try c.decode(SessionInfo.self, forKey: .session))
         case "session.event":
             self = .sessionEvent(sessionId: try c.decode(String.self, forKey: .sessionId), event: try c.decode(SessionEvent.self, forKey: .event))
+        case "session.search.result":
+            self = .sessionSearchResult(id: try c.decode(String.self, forKey: .id), hits: try c.decode([SearchHit].self, forKey: .hits))
         default:
             self = .unknown(type: type)
         }

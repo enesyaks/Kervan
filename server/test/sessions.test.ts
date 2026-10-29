@@ -212,4 +212,31 @@ describe("sessions", () => {
     send(ws, { type: "session.prompt", id: "ghost", sessionId: "nope", text: "hi" });
     assert.equal((await inbox.waitFor((m) => m.type === "error" && m.id === "ghost")).code, "unknown_session");
   });
+
+  it("renames, archives and finds sessions", async () => {
+    const { ws, inbox } = await client();
+    const sessionId = await idleSession(ws, inbox);
+    send(ws, { type: "session.prompt", id: nextId(), sessionId, text: "karavan rotası" });
+    await inbox.waitFor((m) => m.type === "session.event" && m.sessionId === sessionId && m.event.kind === "turn_end");
+
+    send(ws, { type: "session.rename", id: nextId(), sessionId, title: "  İpek Yolu  " });
+    await inbox.waitFor((m) => m.type === "session.updated" && m.session.id === sessionId && m.session.title === "İpek Yolu");
+
+    send(ws, { type: "session.archive", id: nextId(), sessionId, archived: true });
+    await inbox.waitFor((m) => m.type === "session.updated" && m.session.id === sessionId && m.session.archived === true);
+
+    const searchId = nextId();
+    send(ws, { type: "session.search", id: searchId, query: "rotasi" });
+    const { hits } = await inbox.waitFor((m) => m.type === "session.search.result" && m.id === searchId);
+    assert.deepEqual(
+      hits.filter((h: any) => h.sessionId === sessionId).map((h: any) => h.role).sort(),
+      ["agent", "user"],
+      "the prompt and the agent's echo of it",
+    );
+
+    const bad = nextId();
+    send(ws, { type: "session.archive", id: bad, sessionId, archived: "yes" });
+    assert.equal((await inbox.waitFor((m) => m.type === "error" && m.id === bad)).code, "bad_message");
+  });
 });
+

@@ -76,7 +76,10 @@ export class Inbox {
     const existing = this.received.find(match);
     if (existing) return Promise.resolve(existing);
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("timed out waiting for message")), timeoutMs);
+      const timer = setTimeout(() => {
+        const recent = this.received.slice(-4).map((m) => JSON.stringify(m).slice(0, 160));
+        reject(new Error(`timed out waiting for message; last received:\n${recent.join("\n")}`));
+      }, timeoutMs);
       this.waiters.push({ match, resolve: (m) => (clearTimeout(timer), resolve(m)) });
     });
   }

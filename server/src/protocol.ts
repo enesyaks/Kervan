@@ -26,7 +26,16 @@ export interface SessionInfo {
   title: string;
   status: SessionStatus;
   createdAt: string;
+  archived: boolean;
   error?: string;
+}
+
+export interface SearchHit {
+  sessionId: string;
+  seq: number;
+  role: "user" | "agent";
+  /** Matched terms are wrapped in \u0001 … \u0002. */
+  snippet: string;
 }
 
 // Agent-neutral events. Runners translate their agent's own updates (ACP, PTY…) into these.
@@ -60,7 +69,10 @@ export type ClientMessage =
   | { type: "session.history"; id: string; sessionId: string }
   | { type: "session.prompt"; id: string; sessionId: string; text: string; attachments?: string[] }
   | { type: "session.cancel"; id: string; sessionId: string }
-  | { type: "session.permission"; id: string; sessionId: string; requestId: string; optionId: string };
+  | { type: "session.permission"; id: string; sessionId: string; requestId: string; optionId: string }
+  | { type: "session.rename"; id: string; sessionId: string; title: string }
+  | { type: "session.archive"; id: string; sessionId: string; archived: boolean }
+  | { type: "session.search"; id: string; query: string };
 
 export type ErrorCode =
   | "bad_message"
@@ -82,9 +94,12 @@ export type ServerMessage =
   | { type: "session.list.result"; id: string; sessions: SessionInfo[] }
   | { type: "session.history.result"; id: string; sessionId: string; events: SessionEvent[] }
   | { type: "session.updated"; session: SessionInfo }
-  | { type: "session.event"; sessionId: string; event: SessionEvent };
+  | { type: "session.event"; sessionId: string; event: SessionEvent }
+  | { type: "session.search.result"; id: string; hits: SearchHit[] };
 
-export type ParseResult = { ok: true; message: ClientMessage } | { ok: false; code: ErrorCode; message: string };
+export type ParseResult =
+  | { ok: true; message: ClientMessage }
+  | { ok: false; code: ErrorCode; message: string; id?: string };
 
 /** Raised by request handlers; ws.ts turns it into an `error` reply carrying the request id. */
 export class KervanError extends Error {
@@ -113,6 +128,9 @@ const STRING_FIELDS: Record<string, readonly string[]> = {
   "session.prompt": ["id", "sessionId", "text"],
   "session.cancel": ["id", "sessionId"],
   "session.permission": ["id", "sessionId", "requestId", "optionId"],
+  "session.rename": ["id", "sessionId", "title"],
+  "session.archive": ["id", "sessionId"],
+  "session.search": ["id", "query"],
 };
 
 export function parseClientMessage(raw: string): ParseResult {
@@ -126,32 +144,42 @@ export function parseClientMessage(raw: string): ParseResult {
     return { ok: false, code: "bad_message", message: "expected a JSON object with a string 'type'" };
   }
 
+  const fail = (code: ErrorCode, message: string): ParseResult =>
+    typeof data.id === "string" ? { ok: false, code, message, id: data.id } : { ok: false, code, message };
+
   if (data.type === "hello") {
     if (typeof data.protocol !== "number" || !isPeerInfo(data.client)) {
-      return { ok: false, code: "bad_message", message: "hello needs 'protocol' and 'client: {name, version}'" };
+      return fail("bad_message", "hello needs 'protocol' and 'client: {name, version}'");
     }
     return { ok: true, message: { type: "hello", protocol: data.protocol, client: data.client } };
   }
 
   const fields = STRING_FIELDS[data.type];
   if (!fields) {
-    return { ok: false, code: "unknown_type", message: `unknown message type '${data.type}'` };
+    return fail("unknown_type", `unknown message type '${data.type}'`);
   }
   const message: Record<string, string> = { type: data.type };
   for (const field of fields) {
     const value = data[field];
     if (typeof value !== "string") {
-      return { ok: false, code: "bad_message", message: `${data.type} needs a string '${field}'` };
+      return fail("bad_message", `${data.type} needs a string '${field}'`);
     }
     message[field] = value;
   }
   if (data.type === "session.prompt" && (message.text.trim() === "" || message.text.length > MAX_PROMPT_CHARS)) {
-    return { ok: false, code: "bad_message", message: `prompt text must be 1–${MAX_PROMPT_CHARS} characters` };
+    return fail("bad_message", `prompt text must be 1–${MAX_PROMPT_CHARS} characters`);
+  }
+  if (data.type === "session.archive") {
+    if (typeof data.archived !== "boolean") return fail("bad_message", "session.archive needs a boolean 'archived'");
+    (message as Record<string, unknown>).archived = data.archived;
+  }
+  if (data.type === "session.rename" && (message.title.trim() === "" || message.title.length > 120)) {
+    return fail("bad_message", "title must be 1–120 characters");
   }
   if (data.type === "session.prompt" && data.attachments !== undefined) {
     const list = data.attachments;
     if (!Array.isArray(list) || list.length > MAX_ATTACHMENTS || !list.every((a) => typeof a === "string")) {
-      return { ok: false, code: "bad_message", message: `attachments must be up to ${MAX_ATTACHMENTS} paths` };
+      return fail("bad_message", `attachments must be up to ${MAX_ATTACHMENTS} paths`);
     }
     (message as Record<string, unknown>).attachments = list;
   }

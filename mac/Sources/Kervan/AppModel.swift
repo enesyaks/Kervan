@@ -14,6 +14,8 @@ final class AppModel {
     var tokenInput = ""
     var selectedSessionID: String?
     var showFiles = false
+    /// A message to scroll to and flash, set by picking a search hit; ChatView clears it.
+    var focus: (sessionID: String, seq: Int)?
 
     let connection: KervanConnection
     let store: SessionStore
@@ -74,6 +76,11 @@ final class AppModel {
     func disconnect() {
         connection.disconnect()
         isLinked = false
+    }
+
+    func open(sessionID: String, at seq: Int) {
+        focus = (sessionID, seq)
+        selectedSessionID = sessionID
     }
 
     func newSession() {
