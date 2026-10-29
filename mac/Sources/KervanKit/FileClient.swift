@@ -26,8 +26,22 @@ public struct WorkspaceListing: Decodable, Equatable, Sendable {
     public let truncated: Bool
 }
 
+public struct SkillInfo: Decodable, Equatable, Sendable, Identifiable {
+    public let name: String
+    public let description: String
+    public let files: Int
+    public var id: String { name }
+
+    public init(name: String, description: String, files: Int) {
+        self.name = name
+        self.description = description
+        self.files = files
+    }
+}
+
 public enum FileClientError: Error, Equatable, LocalizedError {
     case http(status: Int)
+    case notASkill
 
     public var errorDescription: String? {
         switch self {
@@ -36,6 +50,7 @@ public enum FileClientError: Error, Equatable, LocalizedError {
         case .http(413): "Dosya sunucunun kabul ettiği boyuttan büyük."
         case .http(400): "Bu dosya yolu kabul edilmedi."
         case .http(let status): "Sunucu isteği tamamlayamadı (HTTP \(status))."
+        case .notASkill: "Seçilen klasörde SKILL.md yok; bir skill klasörü seçin."
         }
     }
 }
@@ -81,6 +96,67 @@ public struct FileClient: Sendable {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try FileManager.default.moveItem(at: temporary, to: destination)
         return destination
+    }
+
+    // MARK: Skills
+
+    private func skillURL(_ name: String = "", path: String = "") -> URL {
+        let segments = ["v1", "skills"] + [name].filter { !$0.isEmpty } + path.split(separator: "/").map(String.init)
+        let encoded = segments.map { $0.addingPercentEncoding(withAllowedCharacters: Self.segmentAllowed) ?? $0 }
+        return URL(string: encoded.joined(separator: "/"), relativeTo: base)!.absoluteURL
+    }
+
+    public func listSkills() async throws -> [SkillInfo] {
+        struct Listing: Decodable { let skills: [SkillInfo] }
+        let (data, response) = try await session.data(for: request(skillURL()))
+        try Self.check(response)
+        return try JSONDecoder().decode(Listing.self, from: data).skills
+    }
+
+    /// Uploads a skill folder (it must hold SKILL.md) under `skillName(for:)`. SKILL.md goes last, so the
+    /// server only lists the skill once every file is there. Returns the name used.
+    @discardableResult
+    public func uploadSkill(folder: URL) async throws -> String {
+        let files = try Self.skillFiles(in: folder)
+        guard files.contains("SKILL.md") else { throw FileClientError.notASkill }
+        let name = Self.skillName(for: folder)
+        for path in files.sorted(by: { a, _ in a != "SKILL.md" }) {
+            var request = request(skillURL(name, path: path))
+            request.httpMethod = "PUT"
+            let (_, response) = try await session.upload(for: request, fromFile: folder.appendingPathComponent(path))
+            try Self.check(response)
+        }
+        return name
+    }
+
+    public func deleteSkill(_ name: String) async throws {
+        var request = request(skillURL(name))
+        request.httpMethod = "DELETE"
+        let (_, response) = try await session.data(for: request)
+        try Self.check(response)
+    }
+
+    /// "Rapor Şablonu" → "rapor-sablonu": the server accepts lowercase letters, digits and '-'.
+    public static func skillName(for folder: URL) -> String {
+        let folded = folder.lastPathComponent
+            .replacingOccurrences(of: "ı", with: "i").replacingOccurrences(of: "İ", with: "i")
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+            .lowercased()
+        let dashed = folded.map { $0.isLetter && $0.isASCII || $0.isNumber ? String($0) : "-" }.joined()
+        let trimmed = dashed.split(separator: "-").joined(separator: "-")
+        return String(trimmed.prefix(64)).isEmpty ? "skill" : String(trimmed.prefix(64))
+    }
+
+    /// Relative paths of the regular files in `folder`, hidden ones (.DS_Store, .git) left out.
+    static func skillFiles(in folder: URL) throws -> [String] {
+        let keys: [URLResourceKey] = [.isRegularFileKey]
+        guard let walker = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles]) else { return [] }
+        let base = folder.standardizedFileURL.path
+        var paths: [String] = []
+        for case let url as URL in walker where (try? url.resourceValues(forKeys: Set(keys)).isRegularFile) == true {
+            paths.append(String(url.standardizedFileURL.path.dropFirst(base.count + 1)))
+        }
+        return paths
     }
 
     private func request(_ url: URL) -> URLRequest {

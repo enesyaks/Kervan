@@ -95,10 +95,23 @@ final class AppModel {
         store.agents.first { $0.id == lastAgentID } ?? store.agents.first
     }
 
+    static let lastSkillsKey = "lastSkills"
+    static let lastMcpKey = "lastMcpServers"
+
+    /// Set to an agent id to show the new-session sheet with that agent picked.
+    var newSessionAgent: String?
+
+    /// Opens the new-session sheet; the session starts from there.
     func newSession(agent: String? = nil) {
         guard let agent = agent ?? defaultAgent?.id else { return }
+        newSessionAgent = agent
+    }
+
+    func startSession(agent: String, skills: [String], mcpServers: [String]) {
         lastAgentID = agent
-        Task { await store.create(agent: agent) }
+        UserDefaults.standard.set(skills, forKey: Self.lastSkillsKey)
+        UserDefaults.standard.set(mcpServers, forKey: Self.lastMcpKey)
+        Task { await store.create(agent: agent, skills: skills, mcpServers: mcpServers) }
     }
 
     private func restoreToken() async {

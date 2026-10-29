@@ -58,11 +58,13 @@ public struct SessionInfo: Codable, Equatable, Sendable, Identifiable {
     public var status: SessionStatus
     public var createdAt: String
     public var archived: Bool
+    public var skills: [String]
+    public var mcpServers: [String]
     public var error: String?
 
     public init(
         id: String, agent: String, title: String, status: SessionStatus, createdAt: String,
-        archived: Bool = false, error: String? = nil
+        archived: Bool = false, skills: [String] = [], mcpServers: [String] = [], error: String? = nil
     ) {
         self.id = id
         self.agent = agent
@@ -70,10 +72,12 @@ public struct SessionInfo: Codable, Equatable, Sendable, Identifiable {
         self.status = status
         self.createdAt = createdAt
         self.archived = archived
+        self.skills = skills
+        self.mcpServers = mcpServers
         self.error = error
     }
 
-    private enum CodingKeys: String, CodingKey { case id, agent, title, status, createdAt, archived, error }
+    private enum CodingKeys: String, CodingKey { case id, agent, title, status, createdAt, archived, skills, mcpServers, error }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -83,7 +87,81 @@ public struct SessionInfo: Codable, Equatable, Sendable, Identifiable {
         status = try c.decode(SessionStatus.self, forKey: .status)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         archived = try c.decodeIfPresent(Bool.self, forKey: .archived) ?? false
+        skills = try c.decodeIfPresent([String].self, forKey: .skills) ?? []
+        mcpServers = try c.decodeIfPresent([String].self, forKey: .mcpServers) ?? []
         error = try c.decodeIfPresent(String.self, forKey: .error)
+    }
+}
+
+/// An MCP server as the server describes it: secret values are reduced to their names.
+public struct McpServerSummary: Codable, Equatable, Sendable, Identifiable {
+    public enum Transport: String, Codable, Sendable { case stdio, http }
+
+    public let name: String
+    public let transport: Transport
+    public let command: String?
+    public let args: [String]?
+    public let url: String?
+    public let envKeys: [String]
+    public let headerKeys: [String]
+
+    public var id: String { name }
+
+    public init(name: String, transport: Transport, command: String? = nil, args: [String]? = nil, url: String? = nil, envKeys: [String] = [], headerKeys: [String] = []) {
+        self.name = name
+        self.transport = transport
+        self.command = command
+        self.args = args
+        self.url = url
+        self.envKeys = envKeys
+        self.headerKeys = headerKeys
+    }
+}
+
+/// What the app sends to save an MCP server. A `nil` secret value keeps the one stored on the server.
+public struct McpServerInput: Encodable, Equatable, Sendable {
+    public var name: String
+    public var transport: McpServerSummary.Transport
+    public var command: String?
+    public var args: [String]?
+    public var env: [String: String?]?
+    public var url: String?
+    public var headers: [String: String?]?
+
+    public init(
+        name: String, transport: McpServerSummary.Transport, command: String? = nil, args: [String]? = nil,
+        env: [String: String?]? = nil, url: String? = nil, headers: [String: String?]? = nil
+    ) {
+        self.name = name
+        self.transport = transport
+        self.command = command
+        self.args = args
+        self.env = env
+        self.url = url
+        self.headers = headers
+    }
+
+    private enum CodingKeys: String, CodingKey { case name, transport, command, args, env, url, headers }
+
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(name, forKey: .name)
+        try c.encode(transport, forKey: .transport)
+        try c.encodeIfPresent(command, forKey: .command)
+        try c.encodeIfPresent(args, forKey: .args)
+        try c.encodeIfPresent(url, forKey: .url)
+        // Encode nil values as JSON null ("keep"), which the synthesized encoder would drop.
+        if let env { try c.encode(env.mapValues { NullableString($0) }, forKey: .env) }
+        if let headers { try c.encode(headers.mapValues { NullableString($0) }, forKey: .headers) }
+    }
+
+    private struct NullableString: Encodable {
+        let value: String?
+        init(_ value: String?) { self.value = value }
+        func encode(to encoder: any Encoder) throws {
+            var c = encoder.singleValueContainer()
+            if let value { try c.encode(value) } else { try c.encodeNil() }
+        }
     }
 }
 
@@ -207,7 +285,7 @@ public struct SessionEvent: Decodable, Equatable, Sendable {
 public enum ClientMessage: Encodable, Equatable, Sendable {
     case hello(client: PeerInfo)
     case ping(id: String)
-    case sessionCreate(id: String, agent: String)
+    case sessionCreate(id: String, agent: String, skills: [String] = [], mcpServers: [String] = [])
     case sessionList(id: String)
     case sessionHistory(id: String, sessionId: String)
     case sessionPrompt(id: String, sessionId: String, text: String, attachments: [String] = [])
@@ -216,9 +294,13 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
     case sessionRename(id: String, sessionId: String, title: String)
     case sessionArchive(id: String, sessionId: String, archived: Bool)
     case sessionSearch(id: String, query: String)
+    case mcpList(id: String)
+    case mcpSave(id: String, server: McpServerInput)
+    case mcpDelete(id: String, name: String)
 
     private enum CodingKeys: String, CodingKey {
         case type, `protocol`, client, id, agent, sessionId, text, requestId, optionId, attachments, title, archived, query
+        case skills, mcpServers, server, name
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -231,10 +313,12 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
         case .ping(let id):
             try c.encode("ping", forKey: .type)
             try c.encode(id, forKey: .id)
-        case .sessionCreate(let id, let agent):
+        case .sessionCreate(let id, let agent, let skills, let mcpServers):
             try c.encode("session.create", forKey: .type)
             try c.encode(id, forKey: .id)
             try c.encode(agent, forKey: .agent)
+            if !skills.isEmpty { try c.encode(skills, forKey: .skills) }
+            if !mcpServers.isEmpty { try c.encode(mcpServers, forKey: .mcpServers) }
         case .sessionList(let id):
             try c.encode("session.list", forKey: .type)
             try c.encode(id, forKey: .id)
@@ -272,6 +356,17 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
             try c.encode("session.search", forKey: .type)
             try c.encode(id, forKey: .id)
             try c.encode(query, forKey: .query)
+        case .mcpList(let id):
+            try c.encode("mcp.list", forKey: .type)
+            try c.encode(id, forKey: .id)
+        case .mcpSave(let id, let server):
+            try c.encode("mcp.save", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(server, forKey: .server)
+        case .mcpDelete(let id, let name):
+            try c.encode("mcp.delete", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(name, forKey: .name)
         }
     }
 
@@ -294,11 +389,12 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
     case sessionUpdated(SessionInfo)
     case sessionEvent(sessionId: String, event: SessionEvent)
     case sessionSearchResult(id: String, hits: [SearchHit])
+    case mcpListResult(id: String, servers: [McpServerSummary])
     /// A type this client doesn't know yet. Ignored, so the server can add types without a version bump.
     case unknown(type: String)
 
     private enum CodingKeys: String, CodingKey {
-        case type, `protocol`, server, agents, agentDetails, id, code, message, session, sessions, sessionId, events, event, hits
+        case type, `protocol`, server, agents, agentDetails, id, code, message, session, sessions, sessionId, events, event, hits, servers
     }
 
     public init(from decoder: any Decoder) throws {
@@ -335,6 +431,8 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
         case "session.updated": self = .sessionUpdated(try c.decode(SessionInfo.self, forKey: .session))
         case "session.event":
             self = .sessionEvent(sessionId: try c.decode(String.self, forKey: .sessionId), event: try c.decode(SessionEvent.self, forKey: .event))
+        case "mcp.list.result":
+            self = .mcpListResult(id: try c.decode(String.self, forKey: .id), servers: try c.decode([McpServerSummary].self, forKey: .servers))
         case "session.search.result":
             self = .sessionSearchResult(id: try c.decode(String.self, forKey: .id), hits: try c.decode([SearchHit].self, forKey: .hits))
         default:

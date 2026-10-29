@@ -192,7 +192,7 @@ import Testing
     @Test func selectsOnlySessionsItCreated() async {
         let (store, outbox) = makeStore()
         await store.create(agent: "claude")
-        guard case .sessionCreate(let requestID, "claude")? = outbox.sent.last else {
+        guard case .sessionCreate(let requestID, "claude", _, _)? = outbox.sent.last else {
             Issue.record("expected a session.create")
             return
         }
@@ -359,5 +359,36 @@ import Testing
         await store.connected(agents: [AgentInfo(id: "codex", name: "Codex")])
         #expect(store.agentName("codex") == "Codex")
         #expect(store.agentName("gone") == "gone")
+    }
+}
+
+@Suite struct SkillAndMcpTests {
+    @Test func namesSkillsFromTheirFolder() {
+        #expect(FileClient.skillName(for: URL(fileURLWithPath: "/x/Rapor Şablonu")) == "rapor-sablonu")
+        #expect(FileClient.skillName(for: URL(fileURLWithPath: "/x/İstanbul_Notları v2")) == "istanbul-notlari-v2")
+    }
+
+    @Test func findsSkillFilesWithoutHiddenOnes() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder.appendingPathComponent("templates"), withIntermediateDirectories: true)
+        for path in ["SKILL.md", "templates/rapor.md", ".DS_Store"] {
+            try Data("x".utf8).write(to: folder.appendingPathComponent(path))
+        }
+        #expect(Set(try FileClient.skillFiles(in: folder)) == ["SKILL.md", "templates/rapor.md"])
+    }
+
+    @Test func sendsNullToKeepAStoredSecret() throws {
+        let input = McpServerInput(name: "github", transport: .stdio, command: "npx", args: [], env: ["GITHUB_TOKEN": nil, "EXTRA": "1"])
+        let json = try ClientMessage.mcpSave(id: "r", server: input).jsonString()
+        #expect(json.contains(#""GITHUB_TOKEN":null"#))
+        #expect(json.contains(#""EXTRA":"1""#))
+        #expect(!json.contains("headers"))
+    }
+
+    @Test func decodesTheMcpListAndSessionChoices() throws {
+        let list = try ServerMessage.decode(#"{"type":"mcp.list.result","id":"r","servers":[{"name":"github","transport":"stdio","command":"npx","args":[],"envKeys":["GITHUB_TOKEN"],"headerKeys":[]}]}"#)
+        #expect(list == .mcpListResult(id: "r", servers: [McpServerSummary(name: "github", transport: .stdio, command: "npx", args: [], envKeys: ["GITHUB_TOKEN"])]))
+        let created = try ClientMessage.sessionCreate(id: "c", agent: "claude", skills: ["rapor"], mcpServers: ["github"]).jsonString()
+        #expect(created == #"{"agent":"claude","id":"c","mcpServers":["github"],"skills":["rapor"],"type":"session.create"}"#)
     }
 }

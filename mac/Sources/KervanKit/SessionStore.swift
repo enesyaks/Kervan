@@ -18,6 +18,8 @@ public final class SessionStore {
     public var lastError: String?
     /// Hits for the latest search only; older, slower answers are dropped.
     public private(set) var searchHits: [SearchHit] = []
+    /// MCP servers registered on the server, refreshed on connect and after every change.
+    public private(set) var mcpServers: [McpServerSummary] = []
     /// True while the latest search is on its way.
     public private(set) var isSearching = false
 
@@ -46,12 +48,21 @@ public final class SessionStore {
     public func connected(agents: [AgentInfo]) async {
         self.agents = agents
         await request(.sessionList(id: Self.newID()))
+        await request(.mcpList(id: Self.newID()))
     }
 
-    public func create(agent: String) async {
+    public func create(agent: String, skills: [String] = [], mcpServers: [String] = []) async {
         let id = Self.newID()
         pendingCreates.insert(id)
-        await request(.sessionCreate(id: id, agent: agent))
+        await request(.sessionCreate(id: id, agent: agent, skills: skills, mcpServers: mcpServers))
+    }
+
+    public func saveMcp(_ server: McpServerInput) async {
+        await request(.mcpSave(id: Self.newID(), server: server))
+    }
+
+    public func deleteMcp(_ name: String) async {
+        await request(.mcpDelete(id: Self.newID(), name: name))
     }
 
     public func prompt(_ sessionID: String, text: String, attachments: [String] = []) async {
@@ -114,6 +125,8 @@ public final class SessionStore {
             events[sessionID] = history
         case .sessionEvent(let sessionID, let event):
             append(event, to: sessionID)
+        case .mcpListResult(_, let servers):
+            mcpServers = servers
         case .sessionSearchResult(let id, let hits) where id == latestSearch:
             searchHits = hits
             isSearching = false

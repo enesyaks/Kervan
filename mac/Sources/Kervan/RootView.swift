@@ -21,6 +21,11 @@ struct RootView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
+        .sheet(isPresented: Binding(get: { model.newSessionAgent != nil }, set: { if !$0 { model.newSessionAgent = nil } })) {
+            if let agent = model.newSessionAgent {
+                NewSessionSheet(agent: agent).environment(model)
+            }
+        }
         .onChange(of: model.store.lastCreatedSessionID) { _, created in
             if let created { model.selectedSessionID = created }
         }

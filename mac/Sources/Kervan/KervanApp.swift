@@ -18,6 +18,12 @@ struct KervanApp: App {
                 NewSessionCommands(model: model)
             }
         }
+
+        Settings {
+            SettingsView()
+                .environment(model)
+                .tint(.kervanLapis)
+        }
     }
 }
 

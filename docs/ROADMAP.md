@@ -12,7 +12,7 @@ Her adım tek başına çalışan, test edilebilir bir özellik bırakır.
 | M5 | Çoklu oturum, geçmiş ekranı, tam metin arama | ✅ |
 | M6 | Dosya yükleme / indirme, çalışma klasörü tarayıcısı | ✅ |
 | M7 | Ajan kayıt defteri (`agents.yaml`): Codex, Gemini, OpenCode | ✅ |
-| M7b | Skill ve MCP yönetimi: skill kütüphanesi, oturum/rol başına açma | 🚧 |
+| M7b | Skill ve MCP yönetimi: skill kütüphanesi, oturum/rol başına açma | ✅ |
 | M7c | Ajanları uygulamadan ekleme / düzenleme (node seçimi M13 ile) | |
 | M8 | Takımlar ve roller (`roles.yaml`), takımı elle kurma | |
 | M9 | Orkestrasyon MCP sunucusu: ana ajan yardımcı başlatır ve mesajlaşır | |
