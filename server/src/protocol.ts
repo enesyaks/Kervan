@@ -30,8 +30,22 @@ export interface SessionInfo {
   /** Skills and MCP servers chosen when the session was created. */
   skills: string[];
   mcpServers: string[];
+  /** Set for team members: the team and the member's role name. */
+  teamId?: string;
+  role?: string;
   error?: string;
 }
+
+export interface TeamInfo {
+  id: string;
+  title: string;
+  createdAt: string;
+  /** Member sessions, in the order the roles were given. */
+  sessionIds: string[];
+}
+
+export type { Role } from "./roles.ts";
+import type { Role } from "./roles.ts";
 
 export type { AgentSummary } from "./catalog.ts";
 import type { AgentSummary } from "./catalog.ts";
@@ -95,7 +109,12 @@ export type ClientMessage =
   | { type: "mcp.delete"; id: string; name: string }
   | { type: "agent.list"; id: string }
   | { type: "agent.save"; id: string; agent: Record<string, unknown> }
-  | { type: "agent.delete"; id: string; agentId: string };
+  | { type: "agent.delete"; id: string; agentId: string }
+  | { type: "role.list"; id: string }
+  | { type: "role.save"; id: string; role: Record<string, unknown> }
+  | { type: "role.delete"; id: string; roleId: string }
+  | { type: "team.create"; id: string; title: string; roles: string[] }
+  | { type: "team.list"; id: string };
 
 export type ErrorCode =
   | "bad_message"
@@ -121,6 +140,10 @@ export type ServerMessage =
   | { type: "session.search.result"; id: string; hits: SearchHit[] }
   | { type: "mcp.list.result"; id: string; servers: McpServerSummary[] }
   | { type: "agent.list.result"; id: string; agents: AgentSummary[]; nodes: string[] }
+  | { type: "role.list.result"; id: string; roles: Role[] }
+  | { type: "team.created"; id: string; team: TeamInfo }
+  | { type: "team.list.result"; id: string; teams: TeamInfo[] }
+  | { type: "team.updated"; team: TeamInfo }
   /** Broadcast after the agent catalog changes, in the same shape as `welcome`. */
   | { type: "agents.updated"; agents: string[]; agentDetails: { id: string; name: string }[] };
 
@@ -164,7 +187,14 @@ const STRING_FIELDS: Record<string, readonly string[]> = {
   "agent.list": ["id"],
   "agent.save": ["id"],
   "agent.delete": ["id", "agentId"],
+  "role.list": ["id"],
+  "role.save": ["id"],
+  "role.delete": ["id", "roleId"],
+  "team.create": ["id", "title"],
+  "team.list": ["id"],
 };
+
+const MAX_TEAM = 8;
 
 const MAX_SELECTED = 32;
 
@@ -213,6 +243,18 @@ export function parseClientMessage(raw: string): ParseResult {
       }
       (message as Record<string, unknown>)[field] = list;
     }
+  }
+  if (data.type === "role.save") {
+    if (!isRecord(data.role)) return fail("bad_message", "role.save needs a 'role' object");
+    (message as Record<string, unknown>).role = data.role;
+  }
+  if (data.type === "team.create") {
+    const roles = data.roles;
+    if (!Array.isArray(roles) || roles.length === 0 || roles.length > MAX_TEAM || !roles.every((r) => typeof r === "string")) {
+      return fail("bad_message", `a team needs 1–${MAX_TEAM} roles`);
+    }
+    if (message.title.trim() === "" || message.title.length > 120) return fail("bad_message", "team title must be 1–120 characters");
+    (message as Record<string, unknown>).roles = roles;
   }
   if (data.type === "agent.save") {
     if (!isRecord(data.agent)) return fail("bad_message", "agent.save needs an 'agent' object");

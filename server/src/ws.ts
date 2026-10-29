@@ -37,6 +37,11 @@ function agentList(id: string, sessions: SessionManager): ServerMessage {
   return { type: "agent.list.result", id, agents: requireCatalog(sessions).list(), nodes: NODES };
 }
 
+function requireRoles(sessions: SessionManager) {
+  if (!sessions.roles) throw new KervanError("bad_message", "this server has no roles");
+  return sessions.roles;
+}
+
 function requireMcp(sessions: SessionManager) {
   if (!sessions.mcp) throw new KervanError("bad_message", "this server has no MCP registry");
   return sessions.mcp;
@@ -86,6 +91,18 @@ async function handleRequest(ws: WebSocket, message: Exclude<ClientMessage, { ty
       requireCatalog(sessions).remove(message.agentId);
       sessions.agentsChanged();
       return send(ws, agentList(message.id, sessions));
+    case "role.list":
+      return send(ws, { type: "role.list.result", id: message.id, roles: requireRoles(sessions).list() });
+    case "role.save":
+      requireRoles(sessions).save(message.role);
+      return send(ws, { type: "role.list.result", id: message.id, roles: requireRoles(sessions).list() });
+    case "role.delete":
+      requireRoles(sessions).remove(message.roleId);
+      return send(ws, { type: "role.list.result", id: message.id, roles: requireRoles(sessions).list() });
+    case "team.create":
+      return send(ws, { type: "team.created", id: message.id, team: await sessions.createTeam(message.title, message.roles) });
+    case "team.list":
+      return send(ws, { type: "team.list.result", id: message.id, teams: sessions.listTeams() });
     case "mcp.list":
       return send(ws, { type: "mcp.list.result", id: message.id, servers: requireMcp(sessions).list() });
     case "mcp.save":

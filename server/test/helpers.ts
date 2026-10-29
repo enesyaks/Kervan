@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import WebSocket from "ws";
 import { AgentCatalog } from "../src/catalog.ts";
+import { RoleRegistry } from "../src/roles.ts";
 import { LocalAcpRunner, probeAgent } from "../src/runner.ts";
 import { createKervanServer } from "../src/server.ts";
 import { SessionManager } from "../src/sessions.ts";
@@ -26,7 +27,12 @@ export async function startServer(
   const runner = new LocalAcpRunner();
   const base = new Map([["fake", { ...fakeAgent, skillsDir: ".fake/skills" }]]);
   const catalog = new AgentCatalog(join(dataDir, "agents.json"), base, (definition) => probeAgent(runner, definition, 10_000));
-  const sessions = new SessionManager(runner, catalog.live, workspaces, new EventStore(":memory:"), { skills, mcp, catalog });
+  const roles = new RoleRegistry(join(dataDir, "roles.json"), {
+    hasAgent: (id) => catalog.live.has(id),
+    hasSkill: (name) => skills.has(name),
+    hasMcp: (name) => mcp.has(name),
+  });
+  const sessions = new SessionManager(runner, catalog.live, workspaces, new EventStore(":memory:"), { skills, mcp, catalog, roles });
   const server = createKervanServer({ token: TEST_TOKEN, sessions, skills, ...options });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const port = (server.address() as AddressInfo).port;

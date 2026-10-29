@@ -4,12 +4,17 @@ import { join } from "node:path";
 import type { AgentRegistry } from "./agents.ts";
 import { isSafeRelativePath } from "./files.ts";
 import { log } from "./log.ts";
-import { KervanError, type ServerMessage, type SessionEvent, type SessionEventBody, type SessionInfo } from "./protocol.ts";
+import { KervanError, type ServerMessage, type TeamInfo, type SessionEvent, type SessionEventBody, type SessionInfo } from "./protocol.ts";
 import type { AgentProcess, AgentRunner, PermissionDecision, PermissionRequest } from "./runner.ts";
 import type { AgentCatalog } from "./catalog.ts";
 import type { McpRegistry } from "./mcp.ts";
 import type { SkillLibrary } from "./skills.ts";
-import type { EventStore, IndexedMessage, SearchHit } from "./store.ts";
+import type { EventStore, IndexedMessage, SearchHit, StoredTeam } from "./store.ts";
+import type { RoleRegistry } from "./roles.ts";
+
+const fail = (message: string): never => {
+  throw new KervanError("bad_message", message);
+};
 
 /** Where a skill lands in a workspace when the agent has no skills folder of its own. */
 const FALLBACK_SKILLS_DIR = ".kervan/skills";
@@ -33,6 +38,8 @@ interface Session {
   pending: Map<string, PendingPermission>;
   /** The agent message currently streaming, kept whole for the search index. */
   streaming?: IndexedMessage;
+  /** Role instructions given to the agent before the first message. */
+  instructions?: string;
 }
 
 type Listener = (message: ServerMessage) => void;
@@ -56,14 +63,17 @@ export class SessionManager {
   readonly skills?: SkillLibrary;
   readonly mcp?: McpRegistry;
   readonly catalog?: AgentCatalog;
+  readonly roles?: RoleRegistry;
+  private readonly teams = new Map<string, StoredTeam>();
 
   constructor(
     runner: AgentRunner,
     agents: AgentRegistry,
     workspacesDir: string,
     store: EventStore,
-    extras: { skills?: SkillLibrary; mcp?: McpRegistry; catalog?: AgentCatalog } = {},
+    extras: { skills?: SkillLibrary; mcp?: McpRegistry; catalog?: AgentCatalog; roles?: RoleRegistry } = {},
   ) {
+    this.roles = extras.roles;
     this.skills = extras.skills;
     this.mcp = extras.mcp;
     this.catalog = extras.catalog;
@@ -75,13 +85,15 @@ export class SessionManager {
       const session: Session = {
         info: stored.info,
         events: store.loadEvents(stored.info.id),
-        cwd: join(workspacesDir, stored.info.id),
+        cwd: this.cwdFor(workspacesDir, stored.info.id, stored.info.teamId),
         agentSessionId: stored.agentSessionId,
+        instructions: stored.instructions,
         pending: new Map(),
       };
       this.sessions.set(session.info.id, session);
       this.recover(session);
     }
+    for (const team of store.loadTeams()) this.teams.set(team.id, team);
   }
 
   get agentKinds(): string[] {
@@ -115,7 +127,12 @@ export class SessionManager {
     return this.require(sessionId).cwd;
   }
 
-  async create(agent: string, skills: string[] = [], mcpServers: string[] = []): Promise<SessionInfo> {
+  async create(
+    agent: string,
+    skills: string[] = [],
+    mcpServers: string[] = [],
+    member?: { teamId: string; role: string; instructions: string },
+  ): Promise<SessionInfo> {
     const missingSkill = skills.find((name) => !this.skills?.has(name));
     if (missingSkill) throw new KervanError("bad_message", `no skill named '${missingSkill}'`);
     const missingMcp = mcpServers.find((name) => !this.mcp?.has(name));
@@ -127,15 +144,17 @@ export class SessionManager {
       info: {
         id,
         agent,
-        title: DEFAULT_TITLE,
+        title: member?.role ?? DEFAULT_TITLE,
         status: "starting",
         createdAt: new Date().toISOString(),
         archived: false,
         skills: [...new Set(skills)],
         mcpServers: [...new Set(mcpServers)],
+        ...(member ? { teamId: member.teamId, role: member.role } : {}),
       },
+      ...(member?.instructions ? { instructions: member.instructions } : {}),
       events: [],
-      cwd: join(this.workspacesDir, id),
+      cwd: this.cwdFor(this.workspacesDir, id, member?.teamId),
       pending: new Map(),
     };
     await mkdir(session.cwd, { recursive: true });
@@ -183,7 +202,7 @@ export class SessionManager {
         await this.startAgent(session, true);
         this.record(session, { kind: "notice", text: "Ajan yeniden başlatıldı; konuşma kaldığı yerden devam ediyor." });
       }
-      const preface = firstMessage ? await this.skillPreface(session) : undefined;
+      const preface = firstMessage ? await this.preface(session) : undefined;
       const stopReason = await session.process!.prompt(text, attachments.map((path) => join(session.cwd, path)), preface);
       this.record(session, { kind: "turn_end", stopReason });
     })()
@@ -193,6 +212,34 @@ export class SessionManager {
       .finally(() => {
         if (session.info.status === "running" || session.info.status === "waiting") this.setStatus(session, "idle");
       });
+  }
+
+  /** Starts one session per role, all sharing the team's folder. */
+  async createTeam(title: string, roleIds: string[]): Promise<TeamInfo> {
+    const roles = roleIds.map((id) => this.roles?.get(id) ?? fail(`no role named '${id}'`));
+    const team: StoredTeam = { id: randomUUID(), title: title.trim(), createdAt: new Date().toISOString() };
+    this.teams.set(team.id, team);
+    this.store.saveTeam(team);
+    for (const role of roles) {
+      await this.create(role.agent, role.skills, role.mcpServers, { teamId: team.id, role: role.name, instructions: role.instructions });
+    }
+    const info = this.teamInfo(team);
+    this.broadcast({ type: "team.updated", team: info });
+    return info;
+  }
+
+  listTeams(): TeamInfo[] {
+    return [...this.teams.values()].map((team) => this.teamInfo(team));
+  }
+
+  private teamInfo(team: StoredTeam): TeamInfo {
+    const members = [...this.sessions.values()].filter((s) => s.info.teamId === team.id).map((s) => s.info);
+    return { ...team, sessionIds: members.sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map((s) => s.id) };
+  }
+
+  /** Team members share one folder so they see each other's files. */
+  private cwdFor(root: string, sessionId: string, teamId?: string): string {
+    return join(root, teamId ? `team-${teamId}` : sessionId);
   }
 
   rename(sessionId: string, title: string): void {
@@ -247,6 +294,15 @@ export class SessionManager {
    * Told to the agent before the first message, unseen by the user: which skills this session has and
    * where. Agents that load skills from their own folder get it too, in case that folder isn't trusted.
    */
+  private async preface(session: Session): Promise<string | undefined> {
+    const parts = [
+      session.instructions ? `[Kervan] Your role in this team: ${session.info.role}.\n${session.instructions}` : undefined,
+      session.info.teamId ? "[Kervan] Other team members work in this same folder; check files before overwriting them." : undefined,
+      await this.skillPreface(session),
+    ].filter(Boolean);
+    return parts.length > 0 ? parts.join("\n\n") : undefined;
+  }
+
   private async skillPreface(session: Session): Promise<string | undefined> {
     if (session.info.skills.length === 0 || !this.skills) return undefined;
     const dir = this.agents.get(session.info.agent)?.skillsDir ?? FALLBACK_SKILLS_DIR;
@@ -379,7 +435,7 @@ export class SessionManager {
   }
 
   private save(session: Session): void {
-    this.store.saveSession({ info: session.info, agentSessionId: session.agentSessionId });
+    this.store.saveSession({ info: session.info, agentSessionId: session.agentSessionId, instructions: session.instructions });
   }
 
   private onExit(session: Session, process: AgentProcess): void {

@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import type { SessionEvent, SessionInfo } from "./protocol.ts";
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 export interface IndexedMessage {
   /** seq of the first event of the message; matches the Mac transcript row id. */
@@ -97,6 +97,14 @@ export interface StoredSession {
   info: SessionInfo;
   /** The agent's own session id, used to resume the conversation after a restart. */
   agentSessionId?: string;
+  /** Role instructions, given to the agent before the first message. */
+  instructions?: string;
+}
+
+export interface StoredTeam {
+  id: string;
+  title: string;
+  createdAt: string;
 }
 
 /** Durable log of sessions and their events. Every event is written before it is broadcast. */
@@ -132,8 +140,10 @@ export class EventStore {
     `);
     this.migrate();
     this.upsertSession = this.db.prepare(`
-      INSERT INTO sessions (id, agent, title, status, created_at, error, agent_session_id, archived, skills, mcp_servers)
-      VALUES (:id, :agent, :title, :status, :createdAt, :error, :agentSessionId, :archived, :skills, :mcpServers)
+      INSERT INTO sessions (id, agent, title, status, created_at, error, agent_session_id, archived, skills, mcp_servers,
+                            team_id, role, instructions)
+      VALUES (:id, :agent, :title, :status, :createdAt, :error, :agentSessionId, :archived, :skills, :mcpServers,
+              :teamId, :role, :instructions)
       ON CONFLICT (id) DO UPDATE SET
         title = excluded.title,
         status = excluded.status,
@@ -158,9 +168,18 @@ export class EventStore {
     this.db.exec("BEGIN");
     try {
       if (version < 2) this.migrateToV2();
+      if (version < 3) {
+        this.db.exec(`
+          ALTER TABLE sessions ADD COLUMN skills TEXT NOT NULL DEFAULT '[]';
+          ALTER TABLE sessions ADD COLUMN mcp_servers TEXT NOT NULL DEFAULT '[]';
+        `);
+      }
+      // v4 (M8): teams, and each member's team, role and role instructions.
       this.db.exec(`
-        ALTER TABLE sessions ADD COLUMN skills TEXT NOT NULL DEFAULT '[]';
-        ALTER TABLE sessions ADD COLUMN mcp_servers TEXT NOT NULL DEFAULT '[]';
+        ALTER TABLE sessions ADD COLUMN team_id TEXT;
+        ALTER TABLE sessions ADD COLUMN role TEXT;
+        ALTER TABLE sessions ADD COLUMN instructions TEXT NOT NULL DEFAULT '';
+        CREATE TABLE teams (id TEXT PRIMARY KEY, title TEXT NOT NULL, created_at TEXT NOT NULL);
       `);
       this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
       this.db.exec("COMMIT");
@@ -189,7 +208,7 @@ export class EventStore {
     }
   }
 
-  saveSession({ info, agentSessionId }: StoredSession): void {
+  saveSession({ info, agentSessionId, instructions }: StoredSession): void {
     this.upsertSession.run({
       id: info.id,
       agent: info.agent,
@@ -201,7 +220,21 @@ export class EventStore {
       archived: info.archived ? 1 : 0,
       skills: JSON.stringify(info.skills),
       mcpServers: JSON.stringify(info.mcpServers),
+      teamId: info.teamId ?? null,
+      role: info.role ?? null,
+      instructions: instructions ?? "",
     });
+  }
+
+  saveTeam(team: StoredTeam): void {
+    this.db
+      .prepare("INSERT INTO teams (id, title, created_at) VALUES (?, ?, ?) ON CONFLICT (id) DO UPDATE SET title = excluded.title")
+      .run(team.id, team.title, team.createdAt);
+  }
+
+  loadTeams(): StoredTeam[] {
+    const rows = this.db.prepare("SELECT id, title, created_at FROM teams ORDER BY created_at").all() as Record<string, string>[];
+    return rows.map((row) => ({ id: row.id, title: row.title, createdAt: row.created_at }));
   }
 
   /** Adds or replaces a message in the search index (an agent message grows while it streams). */
@@ -243,9 +276,12 @@ export class EventStore {
         archived: row.archived === 1,
         skills: JSON.parse(String(row.skills ?? "[]")) as string[],
         mcpServers: JSON.parse(String(row.mcp_servers ?? "[]")) as string[],
+        ...(row.team_id ? { teamId: String(row.team_id) } : {}),
+        ...(row.role ? { role: String(row.role) } : {}),
         ...(row.error ? { error: String(row.error) } : {}),
       },
       ...(row.agent_session_id ? { agentSessionId: String(row.agent_session_id) } : {}),
+      ...(row.instructions ? { instructions: String(row.instructions) } : {}),
     }));
   }
 
