@@ -6,6 +6,7 @@ import { isSafeRelativePath } from "./files.ts";
 import { log } from "./log.ts";
 import { KervanError, type ServerMessage, type SessionEvent, type SessionEventBody, type SessionInfo } from "./protocol.ts";
 import type { AgentProcess, AgentRunner, PermissionDecision, PermissionRequest } from "./runner.ts";
+import type { AgentCatalog } from "./catalog.ts";
 import type { McpRegistry } from "./mcp.ts";
 import type { SkillLibrary } from "./skills.ts";
 import type { EventStore, IndexedMessage, SearchHit } from "./store.ts";
@@ -54,16 +55,18 @@ export class SessionManager {
 
   readonly skills?: SkillLibrary;
   readonly mcp?: McpRegistry;
+  readonly catalog?: AgentCatalog;
 
   constructor(
     runner: AgentRunner,
     agents: AgentRegistry,
     workspacesDir: string,
     store: EventStore,
-    extras: { skills?: SkillLibrary; mcp?: McpRegistry } = {},
+    extras: { skills?: SkillLibrary; mcp?: McpRegistry; catalog?: AgentCatalog } = {},
   ) {
     this.skills = extras.skills;
     this.mcp = extras.mcp;
+    this.catalog = extras.catalog;
     this.runner = runner;
     this.agents = agents;
     this.workspacesDir = workspacesDir;
@@ -87,6 +90,11 @@ export class SessionManager {
 
   get agentDetails(): { id: string; name: string }[] {
     return [...this.agents].map(([id, agent]) => ({ id, name: agent.name }));
+  }
+
+  /** Tell every client the agent list changed (agents added or removed from the app). */
+  agentsChanged(): void {
+    this.broadcast({ type: "agents.updated", agents: this.agentKinds, agentDetails: this.agentDetails });
   }
 
   subscribe(listener: Listener): () => void {
@@ -268,6 +276,11 @@ export class SessionManager {
         },
         ...(resume ? { resumeSessionId: session.agentSessionId } : {}),
       });
+      if (this.shuttingDown) {
+        // closeAll ran while this agent was still starting; don't leave it running on its own.
+        process.close();
+        return;
+      }
       session.process = process;
       session.agentSessionId = process.sessionId;
       this.save(session);

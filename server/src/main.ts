@@ -7,13 +7,19 @@ import { SessionManager } from "./sessions.ts";
 import { EventStore } from "./store.ts";
 import { McpRegistry } from "./mcp.ts";
 import { SkillLibrary } from "./skills.ts";
+import { AgentCatalog } from "./catalog.ts";
+import { probeAgent } from "./runner.ts";
 import { join } from "node:path";
 
 const config = loadConfig();
 const store = new EventStore(join(config.dataDir, "kervan.db"));
 const skills = new SkillLibrary(join(config.dataDir, "skills"));
 const mcp = new McpRegistry(join(config.dataDir, "mcp.json"));
-const sessions = new SessionManager(new LocalAcpRunner(), loadAgents(config.agentsFile), config.workspacesDir, store, { skills, mcp });
+const runner = new LocalAcpRunner();
+const catalog = new AgentCatalog(join(config.dataDir, "agents.json"), loadAgents(config.agentsFile), (definition) =>
+  probeAgent(runner, definition),
+);
+const sessions = new SessionManager(runner, catalog.live, config.workspacesDir, store, { skills, mcp, catalog });
 const server = createKervanServer({ token: config.token, sessions, maxUploadBytes: config.maxUploadBytes, skills });
 
 server.listen(config.port, config.host, () => {

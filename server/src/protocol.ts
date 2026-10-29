@@ -33,6 +33,9 @@ export interface SessionInfo {
   error?: string;
 }
 
+export type { AgentSummary } from "./catalog.ts";
+import type { AgentSummary } from "./catalog.ts";
+
 export interface McpServerSummary {
   name: string;
   transport: "stdio" | "http";
@@ -89,7 +92,10 @@ export type ClientMessage =
   | { type: "session.search"; id: string; query: string }
   | { type: "mcp.list"; id: string }
   | { type: "mcp.save"; id: string; server: Record<string, unknown> }
-  | { type: "mcp.delete"; id: string; name: string };
+  | { type: "mcp.delete"; id: string; name: string }
+  | { type: "agent.list"; id: string }
+  | { type: "agent.save"; id: string; agent: Record<string, unknown> }
+  | { type: "agent.delete"; id: string; agentId: string };
 
 export type ErrorCode =
   | "bad_message"
@@ -113,7 +119,10 @@ export type ServerMessage =
   | { type: "session.updated"; session: SessionInfo }
   | { type: "session.event"; sessionId: string; event: SessionEvent }
   | { type: "session.search.result"; id: string; hits: SearchHit[] }
-  | { type: "mcp.list.result"; id: string; servers: McpServerSummary[] };
+  | { type: "mcp.list.result"; id: string; servers: McpServerSummary[] }
+  | { type: "agent.list.result"; id: string; agents: AgentSummary[]; nodes: string[] }
+  /** Broadcast after the agent catalog changes, in the same shape as `welcome`. */
+  | { type: "agents.updated"; agents: string[]; agentDetails: { id: string; name: string }[] };
 
 export type ParseResult =
   | { ok: true; message: ClientMessage }
@@ -152,6 +161,9 @@ const STRING_FIELDS: Record<string, readonly string[]> = {
   "mcp.list": ["id"],
   "mcp.save": ["id"],
   "mcp.delete": ["id", "name"],
+  "agent.list": ["id"],
+  "agent.save": ["id"],
+  "agent.delete": ["id", "agentId"],
 };
 
 const MAX_SELECTED = 32;
@@ -201,6 +213,10 @@ export function parseClientMessage(raw: string): ParseResult {
       }
       (message as Record<string, unknown>)[field] = list;
     }
+  }
+  if (data.type === "agent.save") {
+    if (!isRecord(data.agent)) return fail("bad_message", "agent.save needs an 'agent' object");
+    (message as Record<string, unknown>).agent = data.agent;
   }
   if (data.type === "mcp.save") {
     if (!isRecord(data.server)) return fail("bad_message", "mcp.save needs a 'server' object");

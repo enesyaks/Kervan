@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
-import { basename } from "node:path";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { pathToFileURL } from "node:url";
 import * as acp from "@agentclientprotocol/sdk";
@@ -51,6 +53,27 @@ export interface StartOptions {
  */
 export interface AgentRunner {
   start(options: StartOptions): Promise<AgentProcess>;
+}
+
+/**
+ * Starts the agent once in a scratch folder (initialize, auth, session/new) and stops it:
+ * proof that an agent added from the app actually works here.
+ */
+export async function probeAgent(runner: AgentRunner, command: AgentCommand, timeoutMs = 30_000): Promise<void> {
+  const cwd = mkdtempSync(join(tmpdir(), "kervan-probe-"));
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`no answer within ${timeoutMs / 1000} s`)), timeoutMs);
+  });
+  const started = runner.start({ command, cwd, onEvent: () => {}, onPermission: async () => null });
+  try {
+    const agent = await Promise.race([started, timeout]);
+    agent.close();
+  } finally {
+    clearTimeout(timer);
+    started.then((agent) => agent.close()).catch(() => {});
+    rmSync(cwd, { recursive: true, force: true });
+  }
 }
 
 /** Runs an ACP agent as a child process on this machine and talks to it over stdio. */

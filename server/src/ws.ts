@@ -4,6 +4,7 @@ import type { Duplex } from "node:stream";
 import { WebSocketServer, type WebSocket } from "ws";
 import { log } from "./log.ts";
 import { KervanError, PROTOCOL_VERSION, parseClientMessage, type ClientMessage, type ServerMessage } from "./protocol.ts";
+import { NODES } from "./catalog.ts";
 import type { SessionManager } from "./sessions.ts";
 import { VERSION } from "./version.ts";
 
@@ -25,6 +26,15 @@ function rejectUpgrade(socket: Duplex, status: number, reason: string): void {
 
 function send(ws: WebSocket, message: ServerMessage): void {
   ws.send(JSON.stringify(message));
+}
+
+function requireCatalog(sessions: SessionManager) {
+  if (!sessions.catalog) throw new KervanError("bad_message", "agents can't be edited on this server");
+  return sessions.catalog;
+}
+
+function agentList(id: string, sessions: SessionManager): ServerMessage {
+  return { type: "agent.list.result", id, agents: requireCatalog(sessions).list(), nodes: NODES };
 }
 
 function requireMcp(sessions: SessionManager) {
@@ -66,6 +76,16 @@ async function handleRequest(ws: WebSocket, message: Exclude<ClientMessage, { ty
     case "session.archive":
       sessions.archive(message.sessionId, message.archived);
       return send(ws, { type: "ok", id: message.id });
+    case "agent.list":
+      return send(ws, agentList(message.id, sessions));
+    case "agent.save":
+      await requireCatalog(sessions).save(message.agent);
+      sessions.agentsChanged();
+      return send(ws, agentList(message.id, sessions));
+    case "agent.delete":
+      requireCatalog(sessions).remove(message.agentId);
+      sessions.agentsChanged();
+      return send(ws, agentList(message.id, sessions));
     case "mcp.list":
       return send(ws, { type: "mcp.list.result", id: message.id, servers: requireMcp(sessions).list() });
     case "mcp.save":
