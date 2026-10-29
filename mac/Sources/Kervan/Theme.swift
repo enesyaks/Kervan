@@ -55,4 +55,63 @@ extension ConnectionState {
         default: false
         }
     }
+
+    var isConnected: Bool {
+        if case .connected = self { return true }
+        return false
+    }
+
+    var isFailed: Bool {
+        if case .failed = self { return true }
+        return false
+    }
+}
+
+extension SessionStatus {
+    var tint: Color {
+        switch self {
+        case .starting, .running: .kervanSaffron
+        case .idle: .kervanOasis
+        case .error: .red
+        case .closed, .unknown: .secondary
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .starting: "Başlatılıyor"
+        case .idle: "Hazır"
+        case .running: "Yanıtlıyor"
+        case .error: "Sona erdi"
+        case .closed: "Kapandı"
+        case .unknown: "Bilinmiyor"
+        }
+    }
+}
+
+extension String {
+    /// "claude" → "Claude". M7's agent registry will carry real display names.
+    var agentDisplayName: String {
+        ["claude": "Claude", "codex": "Codex", "gemini": "Gemini"][self] ?? capitalized
+    }
+}
+
+/// Three saffron dots in single file, the caravan from the route line in miniature.
+struct CaravanDots: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        TimelineView(.animation(paused: reduceMotion)) { context in
+            let phase = context.date.timeIntervalSinceReferenceDate * 3
+            HStack(spacing: 4) {
+                ForEach(0..<3, id: \.self) { index in
+                    Circle()
+                        .fill(Color.kervanSaffron)
+                        .frame(width: 5, height: 5)
+                        .opacity(reduceMotion ? 0.8 : 0.35 + 0.65 * max(0, sin(phase - Double(index) * 0.7)))
+                }
+            }
+        }
+        .accessibilityHidden(true)
+    }
 }

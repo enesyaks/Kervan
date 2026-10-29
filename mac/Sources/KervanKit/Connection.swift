@@ -28,9 +28,15 @@ public final class KervanConnection {
     public private(set) var state: ConnectionState = .disconnected
     public private(set) var latency: Duration?
 
+    /// Called after every successful handshake with the server's agent list.
+    @ObservationIgnored public var onConnected: (@MainActor ([String]) -> Void)?
+    /// Every server message other than the handshake and pongs.
+    @ObservationIgnored public var onMessage: (@MainActor (ServerMessage) -> Void)?
+
     private let client: PeerInfo
     private let session: URLSession
     private var runTask: Task<Void, Never>?
+    private var activeTask: URLSessionWebSocketTask?
     private var pendingPings: [String: ContinuousClock.Instant] = [:]
 
     private static let pingInterval: Duration = .seconds(15)
@@ -47,9 +53,15 @@ public final class KervanConnection {
         runTask = Task { await run(address: address, token: token) }
     }
 
+    public func send(_ message: ClientMessage) async throws {
+        guard let activeTask else { throw URLError(.notConnectedToInternet) }
+        try await activeTask.send(.string(message.jsonString()))
+    }
+
     public func disconnect() {
         runTask?.cancel()
         runTask = nil
+        activeTask = nil
         state = .disconnected
         latency = nil
         pendingPings.removeAll()
@@ -87,6 +99,7 @@ public final class KervanConnection {
         var pinger: Task<Void, Never>?
         defer {
             pinger?.cancel()
+            if activeTask === task { activeTask = nil }
             task.cancel(with: .goingAway, reason: nil)
         }
 
@@ -98,18 +111,22 @@ public final class KervanConnection {
                 else { continue }
 
                 switch message {
-                case .welcome(_, let server):
+                case .welcome(_, let server, let agents):
                     connected = true
+                    activeTask = task
                     state = .connected(server: server)
                     pinger = Task { await pingLoop(task) }
+                    onConnected?(agents)
                 case .pong(let id):
                     if let sentAt = pendingPings.removeValue(forKey: id) {
                         latency = ContinuousClock.now - sentAt
                     }
-                case .error(let code, let message, _):
-                    if code == "unsupported_protocol" { return (.unsupportedProtocol(message), connected) }
+                case .error(let code, let message, _) where code == "unsupported_protocol":
+                    return (.unsupportedProtocol(message), connected)
                 case .unknown:
                     continue
+                default:
+                    onMessage?(message)
                 }
             }
             return (.unreachable("cancelled"), connected)

@@ -3,6 +3,7 @@
 Uzak bir sunucuda (Proxmox VM) birden çok AI ajan CLI'ını çalıştırıp native bir Mac uygulamasından yönetmek için.
 
 ```
+docs/      Yol haritası (ROADMAP.md)
 mac/       SwiftUI istemci (Swift package, Xcode gerekmez)
 protocol/  Mac ↔ sunucu mesaj şeması (v1.md)
 server/    Gateway daemon (Node 24, TypeScript)
@@ -56,6 +57,14 @@ Mac'ten kontrol: `curl http://kervan:7420/health`
 | `/opt/kervan/server` | Uygulama kodu |
 | `/etc/kervan/env` | Ortam değişkenleri (`KERVAN_HOST`, `KERVAN_PORT`, `KERVAN_DATA_DIR`, `KERVAN_TOKEN`) |
 | `/var/lib/kervan` | SQLite veritabanı (konuşma geçmişi, M3'ten itibaren) |
-| `/srv/kervan/workspaces` | Oturum / takım çalışma klasörleri |
+| `/var/lib/kervan/workspaces` | Oturum çalışma klasörleri (`KERVAN_WORKSPACES_DIR` ile değiştirilebilir) |
 
 Loglar: `journalctl -u kervan -f`
+
+## Claude girişi (VM, bir kez)
+
+```bash
+ssh -t ubuntu@kervan 'sudo -u kervan -H /opt/kervan/server/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude'
+```
+
+Açılan ekranda `/login`, sonra `/exit`. Arayüzü gerçek ajan olmadan denemek için: `node server/scripts/dev-fake-server.ts`.

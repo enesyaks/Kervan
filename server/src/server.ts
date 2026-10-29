@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { log } from "./log.ts";
+import type { SessionManager } from "./sessions.ts";
 import { VERSION } from "./version.ts";
 import { attachWebSocket } from "./ws.ts";
 
@@ -7,6 +8,7 @@ export { VERSION };
 
 export interface ServerOptions {
   token: string;
+  sessions: SessionManager;
   startedAt?: number;
   heartbeatMs?: number;
 }
@@ -20,7 +22,7 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(payload);
 }
 
-export function createKervanServer({ token, startedAt = Date.now(), heartbeatMs }: ServerOptions): Server {
+export function createKervanServer({ token, sessions, startedAt = Date.now(), heartbeatMs }: ServerOptions): Server {
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? "/", "http://localhost");
 
@@ -37,6 +39,6 @@ export function createKervanServer({ token, startedAt = Date.now(), heartbeatMs 
     sendJson(res, 404, { error: "not_found" });
   });
 
-  attachWebSocket(server, token, heartbeatMs);
+  attachWebSocket(server, token, sessions, heartbeatMs);
   return server;
 }

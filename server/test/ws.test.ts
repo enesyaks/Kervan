@@ -45,6 +45,7 @@ describe("websocket", () => {
       type: "welcome",
       protocol: 1,
       server: { name: "kervan", version: VERSION },
+      agents: ["fake"],
     });
   });
 

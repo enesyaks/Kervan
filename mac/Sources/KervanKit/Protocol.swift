@@ -14,24 +14,134 @@ public struct PeerInfo: Codable, Equatable, Sendable {
     }
 }
 
+public enum SessionStatus: String, Codable, Equatable, Sendable {
+    case starting, idle, running, error, closed, unknown
+
+    public init(from decoder: any Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = SessionStatus(rawValue: raw) ?? .unknown
+    }
+}
+
+public struct SessionInfo: Codable, Equatable, Sendable, Identifiable {
+    public var id: String
+    public var agent: String
+    public var title: String
+    public var status: SessionStatus
+    public var createdAt: String
+    public var error: String?
+
+    public init(id: String, agent: String, title: String, status: SessionStatus, createdAt: String, error: String? = nil) {
+        self.id = id
+        self.agent = agent
+        self.title = title
+        self.status = status
+        self.createdAt = createdAt
+        self.error = error
+    }
+}
+
+public struct SessionEvent: Decodable, Equatable, Sendable {
+    public enum Body: Equatable, Sendable {
+        case userMessage(String)
+        case agentMessageChunk(String)
+        case agentThoughtChunk(String)
+        case toolCall(id: String, title: String, kind: String, status: String)
+        case toolCallUpdate(id: String, title: String?, status: String?)
+        case permissionAutoRejected(title: String)
+        case turnEnd(stopReason: String)
+        case error(String)
+        /// A kind this client doesn't know yet; ignored.
+        case unknown(kind: String)
+    }
+
+    public let seq: Int
+    public let at: String
+    public let body: Body
+
+    public init(seq: Int, at: String = "", body: Body) {
+        self.seq = seq
+        self.at = at
+        self.body = body
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case seq, at, kind, text, toolCallId, title, toolKind, status, stopReason, message
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        seq = try c.decode(Int.self, forKey: .seq)
+        at = try c.decodeIfPresent(String.self, forKey: .at) ?? ""
+        let kind = try c.decode(String.self, forKey: .kind)
+        switch kind {
+        case "user_message": body = .userMessage(try c.decode(String.self, forKey: .text))
+        case "agent_message_chunk": body = .agentMessageChunk(try c.decode(String.self, forKey: .text))
+        case "agent_thought_chunk": body = .agentThoughtChunk(try c.decode(String.self, forKey: .text))
+        case "tool_call":
+            body = .toolCall(
+                id: try c.decode(String.self, forKey: .toolCallId),
+                title: try c.decode(String.self, forKey: .title),
+                kind: try c.decodeIfPresent(String.self, forKey: .toolKind) ?? "other",
+                status: try c.decodeIfPresent(String.self, forKey: .status) ?? "pending"
+            )
+        case "tool_call_update":
+            body = .toolCallUpdate(
+                id: try c.decode(String.self, forKey: .toolCallId),
+                title: try c.decodeIfPresent(String.self, forKey: .title),
+                status: try c.decodeIfPresent(String.self, forKey: .status)
+            )
+        case "permission_auto_rejected": body = .permissionAutoRejected(title: try c.decode(String.self, forKey: .title))
+        case "turn_end": body = .turnEnd(stopReason: try c.decode(String.self, forKey: .stopReason))
+        case "error": body = .error(try c.decode(String.self, forKey: .message))
+        default: body = .unknown(kind: kind)
+        }
+    }
+}
+
 public enum ClientMessage: Encodable, Equatable, Sendable {
     case hello(client: PeerInfo)
     case ping(id: String)
+    case sessionCreate(id: String, agent: String)
+    case sessionList(id: String)
+    case sessionHistory(id: String, sessionId: String)
+    case sessionPrompt(id: String, sessionId: String, text: String)
+    case sessionCancel(id: String, sessionId: String)
 
     private enum CodingKeys: String, CodingKey {
-        case type, `protocol`, client, id
+        case type, `protocol`, client, id, agent, sessionId, text
     }
 
     public func encode(to encoder: any Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
+        var c = encoder.container(keyedBy: CodingKeys.self)
         switch self {
         case .hello(let client):
-            try container.encode("hello", forKey: .type)
-            try container.encode(kervanProtocolVersion, forKey: .protocol)
-            try container.encode(client, forKey: .client)
+            try c.encode("hello", forKey: .type)
+            try c.encode(kervanProtocolVersion, forKey: .protocol)
+            try c.encode(client, forKey: .client)
         case .ping(let id):
-            try container.encode("ping", forKey: .type)
-            try container.encode(id, forKey: .id)
+            try c.encode("ping", forKey: .type)
+            try c.encode(id, forKey: .id)
+        case .sessionCreate(let id, let agent):
+            try c.encode("session.create", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(agent, forKey: .agent)
+        case .sessionList(let id):
+            try c.encode("session.list", forKey: .type)
+            try c.encode(id, forKey: .id)
+        case .sessionHistory(let id, let sessionId):
+            try c.encode("session.history", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(sessionId, forKey: .sessionId)
+        case .sessionPrompt(let id, let sessionId, let text):
+            try c.encode("session.prompt", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(sessionId, forKey: .sessionId)
+            try c.encode(text, forKey: .text)
+        case .sessionCancel(let id, let sessionId):
+            try c.encode("session.cancel", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(sessionId, forKey: .sessionId)
         }
     }
 
@@ -43,33 +153,53 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
 }
 
 public enum ServerMessage: Decodable, Equatable, Sendable {
-    case welcome(protocolVersion: Int, server: PeerInfo)
+    case welcome(protocolVersion: Int, server: PeerInfo, agents: [String])
     case pong(id: String)
+    case ok(id: String)
     case error(code: String, message: String, id: String?)
+    case sessionCreated(id: String, session: SessionInfo)
+    case sessionListResult(id: String, sessions: [SessionInfo])
+    case sessionHistoryResult(id: String, sessionId: String, events: [SessionEvent])
+    case sessionUpdated(SessionInfo)
+    case sessionEvent(sessionId: String, event: SessionEvent)
     /// A type this client doesn't know yet. Ignored, so the server can add types without a version bump.
     case unknown(type: String)
 
     private enum CodingKeys: String, CodingKey {
-        case type, `protocol`, server, id, code, message
+        case type, `protocol`, server, agents, id, code, message, session, sessions, sessionId, events, event
     }
 
     public init(from decoder: any Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let type = try container.decode(String.self, forKey: .type)
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let type = try c.decode(String.self, forKey: .type)
         switch type {
         case "welcome":
             self = .welcome(
-                protocolVersion: try container.decode(Int.self, forKey: .protocol),
-                server: try container.decode(PeerInfo.self, forKey: .server)
+                protocolVersion: try c.decode(Int.self, forKey: .protocol),
+                server: try c.decode(PeerInfo.self, forKey: .server),
+                agents: try c.decodeIfPresent([String].self, forKey: .agents) ?? []
             )
-        case "pong":
-            self = .pong(id: try container.decode(String.self, forKey: .id))
+        case "pong": self = .pong(id: try c.decode(String.self, forKey: .id))
+        case "ok": self = .ok(id: try c.decode(String.self, forKey: .id))
         case "error":
             self = .error(
-                code: try container.decode(String.self, forKey: .code),
-                message: try container.decode(String.self, forKey: .message),
-                id: try container.decodeIfPresent(String.self, forKey: .id)
+                code: try c.decode(String.self, forKey: .code),
+                message: try c.decode(String.self, forKey: .message),
+                id: try c.decodeIfPresent(String.self, forKey: .id)
             )
+        case "session.created":
+            self = .sessionCreated(id: try c.decode(String.self, forKey: .id), session: try c.decode(SessionInfo.self, forKey: .session))
+        case "session.list.result":
+            self = .sessionListResult(id: try c.decode(String.self, forKey: .id), sessions: try c.decode([SessionInfo].self, forKey: .sessions))
+        case "session.history.result":
+            self = .sessionHistoryResult(
+                id: try c.decode(String.self, forKey: .id),
+                sessionId: try c.decode(String.self, forKey: .sessionId),
+                events: try c.decode([SessionEvent].self, forKey: .events)
+            )
+        case "session.updated": self = .sessionUpdated(try c.decode(SessionInfo.self, forKey: .session))
+        case "session.event":
+            self = .sessionEvent(sessionId: try c.decode(String.self, forKey: .sessionId), event: try c.decode(SessionEvent.self, forKey: .event))
         default:
             self = .unknown(type: type)
         }

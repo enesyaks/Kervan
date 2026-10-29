@@ -3,7 +3,8 @@ import type { IncomingMessage, Server } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocketServer, type WebSocket } from "ws";
 import { log } from "./log.ts";
-import { PROTOCOL_VERSION, parseClientMessage, type ServerMessage } from "./protocol.ts";
+import { KervanError, PROTOCOL_VERSION, parseClientMessage, type ClientMessage, type ServerMessage } from "./protocol.ts";
+import type { SessionManager } from "./sessions.ts";
 import { VERSION } from "./version.ts";
 
 export const WS_PATH = "/v1/ws";
@@ -26,12 +27,37 @@ function send(ws: WebSocket, message: ServerMessage): void {
   ws.send(JSON.stringify(message));
 }
 
-function handleConnection(ws: WebSocket, req: IncomingMessage): void {
+async function handleRequest(ws: WebSocket, message: Exclude<ClientMessage, { type: "hello" }>, sessions: SessionManager) {
+  switch (message.type) {
+    case "ping":
+      return send(ws, { type: "pong", id: message.id });
+    case "session.create":
+      return send(ws, { type: "session.created", id: message.id, session: await sessions.create(message.agent) });
+    case "session.list":
+      return send(ws, { type: "session.list.result", id: message.id, sessions: sessions.list() });
+    case "session.history":
+      return send(ws, {
+        type: "session.history.result",
+        id: message.id,
+        sessionId: message.sessionId,
+        events: sessions.history(message.sessionId),
+      });
+    case "session.prompt":
+      sessions.prompt(message.sessionId, message.text);
+      return send(ws, { type: "ok", id: message.id });
+    case "session.cancel":
+      await sessions.cancel(message.sessionId);
+      return send(ws, { type: "ok", id: message.id });
+  }
+}
+
+function handleConnection(ws: WebSocket, req: IncomingMessage, sessions: SessionManager): void {
   const remote = req.socket.remoteAddress;
   let greeted = false;
+  let unsubscribe: (() => void) | undefined;
   log("info", "ws connected", { remote });
 
-  ws.on("message", (data, isBinary) => {
+  ws.on("message", async (data, isBinary) => {
     if (isBinary) {
       send(ws, { type: "error", code: "bad_message", message: "binary frames are not supported" });
       return;
@@ -53,9 +79,19 @@ function handleConnection(ws: WebSocket, req: IncomingMessage): void {
         ws.close(4000, "unsupported protocol");
         return;
       }
-      greeted = true;
+      if (!greeted) {
+        greeted = true;
+        unsubscribe = sessions.subscribe((event) => {
+          if (ws.readyState === ws.OPEN) send(ws, event);
+        });
+      }
       log("info", "ws hello", { remote, client: message.client });
-      send(ws, { type: "welcome", protocol: PROTOCOL_VERSION, server: { name: "kervan", version: VERSION } });
+      send(ws, {
+        type: "welcome",
+        protocol: PROTOCOL_VERSION,
+        server: { name: "kervan", version: VERSION },
+        agents: sessions.agentKinds,
+      });
       return;
     }
 
@@ -64,17 +100,29 @@ function handleConnection(ws: WebSocket, req: IncomingMessage): void {
       return;
     }
 
-    switch (message.type) {
-      case "ping":
-        send(ws, { type: "pong", id: message.id });
-        break;
+    try {
+      await handleRequest(ws, message, sessions);
+    } catch (error) {
+      if (!(error instanceof KervanError)) {
+        log("error", "request failed", { type: message.type, error: String(error) });
+        throw error;
+      }
+      send(ws, { type: "error", code: error.code, message: error.message, id: message.id });
     }
   });
 
-  ws.on("close", (code) => log("info", "ws closed", { remote, code }));
+  ws.on("close", (code) => {
+    unsubscribe?.();
+    log("info", "ws closed", { remote, code });
+  });
 }
 
-export function attachWebSocket(server: Server, token: string, heartbeatMs = HEARTBEAT_MS): WebSocketServer {
+export function attachWebSocket(
+  server: Server,
+  token: string,
+  sessions: SessionManager,
+  heartbeatMs = HEARTBEAT_MS,
+): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES });
   const alive = new WeakSet<WebSocket>();
 
@@ -95,7 +143,7 @@ export function attachWebSocket(server: Server, token: string, heartbeatMs = HEA
   wss.on("connection", (ws: WebSocket, req: IncomingMessage) => {
     alive.add(ws);
     ws.on("pong", () => alive.add(ws));
-    handleConnection(ws, req);
+    handleConnection(ws, req, sessions);
   });
 
   // Drop clients that missed a whole heartbeat round (sleeping laptop, dead network).

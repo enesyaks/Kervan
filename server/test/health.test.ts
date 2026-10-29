@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { resolve } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { loadConfig } from "../src/config.ts";
 import { VERSION } from "../src/server.ts";
@@ -38,6 +39,7 @@ describe("loadConfig", () => {
       host: "127.0.0.1",
       port: 7420,
       dataDir: "./data",
+      workspacesDir: resolve("data/workspaces"),
       token: TEST_TOKEN,
     });
   });

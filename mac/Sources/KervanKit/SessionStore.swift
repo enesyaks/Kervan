@@ -1,0 +1,119 @@
+import Foundation
+import Observation
+
+/// Client-side mirror of the server's sessions. Fed by `handle(_:)`; talks back through `send`.
+@MainActor
+@Observable
+public final class SessionStore {
+    public typealias Sender = @MainActor (ClientMessage) async throws -> Void
+
+    /// Newest first.
+    public private(set) var sessions: [SessionInfo] = []
+    public private(set) var events: [String: [SessionEvent]] = [:]
+    public private(set) var agents: [String] = []
+    /// Set when a session this client asked for arrives, so the UI can select it.
+    public private(set) var lastCreatedSessionID: String?
+    /// The most recent failed request, in the server's words.
+    public var lastError: String?
+
+    private let send: Sender
+    private var pendingCreates: Set<String> = []
+
+    public init(send: @escaping Sender) {
+        self.send = send
+    }
+
+    public func session(_ id: String) -> SessionInfo? {
+        sessions.first { $0.id == id }
+    }
+
+    public func transcript(for id: String) -> [TranscriptItem] {
+        Transcript.build(events[id] ?? [])
+    }
+
+    /// Call after every (re)connect: refreshes the list, and with it every session's history.
+    public func connected(agents: [String]) async {
+        self.agents = agents
+        await request(.sessionList(id: Self.newID()))
+    }
+
+    public func create(agent: String) async {
+        let id = Self.newID()
+        pendingCreates.insert(id)
+        await request(.sessionCreate(id: id, agent: agent))
+    }
+
+    public func prompt(_ sessionID: String, text: String) async {
+        await request(.sessionPrompt(id: Self.newID(), sessionId: sessionID, text: text))
+    }
+
+    public func cancel(_ sessionID: String) async {
+        await request(.sessionCancel(id: Self.newID(), sessionId: sessionID))
+    }
+
+    public func handle(_ message: ServerMessage) {
+        switch message {
+        case .sessionListResult(_, let list):
+            sessions = list.sorted { $0.createdAt > $1.createdAt }
+            for session in list { requestHistory(session.id) }
+        case .sessionCreated(let requestID, let session):
+            upsert(session)
+            if events[session.id] == nil { events[session.id] = [] }
+            if pendingCreates.remove(requestID) != nil { lastCreatedSessionID = session.id }
+        case .sessionUpdated(let session):
+            upsert(session)
+        case .sessionHistoryResult(_, let sessionID, let history):
+            events[sessionID] = history
+        case .sessionEvent(let sessionID, let event):
+            append(event, to: sessionID)
+        case .error(let code, let message, let id?):
+            pendingCreates.remove(id)
+            lastError = Self.describe(code: code, message: message)
+        default:
+            break
+        }
+    }
+
+    /// Events must arrive in seq order without gaps; on a gap, reload the whole history.
+    private func append(_ event: SessionEvent, to sessionID: String) {
+        let last = events[sessionID]?.last?.seq ?? 0
+        if event.seq == last + 1 {
+            events[sessionID, default: []].append(event)
+        } else if event.seq > last + 1 {
+            requestHistory(sessionID)
+        }
+    }
+
+    private func upsert(_ session: SessionInfo) {
+        if let index = sessions.firstIndex(where: { $0.id == session.id }) {
+            sessions[index] = session
+        } else {
+            sessions.insert(session, at: 0)
+        }
+    }
+
+    private func requestHistory(_ sessionID: String) {
+        Task { await request(.sessionHistory(id: Self.newID(), sessionId: sessionID)) }
+    }
+
+    private func request(_ message: ClientMessage) async {
+        do {
+            try await send(message)
+        } catch {
+            lastError = "Sunucuya gönderilemedi: \(error.localizedDescription)"
+        }
+    }
+
+    private static func newID() -> String { UUID().uuidString }
+
+    /// The server's error codes in the app's language; unknown codes keep the server's text.
+    static func describe(code: String, message: String) -> String {
+        switch code {
+        case "session_busy": "Claude hâlâ önceki mesajı yanıtlıyor."
+        case "session_unavailable": "Bu oturum şu anda mesaj kabul etmiyor."
+        case "unknown_session": "Oturum sunucuda bulunamadı."
+        case "unknown_agent": "Bu ajan sunucuda kurulu değil."
+        default: message
+        }
+    }
+}

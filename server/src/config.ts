@@ -1,7 +1,11 @@
+import { join, resolve } from "node:path";
+
 export interface KervanConfig {
   host: string;
   port: number;
   dataDir: string;
+  /** Each session gets its own folder here; ACP needs absolute paths. */
+  workspacesDir: string;
   token: string;
 }
 
@@ -16,10 +20,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): KervanConfig {
   if (token.length < MIN_TOKEN_LENGTH) {
     throw new Error(`KERVAN_TOKEN must be set (at least ${MIN_TOKEN_LENGTH} characters)`);
   }
+  const dataDir = env.KERVAN_DATA_DIR ?? "./data";
   return {
     host: env.KERVAN_HOST ?? "127.0.0.1",
     port,
-    dataDir: env.KERVAN_DATA_DIR ?? "./data",
+    dataDir,
+    workspacesDir: resolve(env.KERVAN_WORKSPACES_DIR ?? join(dataDir, "workspaces")),
     token,
   };
 }
