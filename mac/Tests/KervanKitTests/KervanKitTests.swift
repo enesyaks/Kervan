@@ -77,7 +77,7 @@ import Testing
     }
 
     @Test func toleratesUnknownTypes() throws {
-        #expect(try ServerMessage.decode(#"{"type":"team.created","foo":1}"#) == .unknown(type: "team.created"))
+        #expect(try ServerMessage.decode(#"{"type":"fleet.created","foo":1}"#) == .unknown(type: "fleet.created"))
     }
 }
 
@@ -430,5 +430,29 @@ import Testing
     @Test func joinRoundTrips() {
         let args = ["acp", "/a b/c.ts", #"say "hi""#, ""]
         #expect(splitArguments(joinArguments(args)) == args)
+    }
+}
+
+@MainActor @Suite struct TeamTests {
+    @Test func tracksTeamsAndSelectsTheFirstMemberOfOursOnly() async {
+        final class Box { var sent: [ClientMessage] = [] }
+        let box = Box()
+        let store = SessionStore { box.sent.append($0) }
+        await store.createTeam(title: "Web", roles: ["yazar", "inceleyici"])
+        guard case .teamCreate(let id, "Web", ["yazar", "inceleyici"])? = box.sent.last else { Issue.record("expected team.create"); return }
+
+        store.handle(.teamUpdated(TeamInfo(id: "other", title: "Başka", createdAt: "1", sessionIds: ["x"])))
+        #expect(store.lastCreatedSessionID == nil)
+        store.handle(.teamCreated(id: id, team: TeamInfo(id: "t", title: "Web", createdAt: "2", sessionIds: ["s1", "s2"])))
+        #expect(store.lastCreatedSessionID == "s1")
+        #expect(store.teams.map(\.id) == ["t", "other"])
+    }
+
+    @Test func decodesMembersAndRoles() throws {
+        let updated = try ServerMessage.decode(#"{"type":"session.updated","session":{"id":"s","agent":"claude","title":"Yazar","status":"idle","createdAt":"c","archived":false,"teamId":"t","role":"Yazar"}}"#)
+        guard case .sessionUpdated(let info) = updated else { Issue.record("expected session.updated"); return }
+        #expect([info.teamId, info.role] == ["t", "Yazar"])
+        let roles = try ServerMessage.decode(#"{"type":"role.list.result","id":"r","roles":[{"id":"yazar","name":"Yazar","agent":"claude","instructions":"Yaz.","skills":[],"mcpServers":[]}]}"#)
+        #expect(roles == .roleListResult(id: "r", roles: [Role(id: "yazar", name: "Yazar", agent: "claude", instructions: "Yaz.")]))
     }
 }

@@ -21,6 +21,9 @@ struct RootView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
+        .sheet(isPresented: Bindable(model).showNewTeam) {
+            NewTeamSheet().environment(model)
+        }
         .sheet(isPresented: Binding(get: { model.newSessionAgent != nil }, set: { if !$0 { model.newSessionAgent = nil } })) {
             if let agent = model.newSessionAgent {
                 NewSessionSheet(agent: agent).environment(model)
@@ -48,7 +51,8 @@ private struct SidebarView: View {
     var body: some View {
         @Bindable var model = model
         let store = model.store
-        let (groups, archived) = SessionGroups.group(store.sessions, lastActivity: { store.lastActivity($0.id) })
+        // Team members are listed under their team, not on their own.
+        let (groups, archived) = SessionGroups.group(store.sessions.filter { $0.teamId == nil }, lastActivity: { store.lastActivity($0.id) })
         let searching = !query.trimmingCharacters(in: .whitespaces).isEmpty
 
         List(selection: $model.selectedSessionID) {
@@ -76,9 +80,7 @@ private struct SidebarView: View {
                         Text("Arşiv (\(archived.count))")
                     }
                 }
-                Section("Takımlar") {
-                    Text("Henüz takım yok").foregroundStyle(.secondary)
-                }
+                TeamsSection()
             }
         }
         .listStyle(.sidebar)

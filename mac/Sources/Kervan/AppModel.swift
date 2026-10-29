@@ -14,6 +14,7 @@ final class AppModel {
     var tokenInput = ""
     var selectedSessionID: String?
     var showFiles = false
+    var showNewTeam = false
     /// A message to scroll to and flash, set by picking a search hit; ChatView clears it.
     var focus: (sessionID: String, seq: Int)?
 

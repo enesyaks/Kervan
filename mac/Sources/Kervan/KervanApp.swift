@@ -37,6 +37,9 @@ private struct NewSessionCommands: View {
         Button("Yeni oturum") { model.newSession() }
             .keyboardShortcut("n")
             .disabled(!model.canCreateSession)
+        Button("Yeni takım…") { model.showNewTeam = true }
+            .keyboardShortcut("n", modifiers: [.command, .shift])
+            .disabled(!model.canCreateSession)
         if agents.count > 1 {
             Menu("Ajanla yeni oturum") {
                 ForEach(agents) { agent in

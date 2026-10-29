@@ -12,6 +12,8 @@ struct SettingsView: View {
                 .tabItem { Label("MCP sunucuları", systemImage: "point.3.connected.trianglepath.dotted") }
             AgentsSettings()
                 .tabItem { Label("Ajanlar", systemImage: "person.2") }
+            RolesSettings()
+                .tabItem { Label("Roller", systemImage: "theatermasks") }
         }
         .frame(width: 560, height: 420)
     }

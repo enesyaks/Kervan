@@ -24,6 +24,9 @@ public final class SessionStore {
     public private(set) var nodes: [String] = ["local"]
     /// The server's refusal of the last agent save (it tries the agent first), if any.
     public private(set) var agentSaveError: String?
+    public private(set) var roles: [Role] = []
+    /// Newest first.
+    public private(set) var teams: [TeamInfo] = []
     /// MCP servers registered on the server, refreshed on connect and after every change.
     public private(set) var mcpServers: [McpServerSummary] = []
     /// True while the latest search is on its way.
@@ -33,6 +36,7 @@ public final class SessionStore {
     private var pendingCreates: Set<String> = []
     private var latestSearch: String?
     private var pendingAgentSave: String?
+    private var pendingTeams: Set<String> = []
 
     public init(send: @escaping Sender) {
         self.send = send
@@ -56,12 +60,29 @@ public final class SessionStore {
         self.agents = agents
         await request(.sessionList(id: Self.newID()))
         await request(.mcpList(id: Self.newID()))
+        await request(.roleList(id: Self.newID()))
+        await request(.teamList(id: Self.newID()))
     }
 
     public func create(agent: String, skills: [String] = [], mcpServers: [String] = []) async {
         let id = Self.newID()
         pendingCreates.insert(id)
         await request(.sessionCreate(id: id, agent: agent, skills: skills, mcpServers: mcpServers))
+    }
+
+    public func saveRole(_ role: Role) async {
+        await request(.roleSave(id: Self.newID(), role: role))
+    }
+
+    public func deleteRole(_ id: String) async {
+        await request(.roleDelete(id: Self.newID(), roleId: id))
+    }
+
+    /// Starts one session per role; the first member is selected when the team arrives.
+    public func createTeam(title: String, roles: [String]) async {
+        let id = Self.newID()
+        pendingTeams.insert(id)
+        await request(.teamCreate(id: id, title: title, roles: roles))
     }
 
     public func loadAgentConfigs() async {
@@ -156,6 +177,15 @@ public final class SessionStore {
             if id == pendingAgentSave { pendingAgentSave = nil }
         case .agentsUpdated(let agents):
             self.agents = agents
+        case .roleListResult(_, let roles):
+            self.roles = roles
+        case .teamListResult(_, let teams):
+            self.teams = teams.sorted { $0.createdAt > $1.createdAt }
+        case .teamCreated(let requestID, let team):
+            upsertTeam(team)
+            if pendingTeams.remove(requestID) != nil { lastCreatedSessionID = team.sessionIds.first }
+        case .teamUpdated(let team):
+            upsertTeam(team)
         case .mcpListResult(_, let servers):
             mcpServers = servers
         case .sessionSearchResult(let id, let hits) where id == latestSearch:
@@ -179,6 +209,14 @@ public final class SessionStore {
             events[sessionID, default: []].append(event)
         } else if event.seq > last + 1 {
             requestHistory(sessionID)
+        }
+    }
+
+    private func upsertTeam(_ team: TeamInfo) {
+        if let index = teams.firstIndex(where: { $0.id == team.id }) {
+            teams[index] = team
+        } else {
+            teams.insert(team, at: 0)
         }
     }
 

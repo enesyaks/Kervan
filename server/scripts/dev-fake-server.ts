@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { log } from "../src/log.ts";
 import { AgentCatalog } from "../src/catalog.ts";
+import { RoleRegistry } from "../src/roles.ts";
 import { LocalAcpRunner, probeAgent } from "../src/runner.ts";
 import { createKervanServer } from "../src/server.ts";
 import { SessionManager } from "../src/sessions.ts";
@@ -22,10 +23,16 @@ const catalog = new AgentCatalog(join(dataDir, "agents.json"), new Map([
     ["claude", { ...fakeAgent, name: "Claude (sahte)" }],
     ["codex", { ...fakeAgent, name: "Codex (sahte)" }],
 ]), (definition) => probeAgent(runner, definition));
+const roles = new RoleRegistry(join(dataDir, "roles.json"), {
+  hasAgent: (id) => catalog.live.has(id),
+  hasSkill: (name) => skills.has(name),
+  hasMcp: (name) => mcp.has(name),
+});
 const sessions = new SessionManager(runner, catalog.live, mkdtempSync(join(tmpdir(), "kervan-dev-")), new EventStore(":memory:"), {
   skills,
   mcp,
   catalog,
+  roles,
 });
 const server = createKervanServer({ token: "local-dev-token-not-secret", sessions, skills });
 server.listen(7420, "127.0.0.1", () => log("info", "fake-agent dev server on 127.0.0.1:7420"));

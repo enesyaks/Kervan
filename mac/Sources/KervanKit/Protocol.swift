@@ -60,12 +60,18 @@ public struct SessionInfo: Codable, Equatable, Sendable, Identifiable {
     public var archived: Bool
     public var skills: [String]
     public var mcpServers: [String]
+    /// Set for team members.
+    public var teamId: String?
+    public var role: String?
     public var error: String?
 
     public init(
         id: String, agent: String, title: String, status: SessionStatus, createdAt: String,
-        archived: Bool = false, skills: [String] = [], mcpServers: [String] = [], error: String? = nil
+        archived: Bool = false, skills: [String] = [], mcpServers: [String] = [], teamId: String? = nil,
+        role: String? = nil, error: String? = nil
     ) {
+        self.teamId = teamId
+        self.role = role
         self.id = id
         self.agent = agent
         self.title = title
@@ -77,7 +83,7 @@ public struct SessionInfo: Codable, Equatable, Sendable, Identifiable {
         self.error = error
     }
 
-    private enum CodingKeys: String, CodingKey { case id, agent, title, status, createdAt, archived, skills, mcpServers, error }
+    private enum CodingKeys: String, CodingKey { case id, agent, title, status, createdAt, archived, skills, mcpServers, teamId, role, error }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -89,6 +95,8 @@ public struct SessionInfo: Codable, Equatable, Sendable, Identifiable {
         archived = try c.decodeIfPresent(Bool.self, forKey: .archived) ?? false
         skills = try c.decodeIfPresent([String].self, forKey: .skills) ?? []
         mcpServers = try c.decodeIfPresent([String].self, forKey: .mcpServers) ?? []
+        teamId = try c.decodeIfPresent(String.self, forKey: .teamId)
+        role = try c.decodeIfPresent(String.self, forKey: .role)
         error = try c.decodeIfPresent(String.self, forKey: .error)
     }
 }
@@ -115,6 +123,40 @@ public struct McpServerSummary: Codable, Equatable, Sendable, Identifiable {
         self.url = url
         self.envKeys = envKeys
         self.headerKeys = headerKeys
+    }
+}
+
+/// A job in a team: which agent, what it's told up front, what it may use.
+public struct Role: Codable, Equatable, Sendable, Identifiable {
+    public var id: String
+    public var name: String
+    public var agent: String
+    public var instructions: String
+    public var skills: [String]
+    public var mcpServers: [String]
+
+    public init(id: String, name: String, agent: String, instructions: String = "", skills: [String] = [], mcpServers: [String] = []) {
+        self.id = id
+        self.name = name
+        self.agent = agent
+        self.instructions = instructions
+        self.skills = skills
+        self.mcpServers = mcpServers
+    }
+}
+
+/// Sessions started together from roles, sharing one folder.
+public struct TeamInfo: Decodable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let title: String
+    public let createdAt: String
+    public let sessionIds: [String]
+
+    public init(id: String, title: String, createdAt: String, sessionIds: [String]) {
+        self.id = id
+        self.title = title
+        self.createdAt = createdAt
+        self.sessionIds = sessionIds
     }
 }
 
@@ -377,10 +419,15 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
     case agentList(id: String)
     case agentSave(id: String, agent: AgentInput)
     case agentDelete(id: String, agentId: String)
+    case roleList(id: String)
+    case roleSave(id: String, role: Role)
+    case roleDelete(id: String, roleId: String)
+    case teamCreate(id: String, title: String, roles: [String])
+    case teamList(id: String)
 
     private enum CodingKeys: String, CodingKey {
         case type, `protocol`, client, id, agent, sessionId, text, requestId, optionId, attachments, title, archived, query
-        case skills, mcpServers, server, name, agentId
+        case skills, mcpServers, server, name, agentId, role, roleId, roles
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -458,6 +505,25 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
             try c.encode("agent.delete", forKey: .type)
             try c.encode(id, forKey: .id)
             try c.encode(agentId, forKey: .agentId)
+        case .roleList(let id):
+            try c.encode("role.list", forKey: .type)
+            try c.encode(id, forKey: .id)
+        case .roleSave(let id, let role):
+            try c.encode("role.save", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(role, forKey: .role)
+        case .roleDelete(let id, let roleId):
+            try c.encode("role.delete", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(roleId, forKey: .roleId)
+        case .teamCreate(let id, let title, let roles):
+            try c.encode("team.create", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(title, forKey: .title)
+            try c.encode(roles, forKey: .roles)
+        case .teamList(let id):
+            try c.encode("team.list", forKey: .type)
+            try c.encode(id, forKey: .id)
         }
     }
 
@@ -483,12 +549,16 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
     case mcpListResult(id: String, servers: [McpServerSummary])
     case agentListResult(id: String, agents: [AgentConfig], nodes: [String])
     case agentsUpdated([AgentInfo])
+    case roleListResult(id: String, roles: [Role])
+    case teamCreated(id: String, team: TeamInfo)
+    case teamListResult(id: String, teams: [TeamInfo])
+    case teamUpdated(TeamInfo)
     /// A type this client doesn't know yet. Ignored, so the server can add types without a version bump.
     case unknown(type: String)
 
     private enum CodingKeys: String, CodingKey {
         case type, `protocol`, server, agents, agentDetails, id, code, message, session, sessions, sessionId, events, event, hits, servers
-        case nodes
+        case nodes, roles, team, teams
     }
 
     public init(from decoder: any Decoder) throws {
@@ -531,6 +601,14 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
                 agents: try c.decode([AgentConfig].self, forKey: .agents),
                 nodes: try c.decodeIfPresent([String].self, forKey: .nodes) ?? ["local"]
             )
+        case "role.list.result":
+            self = .roleListResult(id: try c.decode(String.self, forKey: .id), roles: try c.decode([Role].self, forKey: .roles))
+        case "team.created":
+            self = .teamCreated(id: try c.decode(String.self, forKey: .id), team: try c.decode(TeamInfo.self, forKey: .team))
+        case "team.list.result":
+            self = .teamListResult(id: try c.decode(String.self, forKey: .id), teams: try c.decode([TeamInfo].self, forKey: .teams))
+        case "team.updated":
+            self = .teamUpdated(try c.decode(TeamInfo.self, forKey: .team))
         case "agents.updated":
             self = .agentsUpdated(try c.decode([AgentInfo].self, forKey: .agentDetails))
         case "mcp.list.result":
