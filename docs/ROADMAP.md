@@ -10,7 +10,7 @@ Her adım tek başına çalışan, test edilebilir bir özellik bırakır.
 | M3 | Kalıcılık: SQLite olay günlüğü, yeniden başlatmada kurtarma ve devam | ✅ |
 | M4 | Araç çağrıları ve izin onayı (Onayla / Reddet) | ✅ |
 | M5 | Çoklu oturum, geçmiş ekranı, tam metin arama | |
-| M6 | Dosya yükleme / indirme, çalışma klasörü tarayıcısı | |
+| M6 | Dosya yükleme / indirme, çalışma klasörü tarayıcısı | ✅ |
 | M7 | Ajan kayıt defteri (`agents.yaml`): Codex, Gemini, OpenCode | |
 | M8 | Takımlar ve roller (`roles.yaml`), takımı elle kurma | |
 | M9 | Orkestrasyon MCP sunucusu: ana ajan yardımcı başlatır ve mesajlaşır | |

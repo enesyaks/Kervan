@@ -43,8 +43,8 @@ public final class SessionStore {
         await request(.sessionCreate(id: id, agent: agent))
     }
 
-    public func prompt(_ sessionID: String, text: String) async {
-        await request(.sessionPrompt(id: Self.newID(), sessionId: sessionID, text: text))
+    public func prompt(_ sessionID: String, text: String, attachments: [String] = []) async {
+        await request(.sessionPrompt(id: Self.newID(), sessionId: sessionID, text: text, attachments: attachments))
     }
 
     public func cancel(_ sessionID: String) async {

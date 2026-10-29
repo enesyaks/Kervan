@@ -29,7 +29,7 @@ public struct PermissionPrompt: Equatable, Sendable {
 
 /// One row of a chat as the UI shows it. Built from the raw event log by `Transcript.build`.
 public enum TranscriptItem: Equatable, Sendable, Identifiable {
-    case user(id: Int, text: String)
+    case user(id: Int, text: String, attachments: [String] = [])
     case agent(id: Int, text: String)
     case thought(id: Int, text: String)
     case tool(id: Int, toolCallId: String, title: String, kind: String, status: String)
@@ -41,7 +41,7 @@ public enum TranscriptItem: Equatable, Sendable, Identifiable {
     /// The seq of the event that started the row; stable while chunks stream in.
     public var id: Int {
         switch self {
-        case .user(let id, _), .agent(let id, _), .thought(let id, _), .tool(let id, _, _, _, _),
+        case .user(let id, _, _), .agent(let id, _), .thought(let id, _), .tool(let id, _, _, _, _),
              .permission(let id, _), .stopped(let id, _), .notice(let id, _), .error(let id, _):
             id
         }
@@ -58,8 +58,8 @@ public enum Transcript {
 
         for event in events {
             switch event.body {
-            case .userMessage(let text):
-                items.append(.user(id: event.seq, text: text))
+            case .userMessage(let text, let attachments):
+                items.append(.user(id: event.seq, text: text, attachments: attachments))
             case .agentMessageChunk(let text):
                 if case .agent(let id, let existing)? = items.last {
                     items[items.count - 1] = .agent(id: id, text: existing + text)

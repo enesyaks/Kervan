@@ -43,7 +43,7 @@ async function handleRequest(ws: WebSocket, message: Exclude<ClientMessage, { ty
         events: sessions.history(message.sessionId),
       });
     case "session.prompt":
-      sessions.prompt(message.sessionId, message.text);
+      sessions.prompt(message.sessionId, message.text, message.attachments);
       return send(ws, { type: "ok", id: message.id });
     case "session.cancel":
       await sessions.cancel(message.sessionId);

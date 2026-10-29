@@ -7,6 +7,7 @@ export interface KervanConfig {
   /** Each session gets its own folder here; ACP needs absolute paths. */
   workspacesDir: string;
   token: string;
+  maxUploadBytes: number;
 }
 
 const MIN_TOKEN_LENGTH = 16;
@@ -27,5 +28,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): KervanConfig {
     dataDir,
     workspacesDir: resolve(env.KERVAN_WORKSPACES_DIR ?? join(dataDir, "workspaces")),
     token,
+    maxUploadBytes: Number(env.KERVAN_MAX_UPLOAD_MB ?? 512) * 1024 * 1024,
   };
 }

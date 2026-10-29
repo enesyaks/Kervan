@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentRegistry } from "./agents.ts";
+import { isSafeRelativePath } from "./files.ts";
 import { log } from "./log.ts";
 import { KervanError, type ServerMessage, type SessionEvent, type SessionEventBody, type SessionInfo } from "./protocol.ts";
 import type { AgentProcess, AgentRunner, PermissionDecision, PermissionRequest } from "./runner.ts";
@@ -79,6 +80,11 @@ export class SessionManager {
     return this.require(sessionId).events;
   }
 
+  /** Absolute path of the session's working folder. */
+  workspace(sessionId: string): string {
+    return this.require(sessionId).cwd;
+  }
+
   async create(agent: string): Promise<SessionInfo> {
     if (!this.agents.has(agent)) throw new KervanError("unknown_agent", `no agent named '${agent}'`);
 
@@ -103,8 +109,12 @@ export class SessionManager {
     return { ...session.info };
   }
 
-  prompt(sessionId: string, text: string): void {
+  /** `attachments` are workspace-relative paths, usually files the user just uploaded. */
+  prompt(sessionId: string, text: string, attachments: string[] = []): void {
     const session = this.require(sessionId);
+    if (!attachments.every(isSafeRelativePath)) {
+      throw new KervanError("bad_message", "attachments must be paths inside the workspace");
+    }
     if (session.info.status === "running" || session.info.status === "waiting") {
       throw new KervanError("session_busy", "the agent is still answering");
     }
@@ -117,7 +127,7 @@ export class SessionManager {
       const line = text.trim().split("\n")[0].replace(/[*_`#>~]/g, "").trim();
       session.info.title = line.length > TITLE_CHARS ? `${line.slice(0, TITLE_CHARS - 1)}…` : line;
     }
-    this.record(session, { kind: "user_message", text });
+    this.record(session, { kind: "user_message", text, ...(attachments.length > 0 ? { attachments } : {}) });
     this.setStatus(session, "running");
 
     (async () => {
@@ -125,7 +135,7 @@ export class SessionManager {
         await this.startAgent(session, true);
         this.record(session, { kind: "notice", text: "Ajan yeniden başlatıldı; konuşma kaldığı yerden devam ediyor." });
       }
-      const stopReason = await session.process!.prompt(text);
+      const stopReason = await session.process!.prompt(text, attachments.map((path) => join(session.cwd, path)));
       this.record(session, { kind: "turn_end", stopReason });
     })()
       .catch((error: unknown) => {

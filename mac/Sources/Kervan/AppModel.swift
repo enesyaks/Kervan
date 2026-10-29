@@ -13,10 +13,12 @@ final class AppModel {
     }
     var tokenInput = ""
     var selectedSessionID: String?
+    var showFiles = false
 
     let connection: KervanConnection
     let store: SessionStore
     private(set) var activeAddress: ServerAddress?
+    private var activeToken: String?
     /// True from the first handshake until the user disconnects; brief drops keep the chat on screen.
     private(set) var isLinked = false
 
@@ -59,7 +61,14 @@ final class AppModel {
             Task.detached { TokenStore.save(token) }
         }
         activeAddress = address
+        activeToken = token
         connection.connect(to: address, token: token)
+    }
+
+    /// HTTP access to session workspaces, with the same server and token as the socket.
+    var fileClient: FileClient? {
+        guard let activeAddress, let activeToken else { return nil }
+        return FileClient(address: activeAddress, token: activeToken)
     }
 
     func disconnect() {

@@ -3,6 +3,7 @@
 //   "tool"   → also reports a tool call and asks for permission; completes the tool only if allowed
 //   "slow"   → waits 300 ms before answering
 //   "crash"  → exits mid-turn
+//   attached files → answers "files: <file:// uris>"
 //   "whoami" → answers with the ACP session id it is running (new or resumed)
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
@@ -38,6 +39,12 @@ acp
       return { stopReason: "end_turn" };
     }
     if (text.includes("slow")) await new Promise((resolve) => setTimeout(resolve, 300));
+
+    const links = params.prompt.flatMap((block) => (block.type === "resource_link" ? [block.uri] : []));
+    if (links.length > 0) {
+      await update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `files: ${links.join(",")}` } });
+      return { stopReason: "end_turn" };
+    }
 
     await update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "echo: " } });
     await update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text } });

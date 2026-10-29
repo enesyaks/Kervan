@@ -10,7 +10,7 @@ import { join } from "node:path";
 const config = loadConfig();
 const store = new EventStore(join(config.dataDir, "kervan.db"));
 const sessions = new SessionManager(new LocalAcpRunner(), defaultAgents(), config.workspacesDir, store);
-const server = createKervanServer({ token: config.token, sessions });
+const server = createKervanServer({ token: config.token, sessions, maxUploadBytes: config.maxUploadBytes });
 
 server.listen(config.port, config.host, () => {
   log("info", "kervan listening", { host: config.host, port: config.port, version: VERSION });

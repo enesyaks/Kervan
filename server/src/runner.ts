@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
+import { basename } from "node:path";
 import { Readable, Writable } from "node:stream";
+import { pathToFileURL } from "node:url";
 import * as acp from "@agentclientprotocol/sdk";
 import type { AgentCommand } from "./agents.ts";
 import { log } from "./log.ts";
@@ -7,8 +9,8 @@ import type { PermissionChoice, SessionEventBody } from "./protocol.ts";
 
 /** One running agent conversation. */
 export interface AgentProcess {
-  /** Resolves with the stop reason once the agent finishes the turn. */
-  prompt(text: string): Promise<string>;
+  /** Resolves with the stop reason once the agent finishes the turn. `files` are absolute paths. */
+  prompt(text: string, files?: string[]): Promise<string>;
   cancel(): Promise<void>;
   close(): void;
   /** Settles when the agent process is gone, whether closed or crashed. */
@@ -108,8 +110,12 @@ export class LocalAcpRunner implements AgentRunner {
         sessionId,
         exited,
         close,
-        async prompt(text) {
-          const response = await agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text }] });
+        async prompt(text, files = []) {
+          const prompt: acp.ContentBlock[] = [
+            { type: "text", text },
+            ...files.map((path) => ({ type: "resource_link" as const, uri: pathToFileURL(path).href, name: basename(path) })),
+          ];
+          const response = await agent.request("session/prompt", { sessionId, prompt });
           return response.stopReason;
         },
         async cancel() {

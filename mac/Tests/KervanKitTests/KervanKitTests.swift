@@ -250,3 +250,51 @@ import Testing
         #expect(items == [.stopped(id: 1, reason: "interrupted"), .notice(id: 2, text: "Ajan yeniden başlatıldı")])
     }
 }
+
+@Suite struct FileClientTests {
+    private let client = FileClient(address: ServerAddress("kervan")!, token: "t")
+
+    @Test func derivesTheHTTPOrigin() {
+        #expect(ServerAddress("kervan")!.httpBase.absoluteString == "http://kervan:7420/")
+        #expect(ServerAddress("wss://kervan.example.ts.net")!.httpBase.absoluteString == "https://kervan.example.ts.net:7420/")
+    }
+
+    @Test func encodesEachPathSegment() {
+        #expect(client.url(sessionID: "s1").absoluteString == "http://kervan:7420/v1/sessions/s1/files")
+        #expect(
+            client.url(sessionID: "s1", path: "uploads/rapor şubat #1.pdf").absoluteString
+                == "http://kervan:7420/v1/sessions/s1/files/uploads/rapor%20%C5%9Fubat%20%231.pdf"
+        )
+    }
+
+    @Test func decodesAListing() throws {
+        let json = #"{"entries":[{"path":"uploads","type":"dir","size":0,"modifiedAt":"t"},{"path":"uploads/a.txt","type":"file","size":12,"modifiedAt":"t"}],"truncated":false}"#
+        let listing = try JSONDecoder().decode(WorkspaceListing.self, from: Data(json.utf8))
+        #expect(listing.entries.map(\.depth) == [0, 1])
+        #expect(listing.entries[1].name == "a.txt")
+    }
+
+    @Test func neverOverwritesALocalFile() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let taken = folder.appendingPathComponent("rapor.pdf")
+        try Data().write(to: taken)
+        #expect(FileClient.freeName(for: taken).lastPathComponent == "rapor 2.pdf")
+    }
+}
+
+@Suite struct AttachmentProtocolTests {
+    @Test func sendsAttachmentsOnlyWhenPresent() throws {
+        #expect(try ClientMessage.sessionPrompt(id: "r", sessionId: "s", text: "t").jsonString() == #"{"id":"r","sessionId":"s","text":"t","type":"session.prompt"}"#)
+        #expect(
+            try ClientMessage.sessionPrompt(id: "r", sessionId: "s", text: "t", attachments: ["uploads/a.txt"]).jsonString()
+                == #"{"attachments":["uploads\/a.txt"],"id":"r","sessionId":"s","text":"t","type":"session.prompt"}"#
+        )
+    }
+
+    @Test func showsAttachmentsOnTheUserMessage() throws {
+        let message = try ServerMessage.decode(#"{"type":"session.event","sessionId":"s","event":{"seq":1,"kind":"user_message","text":"oku","attachments":["uploads/a.txt"]}}"#)
+        guard case .sessionEvent(_, let event) = message else { Issue.record("expected event"); return }
+        #expect(Transcript.build([event]) == [.user(id: 1, text: "oku", attachments: ["uploads/a.txt"])])
+    }
+}

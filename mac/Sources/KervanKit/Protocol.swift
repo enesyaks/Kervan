@@ -60,7 +60,7 @@ public struct SessionInfo: Codable, Equatable, Sendable, Identifiable {
 
 public struct SessionEvent: Decodable, Equatable, Sendable {
     public enum Body: Equatable, Sendable {
-        case userMessage(String)
+        case userMessage(String, attachments: [String] = [])
         case agentMessageChunk(String)
         case agentThoughtChunk(String)
         case toolCall(id: String, title: String, kind: String, status: String)
@@ -88,7 +88,7 @@ public struct SessionEvent: Decodable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case seq, at, kind, text, toolCallId, title, toolKind, status, stopReason, message
-        case requestId, detail, options, optionId
+        case requestId, detail, options, optionId, attachments
     }
 
     public init(from decoder: any Decoder) throws {
@@ -97,7 +97,11 @@ public struct SessionEvent: Decodable, Equatable, Sendable {
         at = try c.decodeIfPresent(String.self, forKey: .at) ?? ""
         let kind = try c.decode(String.self, forKey: .kind)
         switch kind {
-        case "user_message": body = .userMessage(try c.decode(String.self, forKey: .text))
+        case "user_message":
+            body = .userMessage(
+                try c.decode(String.self, forKey: .text),
+                attachments: try c.decodeIfPresent([String].self, forKey: .attachments) ?? []
+            )
         case "agent_message_chunk": body = .agentMessageChunk(try c.decode(String.self, forKey: .text))
         case "agent_thought_chunk": body = .agentThoughtChunk(try c.decode(String.self, forKey: .text))
         case "tool_call":
@@ -140,12 +144,12 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
     case sessionCreate(id: String, agent: String)
     case sessionList(id: String)
     case sessionHistory(id: String, sessionId: String)
-    case sessionPrompt(id: String, sessionId: String, text: String)
+    case sessionPrompt(id: String, sessionId: String, text: String, attachments: [String] = [])
     case sessionCancel(id: String, sessionId: String)
     case sessionPermission(id: String, sessionId: String, requestId: String, optionId: String)
 
     private enum CodingKeys: String, CodingKey {
-        case type, `protocol`, client, id, agent, sessionId, text, requestId, optionId
+        case type, `protocol`, client, id, agent, sessionId, text, requestId, optionId, attachments
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -169,11 +173,12 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
             try c.encode("session.history", forKey: .type)
             try c.encode(id, forKey: .id)
             try c.encode(sessionId, forKey: .sessionId)
-        case .sessionPrompt(let id, let sessionId, let text):
+        case .sessionPrompt(let id, let sessionId, let text, let attachments):
             try c.encode("session.prompt", forKey: .type)
             try c.encode(id, forKey: .id)
             try c.encode(sessionId, forKey: .sessionId)
             try c.encode(text, forKey: .text)
+            if !attachments.isEmpty { try c.encode(attachments, forKey: .attachments) }
         case .sessionCancel(let id, let sessionId):
             try c.encode("session.cancel", forKey: .type)
             try c.encode(id, forKey: .id)

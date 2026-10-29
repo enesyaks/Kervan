@@ -41,6 +41,7 @@ describe("loadConfig", () => {
       dataDir: "./data",
       workspacesDir: resolve("data/workspaces"),
       token: TEST_TOKEN,
+      maxUploadBytes: 512 * 1024 * 1024,
     });
   });
 

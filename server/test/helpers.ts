@@ -13,10 +13,12 @@ export const TEST_TOKEN = "test-token-0123456789";
 
 export const fakeAgent = { command: process.execPath, args: [join(import.meta.dirname, "fixtures/fake-agent.ts")] };
 
-export async function startServer(): Promise<{ server: Server; port: number; stop: () => Promise<void> }> {
+export async function startServer(
+  options: { maxUploadBytes?: number } = {},
+): Promise<{ server: Server; port: number; sessions: SessionManager; stop: () => Promise<void> }> {
   const workspaces = mkdtempSync(join(tmpdir(), "kervan-test-"));
   const sessions = new SessionManager(new LocalAcpRunner(), new Map([["fake", fakeAgent]]), workspaces, new EventStore(":memory:"));
-  const server = createKervanServer({ token: TEST_TOKEN, sessions });
+  const server = createKervanServer({ token: TEST_TOKEN, sessions, ...options });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const port = (server.address() as AddressInfo).port;
   const stop = () =>
@@ -24,7 +26,7 @@ export async function startServer(): Promise<{ server: Server; port: number; sto
       sessions.closeAll();
       server.close(() => resolve());
     });
-  return { server, port, stop };
+  return { server, port, sessions, stop };
 }
 
 export function openSocket(port: number, token: string | null = TEST_TOKEN, path = "/v1/ws"): WebSocket {

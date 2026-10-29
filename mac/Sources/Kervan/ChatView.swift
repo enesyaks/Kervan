@@ -1,3 +1,4 @@
+import AppKit
 import KervanKit
 import SwiftUI
 
@@ -6,6 +7,8 @@ struct ChatView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var draft = ""
+    @State private var attachments: [Attachment] = []
+    @State private var dropTargeted = false
 
     var body: some View {
         let session = model.store.session(sessionID)
@@ -60,10 +63,38 @@ struct ChatView: View {
                 }
             }
 
-            Composer(draft: $draft, status: status, canSend: model.connection.state.isConnected, send: send, stop: stop)
+            Composer(
+                draft: $draft,
+                attachments: attachments,
+                status: status,
+                canSend: model.connection.state.isConnected && attachments.allSatisfy(\.isReady),
+                send: send,
+                stop: stop,
+                attach: chooseFiles,
+                remove: { id in attachments.removeAll { $0.id == id } }
+            )
         }
+        .overlay { if dropTargeted { DropHint() } }
+        .dropDestination(for: URL.self) { urls, _ in
+            attach(urls)
+            return true
+        } isTargeted: { dropTargeted = $0 }
         .navigationTitle(session?.title ?? "Oturum")
         .navigationSubtitle("\(agentName), \(status.label.lowercased())")
+        .inspector(isPresented: Bindable(model).showFiles) {
+            FilesPanel(sessionID: sessionID)
+                .inspectorColumnWidth(min: 240, ideal: 300)
+        }
+        .toolbar {
+            ToolbarItem {
+                Button {
+                    model.showFiles.toggle()
+                } label: {
+                    Label("Dosyalar", systemImage: "folder")
+                }
+                .help("Oturumun çalışma klasörünü göster")
+            }
+        }
     }
 
     private static let bottom = "bottom"
@@ -79,10 +110,43 @@ struct ChatView: View {
 
     private func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, model.store.session(sessionID)?.status == .idle else { return }
+        guard !text.isEmpty, model.store.session(sessionID)?.status == .idle, attachments.allSatisfy(\.isReady) else { return }
+        let paths = attachments.map(\.remotePath)
         draft = ""
+        attachments = []
         model.store.lastError = nil
-        Task { await model.store.prompt(sessionID, text: text) }
+        Task { await model.store.prompt(sessionID, text: text, attachments: paths) }
+    }
+
+    private func chooseFiles() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.prompt = "Ekle"
+        if panel.runModal() == .OK { attach(panel.urls) }
+    }
+
+    /// Uploads each file to `uploads/` right away; the message can be sent once all are ready.
+    private func attach(_ urls: [URL]) {
+        guard let client = model.fileClient else { return }
+        for url in urls where url.isFileURL {
+            if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                model.store.lastError = "Klasörler henüz eklenemiyor: \(url.lastPathComponent)"
+                continue
+            }
+            let attachment = Attachment(name: url.lastPathComponent, taken: Set(attachments.map(\.remotePath)))
+            attachments.append(attachment)
+            Task {
+                let state: Attachment.State
+                do {
+                    try await client.upload(sessionID: sessionID, file: url, to: attachment.remotePath)
+                    state = .ready
+                } catch {
+                    state = .failed(error.localizedDescription)
+                }
+                if let index = attachments.firstIndex(where: { $0.id == attachment.id }) { attachments[index].state = state }
+            }
+        }
     }
 
     private func stop() {
@@ -117,9 +181,13 @@ private struct TranscriptRow: View {
 
     var body: some View {
         switch item {
-        case .user(_, let text):
-            Text(text)
-                .textSelection(.enabled)
+        case .user(_, let text, let attached):
+            VStack(alignment: .leading, spacing: 8) {
+                Text(text).textSelection(.enabled)
+                if !attached.isEmpty {
+                    FlowChips(names: attached.map { $0.split(separator: "/").last.map(String.init) ?? $0 })
+                }
+            }
                 .padding(.vertical, 8)
                 .padding(.horizontal, 12)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -337,15 +405,36 @@ private struct PermissionCard: View {
 
 private struct Composer: View {
     @Binding var draft: String
+    let attachments: [Attachment]
     let status: SessionStatus
     let canSend: Bool
     let send: () -> Void
     let stop: () -> Void
+    let attach: () -> Void
+    let remove: (Attachment.ID) -> Void
     @FocusState private var focused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            if !attachments.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(attachments) { attachment in
+                            AttachmentChip(attachment: attachment) { remove(attachment.id) }
+                        }
+                    }
+                }
+            }
             HStack(alignment: .bottom, spacing: 10) {
+                Button(action: attach) {
+                    Image(systemName: "paperclip")
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.large)
+                .help("Dosya ekle; sohbete sürükleyip bırakabilirsiniz de")
+                .accessibilityLabel("Dosya ekle")
+                .padding(.bottom, 8)
+
                 TextField("Bir görev ya da soru yazın", text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
                     .lineLimit(1...8)

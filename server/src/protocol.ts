@@ -3,6 +3,7 @@
 export const PROTOCOL_VERSION = 1;
 
 const MAX_PROMPT_CHARS = 100_000;
+const MAX_ATTACHMENTS = 20;
 
 export interface PeerInfo {
   name: string;
@@ -30,7 +31,7 @@ export interface SessionInfo {
 
 // Agent-neutral events. Runners translate their agent's own updates (ACP, PTY…) into these.
 export type SessionEventBody =
-  | { kind: "user_message"; text: string }
+  | { kind: "user_message"; text: string; attachments?: string[] }
   | { kind: "agent_message_chunk"; text: string }
   | { kind: "agent_thought_chunk"; text: string }
   | { kind: "tool_call"; toolCallId: string; title: string; toolKind: string; status: string }
@@ -57,7 +58,7 @@ export type ClientMessage =
   | { type: "session.create"; id: string; agent: string }
   | { type: "session.list"; id: string }
   | { type: "session.history"; id: string; sessionId: string }
-  | { type: "session.prompt"; id: string; sessionId: string; text: string }
+  | { type: "session.prompt"; id: string; sessionId: string; text: string; attachments?: string[] }
   | { type: "session.cancel"; id: string; sessionId: string }
   | { type: "session.permission"; id: string; sessionId: string; requestId: string; optionId: string };
 
@@ -146,6 +147,13 @@ export function parseClientMessage(raw: string): ParseResult {
   }
   if (data.type === "session.prompt" && (message.text.trim() === "" || message.text.length > MAX_PROMPT_CHARS)) {
     return { ok: false, code: "bad_message", message: `prompt text must be 1–${MAX_PROMPT_CHARS} characters` };
+  }
+  if (data.type === "session.prompt" && data.attachments !== undefined) {
+    const list = data.attachments;
+    if (!Array.isArray(list) || list.length > MAX_ATTACHMENTS || !list.every((a) => typeof a === "string")) {
+      return { ok: false, code: "bad_message", message: `attachments must be up to ${MAX_ATTACHMENTS} paths` };
+    }
+    (message as Record<string, unknown>).attachments = list;
   }
   return { ok: true, message: message as unknown as ClientMessage };
 }
