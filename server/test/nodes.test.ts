@@ -139,3 +139,22 @@ describe("agents on another node", () => {
     assert.equal(await ask("whoami"), before, "the same agent conversation, resumed on the node");
   });
 });
+
+describe("hub addresses offered to new nodes", () => {
+  it("lists Tailscale first, then private LAN addresses with their network, and skips the rest", async () => {
+    const { hubAddresses } = await import("../src/nodes.ts");
+    const entry = (address: string, cidr: string, internal = false) =>
+      ({ address, cidr, internal, family: "IPv4", netmask: "", mac: "", scopeid: 0 }) as never;
+    const found = hubAddresses(7420, {
+      lo: [entry("127.0.0.1", "127.0.0.1/8", true)],
+      enp6s18: [entry("192.168.1.21", "192.168.1.21/24")],
+      tailscale0: [entry("100.66.121.56", "100.66.121.56/32")],
+      docker0: [entry("172.17.0.1", "172.17.0.1/16")],
+      wan0: [entry("85.10.1.2", "85.10.1.2/24")],
+    });
+    assert.deepEqual(found, [
+      { address: "100.66.121.56:7420", kind: "tailscale" },
+      { address: "192.168.1.21:7420", kind: "lan", network: "192.168.1.0/24" },
+    ]);
+  });
+});

@@ -10,8 +10,12 @@ struct NodesSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            if model.connection.state.isConnected, let address = model.activeAddress {
+                HubConnectionCard(appHub: NodeSetup.hub(of: address))
+                    .padding(.bottom, 10)
+            }
             HStack {
-                Text("Node'lar").font(.headline)
+                Text("Bağlı makineler").font(.headline)
                 Spacer()
                 Button("Node ekle…") { adding = true }
                     .disabled(!model.connection.state.isConnected)
@@ -69,6 +73,7 @@ private struct AddNodeSheet: View {
     @State private var user = NSUserName()
     @State private var installer = SSHInstaller()
     @State private var copied = false
+    @AppStorage(NodeHubChoice.key) private var storedHub = ""
 
     var body: some View {
         let invite = model.store.nodeInvite.flatMap { $0.name == name ? $0 : nil }
@@ -93,6 +98,7 @@ private struct AddNodeSheet: View {
                 }
 
                 if let invite, let address = model.activeAddress {
+                    let hub = NodeHubChoice.resolve(storedHub, appHub: NodeSetup.hub(of: address))
                     Section {
                         Picker("Kurulum", selection: $method) {
                             Text("Komutu kendim çalıştırırım").tag(Method.command)
@@ -103,7 +109,7 @@ private struct AddNodeSheet: View {
 
                     if method == .command {
                         Section {
-                            let command = NodeSetup.command(address: address, code: invite.code)
+                            let command = NodeSetup.command(hub: hub, code: invite.code)
                             Text(command)
                                 .font(.callout.monospaced())
                                 .textSelection(.enabled)
@@ -118,7 +124,7 @@ private struct AddNodeSheet: View {
                         } header: {
                             Text("Bu komutu yeni makinede çalıştırın")
                         } footer: {
-                            Text("sudo parolanızı orada sorar. Komuttaki kod tek kullanımlık ve 30 dakika geçerli.")
+                            Text("Node hub'a \(hub) adresiyle bağlanacak; Node'lar bölümünden değiştirebilirsiniz. sudo parolanızı orada sorar. Kod tek kullanımlık ve 30 dakika geçerli.")
                         }
                     } else {
                         Section {
@@ -128,7 +134,7 @@ private struct AddNodeSheet: View {
                                 .font(.body.monospaced())
                             HStack {
                                 Button(installer.isRunning ? "Kuruluyor…" : "Kur") {
-                                    installer.run(NodeSetup.sshArguments(user: user, host: host, address: address, code: invite.code))
+                                    installer.run(NodeSetup.sshArguments(user: user, host: host, hub: hub, code: invite.code))
                                 }
                                 .disabled(host.isEmpty || user.isEmpty || installer.isRunning || connected)
                                 if installer.isRunning { ProgressView().controlSize(.small) }
@@ -149,7 +155,7 @@ private struct AddNodeSheet: View {
                                 .defaultScrollAnchor(.bottom)
                             }
                         } footer: {
-                            Text("Mac'inizin SSH anahtarıyla bağlanır; parola sormaz. O makinede sudo parola istiyorsa komutu kendiniz çalıştırın.")
+                            Text("Mac'inizin SSH anahtarıyla bağlanır; parola sormaz. Node hub'a \(hub) adresiyle bağlanacak.")
                         }
                     }
                 }
@@ -235,5 +241,101 @@ final class SSHInstaller {
 
     func stop() {
         if process?.isRunning == true { process?.terminate() }
+    }
+}
+
+/// Which hub address new nodes are given: the app's own (usually the Tailscale name) unless the user picks another.
+enum NodeHubChoice {
+    static let key = "nodeHub"
+
+    static func resolve(_ stored: String, appHub: String) -> String {
+        let trimmed = stored.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? appHub : trimmed
+    }
+}
+
+/// Settings › Ajanlar: how new nodes reach the hub, with what each way needs done once.
+private struct HubConnectionCard: View {
+    let appHub: String
+    @Environment(AppModel.self) private var model
+    @AppStorage(NodeHubChoice.key) private var stored = ""
+    @State private var custom = false
+
+    var body: some View {
+        let addresses = model.store.hubAddresses
+        let hub = NodeHubChoice.resolve(stored, appHub: appHub)
+        let lan = addresses.first { $0.address == hub && $0.kind == .lan }
+        let known = stored.isEmpty || addresses.contains { $0.address == stored }
+
+        SettingsCard(title: "Node'lar hub'a nasıl bağlansın?") {
+            Picker("Adres", selection: Binding(
+                get: { custom || !known ? "custom" : stored },
+                set: { value in
+                    custom = value == "custom"
+                    if !custom { stored = value }
+                }
+            )) {
+                Text("Tailscale adıyla: \(appHub) (önerilen)").tag("")
+                ForEach(addresses) { address in
+                    Text(address.kind == .lan ? "Yerel ağdan: \(address.address)" : "Tailscale IP'siyle: \(address.address)").tag(address.address)
+                }
+                Text("Başka bir adres").tag("custom")
+            }
+            .pickerStyle(.radioGroup)
+            .labelsHidden()
+
+            if custom || !known {
+                TextField("host:port", text: $stored, prompt: Text("ör. 192.168.1.21:7420"))
+                    .font(.body.monospaced())
+            }
+
+            Divider()
+
+            if let lan {
+                Guidance(
+                    text: "Hub güvenlik için 7420 portunu yalnızca Tailscale'e açıyor. Yerel ağdaki makinelerin bağlanabilmesi için hub'da bir kez şunu çalıştırın. Yerel ağda trafik şifrelenmez; yalnızca evinizdeki gibi güvendiğiniz ağlarda kullanın.",
+                    command: NodeSetup.firewallCommand(network: lan.network ?? "192.168.1.0/24", port: Int(lan.address.split(separator: ":").last ?? "") ?? ServerAddress.defaultPort)
+                )
+            } else if stored.isEmpty || addresses.contains(where: { $0.address == hub && $0.kind == .tailscale }) {
+                Guidance(
+                    text: "Yeni makinenin de aynı Tailscale ağında olması gerekir. Değilse o makinede bir kez şunu çalıştırın ve açılan bağlantıdan giriş yapın:",
+                    command: NodeSetup.tailscaleCommand
+                )
+            } else {
+                Text("Yeni makinenin bu adrese ulaşabildiğinden emin olun; hub'ın güvenlik duvarı da bu bağlantıya izin vermeli.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+/// A one-time step: what it is for, and the command to copy.
+private struct Guidance: View {
+    let text: String
+    let command: String
+    @State private var copied = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(text)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(alignment: .top, spacing: 8) {
+                Text(command)
+                    .font(.callout.monospaced())
+                    .textSelection(.enabled)
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.kervanWell, in: RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
+                Button(copied ? "Kopyalandı" : "Kopyala") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(command, forType: .string)
+                    copied = true
+                }
+            }
+        }
+        .onChange(of: command) { copied = false }
     }
 }

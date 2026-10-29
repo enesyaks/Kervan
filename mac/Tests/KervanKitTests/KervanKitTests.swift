@@ -655,19 +655,24 @@ import Testing
 }
 
 @MainActor @Suite struct NodeSetupTests {
-    @Test func buildsTheInstallCommandFromTheAppsAddress() {
+    @Test func buildsTheInstallCommandForTheChosenHubAddress() {
         let address = ServerAddress("kervan")!
+        #expect(NodeSetup.hub(of: address) == "kervan:7420")
         #expect(NodeSetup.command(address: address, code: "abc") == "curl -fsSL 'http://kervan:7420/v1/node/install?code=abc' | sudo bash")
+        #expect(NodeSetup.command(hub: "192.168.1.21:7420", code: "abc") == "curl -fsSL 'http://192.168.1.21:7420/v1/node/install?code=abc' | sudo bash")
         #expect(NodeSetup.command(address: ServerAddress("wss://hub.example:443")!, code: "x").hasPrefix("curl -fsSL 'https://hub.example:443/"))
-        let ssh = NodeSetup.sshArguments(user: "ubuntu", host: "gpu", address: address, code: "abc")
+        let ssh = NodeSetup.sshArguments(user: "ubuntu", host: "192.168.1.27", hub: "192.168.1.21:7420", code: "abc")
         #expect(ssh.contains("BatchMode=yes"), "never waits for a password")
-        #expect(ssh.last == "curl -fsSL 'http://kervan:7420/v1/node/install?code=abc' | sudo -n bash")
+        #expect(ssh.last == "curl -fsSL 'http://192.168.1.21:7420/v1/node/install?code=abc' | sudo -n bash")
+        #expect(NodeSetup.firewallCommand(network: "192.168.1.0/24", port: 7420) == "sudo ufw allow from 192.168.1.0/24 to any port 7420 proto tcp")
     }
 
     @Test func explainsCommonSSHFailures() {
         #expect(NodeSetup.explain(output: "sudo: a password is required").contains("sudo parola istiyor"))
         #expect(NodeSetup.explain(output: "ubuntu@gpu: Permission denied (publickey).").contains("ssh-copy-id"))
-        #expect(NodeSetup.explain(output: "ssh: Could not resolve hostname gpu").contains("Tailscale"))
+        #expect(NodeSetup.explain(output: "ssh: Could not resolve hostname gpu").contains("Makineye ulaşılamadı"))
+        #expect(NodeSetup.explain(output: "curl: (6) Could not resolve host: kervan").contains("yerel ağ IP'sini seçin"))
+        #expect(NodeSetup.explain(output: "curl: (7) Failed to connect to 192.168.1.21 port 7420").contains("güvenlik duvarına"))
     }
 
     @Test func keepsOnlyTheInviteItAskedFor() async {

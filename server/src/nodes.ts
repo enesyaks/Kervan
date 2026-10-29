@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { networkInterfaces } from "node:os";
 import { isAbsolute } from "node:path";
 import type * as acp from "@agentclientprotocol/sdk";
 import type { WebSocket } from "ws";
@@ -16,6 +17,39 @@ export const NODE_NAME = /^[a-z0-9][a-z0-9-]{0,31}$/;
 export const INVITE_MINUTES = 30;
 
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
+
+/** An address of this hub a new node could use; LAN ones carry their network for a firewall rule. */
+export interface HubAddress {
+  address: string;
+  kind: "tailscale" | "lan";
+  /** e.g. 192.168.1.0/24 */
+  network?: string;
+}
+
+/** This machine's IPv4 addresses that other machines might reach: Tailscale's, then private LAN ones. */
+export function hubAddresses(port: number, interfaces = networkInterfaces()): HubAddress[] {
+  const found: HubAddress[] = [];
+  for (const [name, entries] of Object.entries(interfaces)) {
+    // Container bridges are reachable only from this machine.
+    if (/^(docker|br-|veth|virbr|lo)/.test(name)) continue;
+    for (const entry of entries ?? []) {
+      if (entry.family !== "IPv4" || entry.internal) continue;
+      const [a, b] = entry.address.split(".").map(Number);
+      const tailscale = name.startsWith("tailscale") || (a === 100 && b >= 64 && b <= 127);
+      const lan = a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+      if (tailscale) found.push({ address: `${entry.address}:${port}`, kind: "tailscale" });
+      else if (lan) found.push({ address: `${entry.address}:${port}`, kind: "lan", ...(entry.cidr ? { network: networkOf(entry.cidr) } : {}) });
+    }
+  }
+  return found.sort((x, y) => (x.kind === y.kind ? 0 : x.kind === "tailscale" ? -1 : 1));
+}
+
+function networkOf(cidr: string): string {
+  const [ip, bits] = cidr.split("/");
+  const mask = Number(bits) === 0 ? 0 : (~0 << (32 - Number(bits))) >>> 0;
+  const value = ip.split(".").reduce((n, part) => ((n << 8) | Number(part)) >>> 0, 0) & mask;
+  return `${[24, 16, 8, 0].map((shift) => (value >>> shift) & 255).join(".")}/${bits}`;
+}
 
 /** A node as stored: its own token is kept only as a hash. */
 interface StoredNode extends NodeInfo {
@@ -53,6 +87,8 @@ export class NodeHub {
   private readonly invites = new Map<string, { name: string; expires: number }>();
   private readonly connections = new Map<string, Connection>();
   private readonly onChange: () => void;
+  /** The port this hub listens on, for the addresses it suggests to new nodes. */
+  port = 7420;
 
   constructor(file: string, onChange: () => void = () => {}) {
     this.file = file;
@@ -64,6 +100,11 @@ export class NodeHub {
   /** Every node an agent can be assigned to: this server first, then the remembered ones. */
   names(): string[] {
     return [LOCAL_NODE, ...[...this.known.keys()].sort()];
+  }
+
+  /** Where a new node could reach this hub. */
+  addresses(): HubAddress[] {
+    return hubAddresses(this.port);
   }
 
   isConnected(name: string): boolean {

@@ -75,8 +75,8 @@ export interface AgentDetail {
   node?: string;
 }
 
-export type { NodeInfo } from "./nodes.ts";
-import type { NodeInfo } from "./nodes.ts";
+export type { HubAddress, NodeInfo } from "./nodes.ts";
+import type { HubAddress, NodeInfo } from "./nodes.ts";
 
 export interface TeamInfo {
   id: string;
@@ -195,9 +195,9 @@ export type ServerMessage =
   | { type: "team.updated"; team: TeamInfo }
   /** Broadcast after the agent catalog changes, in the same shape as `welcome`. */
   | { type: "agents.updated"; agents: string[]; agentDetails: AgentDetail[] }
-  | { type: "node.list.result"; id: string; nodes: NodeInfo[] }
+  | { type: "node.list.result"; id: string; nodes: NodeInfo[]; hubAddresses: HubAddress[] }
   | { type: "node.invited"; id: string; name: string; code: string; expiresAt: string }
-  | { type: "nodes.updated"; nodes: NodeInfo[] };
+  | { type: "nodes.updated"; nodes: NodeInfo[]; hubAddresses: HubAddress[] };
 
 export type ParseResult =
   | { ok: true; message: ClientMessage }

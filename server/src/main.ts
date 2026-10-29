@@ -23,6 +23,7 @@ let sessions: SessionManager;
 const nodes = new NodeHub(join(config.dataDir, "nodes.json"), () => {
   sessions?.nodesChanged();
 });
+nodes.port = config.port;
 const runner = nodes.runner(new LocalAcpRunner());
 const catalog = new AgentCatalog(
   join(config.dataDir, "agents.json"),

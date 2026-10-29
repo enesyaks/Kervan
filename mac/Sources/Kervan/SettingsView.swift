@@ -16,6 +16,11 @@ struct SettingsView: View {
                 .tabItem { Label("Ajanlar", systemImage: "person.2") }
             RolesSettings()
                 .tabItem { Label("Roller", systemImage: "theatermasks") }
+            ScrollView {
+                NodesSection().padding(20)
+            }
+            .settingsPage()
+            .tabItem { Label("Node'lar", systemImage: "server.rack") }
         }
         .frame(width: 620, height: 480)
         .fontDesign(.rounded)
@@ -419,7 +424,6 @@ private struct AgentsSettings: View {
             }
             .softList()
 
-            NodesSection()
 
             HStack {
                 Spacer()

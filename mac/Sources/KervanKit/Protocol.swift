@@ -44,6 +44,21 @@ public struct AgentInfo: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
+/// An address of the hub a new node could use. LAN ones carry their network, for the firewall rule.
+public struct HubAddress: Codable, Equatable, Sendable, Identifiable {
+    public enum Kind: String, Codable, Sendable { case tailscale, lan }
+    public let address: String
+    public let kind: Kind
+    public let network: String?
+    public var id: String { address }
+
+    public init(address: String, kind: Kind, network: String? = nil) {
+        self.address = address
+        self.kind = kind
+        self.network = network
+    }
+}
+
 /// A machine running kervan-node for this server, as the server last saw it.
 public struct NodeInfo: Codable, Equatable, Sendable, Identifiable {
     public let name: String
@@ -723,8 +738,8 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
     case mcpListResult(id: String, servers: [McpServerSummary])
     case agentListResult(id: String, agents: [AgentConfig], nodes: [String])
     case agentsUpdated([AgentInfo])
-    case nodeListResult(id: String, nodes: [NodeInfo])
-    case nodesUpdated([NodeInfo])
+    case nodeListResult(id: String, nodes: [NodeInfo], hubAddresses: [HubAddress] = [])
+    case nodesUpdated([NodeInfo], hubAddresses: [HubAddress] = [])
     case nodeInvited(id: String, name: String, code: String, expiresAt: String)
     case roleListResult(id: String, roles: [Role])
     case teamCreated(id: String, team: TeamInfo)
@@ -735,7 +750,7 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case type, `protocol`, server, agents, agentDetails, id, code, message, session, sessions, sessionId, events, event, hits, servers
-        case nodes, roles, team, teams, name, expiresAt
+        case nodes, roles, team, teams, name, expiresAt, hubAddresses
     }
 
     public init(from decoder: any Decoder) throws {
@@ -789,7 +804,11 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
         case "agents.updated":
             self = .agentsUpdated(try c.decode([AgentInfo].self, forKey: .agentDetails))
         case "node.list.result":
-            self = .nodeListResult(id: try c.decode(String.self, forKey: .id), nodes: try c.decode([NodeInfo].self, forKey: .nodes))
+            self = .nodeListResult(
+                id: try c.decode(String.self, forKey: .id),
+                nodes: try c.decode([NodeInfo].self, forKey: .nodes),
+                hubAddresses: try c.decodeIfPresent([HubAddress].self, forKey: .hubAddresses) ?? []
+            )
         case "node.invited":
             self = .nodeInvited(
                 id: try c.decode(String.self, forKey: .id),
@@ -798,7 +817,10 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
                 expiresAt: try c.decode(String.self, forKey: .expiresAt)
             )
         case "nodes.updated":
-            self = .nodesUpdated(try c.decode([NodeInfo].self, forKey: .nodes))
+            self = .nodesUpdated(
+                try c.decode([NodeInfo].self, forKey: .nodes),
+                hubAddresses: try c.decodeIfPresent([HubAddress].self, forKey: .hubAddresses) ?? []
+            )
         case "mcp.list.result":
             self = .mcpListResult(id: try c.decode(String.self, forKey: .id), servers: try c.decode([McpServerSummary].self, forKey: .servers))
         case "session.search.result":

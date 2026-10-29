@@ -187,7 +187,7 @@ export class SessionManager {
 
   /** Tell every client which nodes exist and which are connected. */
   nodesChanged(): void {
-    if (this.nodes) this.broadcast({ type: "nodes.updated", nodes: this.nodes.list() });
+    if (this.nodes) this.broadcast({ type: "nodes.updated", nodes: this.nodes.list(), hubAddresses: this.nodes.addresses() });
   }
 
   /**

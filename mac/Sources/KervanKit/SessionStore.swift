@@ -52,6 +52,8 @@ public final class SessionStore {
 
     /// Machines running kervan-node for this server; empty when it has none.
     public private(set) var nodeInfos: [NodeInfo] = []
+    /// Where the hub says a new node could reach it (its Tailscale and LAN addresses).
+    public private(set) var hubAddresses: [HubAddress] = []
 
     /// The invite the add-node sheet asked for: the node's name and its single-use code.
     public private(set) var nodeInvite: (name: String, code: String, expiresAt: String)?
@@ -237,8 +239,9 @@ public final class SessionStore {
         case .nodeInvited(let id, let name, let code, let expiresAt) where id == pendingInvite:
             pendingInvite = nil
             nodeInvite = (name, code, expiresAt)
-        case .nodeListResult(_, let nodes), .nodesUpdated(let nodes):
+        case .nodeListResult(_, let nodes, let addresses), .nodesUpdated(let nodes, let addresses):
             nodeInfos = nodes
+            hubAddresses = addresses
             // A node coming or going changes which nodes agents can be assigned to.
             if !agentConfigs.isEmpty { Task { await loadAgentConfigs() } }
         case .roleListResult(_, let roles):

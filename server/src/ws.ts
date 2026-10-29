@@ -71,14 +71,14 @@ async function handleRequest(ws: WebSocket, message: Exclude<ClientMessage, { ty
       await sessions.setConfig(message.sessionId, message.configId, message.value);
       return send(ws, { type: "ok", id: message.id });
     case "node.list":
-      return send(ws, { type: "node.list.result", id: message.id, nodes: sessions.nodes?.list() ?? [] });
+      return send(ws, { type: "node.list.result", id: message.id, nodes: sessions.nodes?.list() ?? [], hubAddresses: sessions.nodes?.addresses() ?? [] });
     case "node.invite": {
       const { code, expiresAt } = requireNodes(sessions).invite(message.name);
       return send(ws, { type: "node.invited", id: message.id, name: message.name, code, expiresAt });
     }
     case "node.remove":
       requireNodes(sessions).remove(message.name);
-      return send(ws, { type: "node.list.result", id: message.id, nodes: requireNodes(sessions).list() });
+      return send(ws, { type: "node.list.result", id: message.id, nodes: requireNodes(sessions).list(), hubAddresses: requireNodes(sessions).addresses() });
     case "session.list":
       return send(ws, { type: "session.list.result", id: message.id, sessions: sessions.list() });
     case "session.history":
