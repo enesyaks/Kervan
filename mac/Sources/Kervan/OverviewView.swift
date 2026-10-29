@@ -54,7 +54,7 @@ struct OverviewView: View {
                     }
                     GridRow {
                         Text("Ajanlar").foregroundStyle(.secondary)
-                        Text(model.store.agents.map(\.name).joined(separator: ", "))
+                        Text(model.store.agents.map(\.displayName).joined(separator: ", "))
                     }
                     GridRow {
                         Text("Adres").foregroundStyle(.secondary)

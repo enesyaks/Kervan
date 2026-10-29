@@ -71,7 +71,12 @@ export interface AgentDetail {
   id: string;
   name: string;
   terminal?: boolean;
+  /** Set when the agent runs on another node. */
+  node?: string;
 }
+
+export type { NodeInfo } from "./nodes.ts";
+import type { NodeInfo } from "./nodes.ts";
 
 export interface TeamInfo {
   id: string;
@@ -135,6 +140,7 @@ export type ClientMessage =
   | { type: "ping"; id: string }
   | { type: "session.create"; id: string; agent: string; skills?: string[]; mcpServers?: string[]; orchestrate?: boolean; budgetUsd?: number }
   | { type: "session.list"; id: string }
+  | { type: "node.list"; id: string }
   | { type: "session.config"; id: string; sessionId: string; configId: string; value: string }
   | { type: "session.history"; id: string; sessionId: string }
   | { type: "session.prompt"; id: string; sessionId: string; text: string; attachments?: string[] }
@@ -164,7 +170,9 @@ export type ErrorCode =
   | "unknown_session"
   | "session_busy"
   | "session_unavailable"
-  | "unknown_request";
+  | "unknown_request"
+  /** The agent's node isn't connected right now. */
+  | "node_offline";
 
 export type ServerMessage =
   | { type: "welcome"; protocol: number; server: PeerInfo; agents: string[]; agentDetails: AgentDetail[] }
@@ -184,7 +192,9 @@ export type ServerMessage =
   | { type: "team.list.result"; id: string; teams: TeamInfo[] }
   | { type: "team.updated"; team: TeamInfo }
   /** Broadcast after the agent catalog changes, in the same shape as `welcome`. */
-  | { type: "agents.updated"; agents: string[]; agentDetails: AgentDetail[] };
+  | { type: "agents.updated"; agents: string[]; agentDetails: AgentDetail[] }
+  | { type: "node.list.result"; id: string; nodes: NodeInfo[] }
+  | { type: "nodes.updated"; nodes: NodeInfo[] };
 
 export type ParseResult =
   | { ok: true; message: ClientMessage }
@@ -212,6 +222,7 @@ function isPeerInfo(value: unknown): value is PeerInfo {
 const STRING_FIELDS: Record<string, readonly string[]> = {
   ping: ["id"],
   "session.create": ["id", "agent"],
+  "node.list": ["id"],
   "session.config": ["id", "sessionId", "configId", "value"],
   "session.list": ["id"],
   "session.history": ["id", "sessionId"],

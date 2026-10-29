@@ -12,21 +12,33 @@ import { RoleRegistry } from "./roles.ts";
 import { probeAgent } from "./runner.ts";
 import { join, resolve } from "node:path";
 import { OrchestraHub } from "./orchestra.ts";
+import { NodeHub } from "./nodes.ts";
 
 const config = loadConfig();
 const store = new EventStore(join(config.dataDir, "kervan.db"));
 const skills = new SkillLibrary(join(config.dataDir, "skills"));
 const mcp = new McpRegistry(join(config.dataDir, "mcp.json"));
-const runner = new LocalAcpRunner();
-const catalog = new AgentCatalog(join(config.dataDir, "agents.json"), loadAgents(config.agentsFile), (definition) =>
-  probeAgent(runner, definition),
+// Agents assigned to another machine run on its kervan-node; the rest here.
+let sessions: SessionManager;
+const nodes = config.nodeToken
+  ? new NodeHub(join(config.dataDir, "nodes.json"), () => {
+      sessions?.nodesChanged();
+    })
+  : undefined;
+const runner = nodes ? nodes.runner(new LocalAcpRunner()) : new LocalAcpRunner();
+const catalog = new AgentCatalog(
+  join(config.dataDir, "agents.json"),
+  loadAgents(config.agentsFile),
+  (definition) => probeAgent(runner, definition),
+  nodes ? () => nodes.names() : undefined,
 );
 const roles = new RoleRegistry(join(config.dataDir, "roles.json"), {
   hasAgent: (id) => catalog.live.has(id),
   hasSkill: (name) => skills.has(name),
   hasMcp: (name) => mcp.has(name),
 });
-const sessions = new SessionManager(runner, catalog.live, config.workspacesDir, store, {
+sessions = new SessionManager(runner, catalog.live, config.workspacesDir, store, {
+  ...(nodes ? { nodes } : {}),
   skills,
   mcp,
   catalog,
@@ -40,7 +52,13 @@ const sessions = new SessionManager(runner, catalog.live, config.workspacesDir, 
 const orchestra = new OrchestraHub(resolve(config.dataDir, "orchestra.sock"), sessions);
 await orchestra.listen();
 sessions.useOrchestra(orchestra);
-const server = createKervanServer({ token: config.token, sessions, maxUploadBytes: config.maxUploadBytes, skills });
+const server = createKervanServer({
+  token: config.token,
+  sessions,
+  maxUploadBytes: config.maxUploadBytes,
+  skills,
+  ...(config.nodeToken ? { nodeToken: config.nodeToken } : {}),
+});
 
 // A daily copy of the database; the first one right after start.
 const backups = join(config.dataDir, "backups");
@@ -63,6 +81,7 @@ function shutdown(signal: string): void {
   log("info", "shutting down", { signal });
   sessions.closeAll();
   orchestra.close();
+  nodes?.close();
   server.close(() => {
     store.close();
     process.exit(0);

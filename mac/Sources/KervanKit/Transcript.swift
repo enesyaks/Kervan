@@ -50,6 +50,15 @@ public enum TranscriptItem: Equatable, Sendable, Identifiable {
 }
 
 public enum Transcript {
+    /// What "Devam et" sends: the agent resumes its conversation, so a short nudge is enough.
+    public static let resumePrompt = "Devam et: sunucu yeniden başladığı için önceki turun yarıda kaldı. Kaldığın yerden sürdür."
+
+    /// The row that offers "Devam et": the last one, when it is a turn cut off by a server restart.
+    public static func resumable(_ items: [TranscriptItem]) -> Int? {
+        guard case .stopped(let id, "interrupted")? = items.last else { return nil }
+        return id
+    }
+
     /// Folds events into rows: consecutive chunks join into one message, tool updates
     /// patch their tool row, and a normal end of turn adds nothing.
     public static func build(_ events: [SessionEvent]) -> [TranscriptItem] {

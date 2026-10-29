@@ -15,6 +15,8 @@ export interface ServerOptions {
   heartbeatMs?: number;
   maxUploadBytes?: number;
   skills?: SkillLibrary;
+  /** Lets `kervan-node` processes connect on /v1/node; without it nodes are refused. */
+  nodeToken?: string;
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -35,6 +37,7 @@ export function createKervanServer({
   heartbeatMs,
   maxUploadBytes = DEFAULT_MAX_UPLOAD_BYTES,
   skills,
+  nodeToken,
 }: ServerOptions): Server {
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? "/", "http://localhost");
@@ -76,6 +79,6 @@ export function createKervanServer({
     sendJson(res, 404, { error: "not_found" });
   });
 
-  attachWebSocket(server, token, sessions, heartbeatMs);
+  attachWebSocket(server, token, sessions, heartbeatMs, nodeToken);
   return server;
 }

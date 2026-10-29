@@ -13,46 +13,62 @@ import { EventStore } from "../src/store.ts";
 import { McpRegistry } from "../src/mcp.ts";
 import { SkillLibrary } from "../src/skills.ts";
 import { OrchestraHub } from "../src/orchestra.ts";
+import { NodeHub } from "../src/nodes.ts";
 
 export const TEST_TOKEN = "test-token-0123456789";
 
 export const fakeAgent = { name: "Fake", command: process.execPath, args: [join(import.meta.dirname, "fixtures/fake-agent.ts")] };
 
 export async function startServer(
-  options: { maxUploadBytes?: number; limits?: Partial<Limits> } = {},
+  options: { maxUploadBytes?: number; limits?: Partial<Limits>; nodeToken?: string } = {},
 ): Promise<{ server: Server; port: number; sessions: SessionManager; dataDir: string; stop: () => Promise<void> }> {
   const workspaces = mkdtempSync(join(tmpdir(), "kervan-test-"));
   const dataDir = mkdtempSync(join(tmpdir(), "kervan-data-"));
   const skills = new SkillLibrary(join(dataDir, "skills"));
   const mcp = new McpRegistry(join(dataDir, "mcp.json"));
-  const runner = new LocalAcpRunner();
+  let sessions: SessionManager | undefined;
+  const nodes = options.nodeToken ? new NodeHub(join(dataDir, "nodes.json"), () => sessions?.nodesChanged()) : undefined;
+  const runner = nodes ? nodes.runner(new LocalAcpRunner()) : new LocalAcpRunner();
   const base = new Map([["fake", { ...fakeAgent, skillsDir: ".fake/skills" }]]);
-  const catalog = new AgentCatalog(join(dataDir, "agents.json"), base, (definition) => probeAgent(runner, definition, 10_000));
+  const catalog = new AgentCatalog(
+    join(dataDir, "agents.json"),
+    base,
+    (definition) => probeAgent(runner, definition, 10_000),
+    nodes ? () => nodes.names() : undefined,
+  );
   const roles = new RoleRegistry(join(dataDir, "roles.json"), {
     hasAgent: (id) => catalog.live.has(id),
     hasSkill: (name) => skills.has(name),
     hasMcp: (name) => mcp.has(name),
   });
-  const sessions = new SessionManager(runner, catalog.live, workspaces, new EventStore(":memory:"), {
+  sessions = new SessionManager(runner, catalog.live, workspaces, new EventStore(":memory:"), {
+    ...(nodes ? { nodes } : {}),
     skills,
     mcp,
     catalog,
     roles,
     ...(options.limits ? { limits: options.limits } : {}),
   });
-  const orchestra = new OrchestraHub(join(dataDir, "orchestra.sock"), sessions);
+  const orchestra = new OrchestraHub(join(dataDir, "orchestra.sock"), sessions!);
   await orchestra.listen();
-  sessions.useOrchestra(orchestra);
-  const server = createKervanServer({ token: TEST_TOKEN, sessions, skills, maxUploadBytes: options.maxUploadBytes });
+  sessions!.useOrchestra(orchestra);
+  const server = createKervanServer({
+    token: TEST_TOKEN,
+    sessions,
+    skills,
+    maxUploadBytes: options.maxUploadBytes,
+    ...(options.nodeToken ? { nodeToken: options.nodeToken } : {}),
+  });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const port = (server.address() as AddressInfo).port;
   const stop = () =>
     new Promise<void>((resolve) => {
-      sessions.closeAll();
+      sessions!.closeAll();
       orchestra.close();
+      nodes?.close();
       server.close(() => resolve());
     });
-  return { server, port, sessions, dataDir, stop };
+  return { server, port, sessions: sessions!, dataDir, stop };
 }
 
 export function openSocket(port: number, token: string | null = TEST_TOKEN, path = "/v1/ws"): WebSocket {

@@ -45,10 +45,13 @@ public final class SessionStore {
         self.send = send
     }
 
-    /// Display name for an agent id; falls back to the id for agents the server no longer offers.
+    /// Display name for an agent id, with its node if it has one; falls back to the id for agents the server no longer offers.
     public func agentName(_ id: String) -> String {
-        agents.first { $0.id == id }?.name ?? id
+        agents.first { $0.id == id }?.displayName ?? id
     }
+
+    /// Machines running kervan-node for this server; empty when it has none.
+    public private(set) var nodeInfos: [NodeInfo] = []
 
     /// True when the session's agent runs in a pseudo-terminal; its answers are terminal text, not Markdown.
     public func isTerminal(_ sessionID: String) -> Bool {
@@ -71,6 +74,7 @@ public final class SessionStore {
         await request(.mcpList(id: Self.newID()))
         await request(.roleList(id: Self.newID()))
         await request(.teamList(id: Self.newID()))
+        await request(.nodeList(id: Self.newID()))
     }
 
     public func create(
@@ -87,6 +91,11 @@ public final class SessionStore {
     public func crewCost(_ leadID: String) -> Double? {
         let costs = ([session(leadID)].compactMap { $0 } + helpers(of: leadID)).compactMap { $0.usage?.costUsd }
         return costs.isEmpty ? nil : costs.reduce(0, +)
+    }
+
+    /// Picks a turn back up after a server restart cut it off.
+    public func resume(_ sessionID: String) async {
+        await prompt(sessionID, text: Transcript.resumePrompt)
     }
 
     /// Changes one of the session's agent settings, e.g. its model. The server answers with session.updated.
@@ -210,6 +219,10 @@ public final class SessionStore {
             if id == pendingAgentSave { pendingAgentSave = nil }
         case .agentsUpdated(let agents):
             self.agents = agents
+        case .nodeListResult(_, let nodes), .nodesUpdated(let nodes):
+            nodeInfos = nodes
+            // A node coming or going changes which nodes agents can be assigned to.
+            if !agentConfigs.isEmpty { Task { await loadAgentConfigs() } }
         case .roleListResult(_, let roles):
             self.roles = roles
         case .teamListResult(_, let teams):
@@ -283,6 +296,7 @@ public final class SessionStore {
         case "unknown_session": "Oturum sunucuda bulunamadı."
         case "unknown_agent": "Bu ajan sunucuda kurulu değil."
         case "unknown_request": "Bu izin isteği artık geçerli değil."
+        case "node_offline": "Ajanın çalıştığı makine (node) şu an bağlı değil. Bağlandığında oturum kaldığı yerden devam eder."
         default: message
         }
     }

@@ -11,6 +11,8 @@ export interface KervanConfig {
   /** agents.yaml; without it the builtin adapters are offered. */
   agentsFile?: string;
   maxHelpers?: number;
+  /** Shared secret for `kervan-node` processes; unset means this server takes no nodes. */
+  nodeToken?: string;
   helperTurnMinutes?: number;
 }
 
@@ -34,6 +36,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): KervanConfig {
     token,
     maxUploadBytes: Number(env.KERVAN_MAX_UPLOAD_MB ?? 512) * 1024 * 1024,
     ...(env.KERVAN_AGENTS_FILE ? { agentsFile: env.KERVAN_AGENTS_FILE } : {}),
+    ...(env.KERVAN_NODE_TOKEN ? { nodeToken: secret("KERVAN_NODE_TOKEN", env.KERVAN_NODE_TOKEN) } : {}),
     ...(env.KERVAN_MAX_HELPERS ? { maxHelpers: wholeNumber("KERVAN_MAX_HELPERS", env.KERVAN_MAX_HELPERS) } : {}),
     ...(env.KERVAN_HELPER_TURN_MINUTES
       ? { helperTurnMinutes: wholeNumber("KERVAN_HELPER_TURN_MINUTES", env.KERVAN_HELPER_TURN_MINUTES) }
@@ -45,4 +48,9 @@ function wholeNumber(name: string, value: string): number {
   const number = Number(value);
   if (!Number.isInteger(number) || number < 0) throw new Error(`${name} must be a whole number: ${value}`);
   return number;
+}
+
+function secret(name: string, value: string): string {
+  if (value.length < MIN_TOKEN_LENGTH) throw new Error(`${name} must be at least ${MIN_TOKEN_LENGTH} characters`);
+  return value;
 }

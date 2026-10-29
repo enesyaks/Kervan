@@ -18,6 +18,8 @@ export interface AgentCommand {
   protocol?: "pty";
   /** PTY agents: how long the agent stays quiet before its answer counts as finished. */
   quietMs?: number;
+  /** Where it runs: a connected node's name, or this server when unset (see nodes.ts). */
+  node?: string;
 }
 
 export interface AgentDefinition extends AgentCommand {

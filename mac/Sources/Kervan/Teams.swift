@@ -213,7 +213,7 @@ private struct RoleEditor: View {
                     .disabled(!isNew)
                 TextField("Ad", text: $role.name, prompt: Text("Kod inceleyici"))
                 Picker("Ajan", selection: $role.agent) {
-                    ForEach(model.store.agents) { Text($0.name).tag($0.id) }
+                    ForEach(model.store.agents) { Text($0.displayName).tag($0.id) }
                 }
                 Toggle(isOn: $role.lead) {
                     Text("Ana ajan")

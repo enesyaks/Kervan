@@ -1,0 +1,169 @@
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { dirname, join } from "node:path";
+import type * as acp from "@agentclientprotocol/sdk";
+import WebSocket from "ws";
+import type { AgentDefinition } from "./agents.ts";
+import { isSafeRelativePath, listTree, resolveInside } from "./files.ts";
+import { log } from "./log.ts";
+import { Rpc } from "./rpc.ts";
+import type { AgentProcess, AgentRunner } from "./runner.ts";
+import { VERSION } from "./version.ts";
+
+export const NODE_PATH = "/v1/node";
+/** Files moved between hub and node travel inside one WebSocket message. */
+export const MAX_NODE_FILE_BYTES = 50 * 1024 * 1024;
+export const MAX_NODE_FRAME_BYTES = Math.ceil((MAX_NODE_FILE_BYTES * 4) / 3) + 64 * 1024;
+
+export interface NodeAgentOptions {
+  /** ws(s)://hub:7420 — the hub's address; the path is added. */
+  hubUrl: string;
+  token: string;
+  name: string;
+  workspacesDir: string;
+  runner: AgentRunner;
+}
+
+/**
+ * The node side: connects out to the hub (so the node needs no open port), runs the agents the hub
+ * asks for in its own workspaces folder, and reports their events back. Workspaces are named by the
+ * hub with a relative key (the session or team id); the node never touches anything outside its folder.
+ * If the connection drops, its agents are stopped (the hub resumes them on the next message) and it
+ * reconnects with a growing pause.
+ */
+export class NodeAgent {
+  private readonly options: NodeAgentOptions;
+  private readonly processes = new Map<string, AgentProcess>();
+  private ws?: WebSocket;
+  private stopped = false;
+  private retryMs = 1000;
+
+  constructor(options: NodeAgentOptions) {
+    this.options = options;
+  }
+
+  start(): void {
+    this.stopped = false;
+    this.connect();
+  }
+
+  stop(): void {
+    this.stopped = true;
+    this.ws?.close();
+    this.closeAll();
+  }
+
+  private connect(): void {
+    const { hubUrl, token, name } = this.options;
+    const ws = new WebSocket(new URL(NODE_PATH, hubUrl), {
+      headers: { authorization: `Bearer ${token}`, "x-kervan-node": name },
+      maxPayload: MAX_NODE_FRAME_BYTES,
+    });
+    this.ws = ws;
+    const rpc = new Rpc(ws);
+    this.serve(rpc);
+
+    ws.on("open", () => {
+      this.retryMs = 1000;
+      log("info", "connected to hub", { hub: hubUrl, node: name });
+      void rpc.call("hello", { version: VERSION }).catch(() => {});
+    });
+    ws.on("unexpected-response", (_req, res) => log("error", "hub refused the node", { status: res.statusCode }));
+    ws.on("error", (error) => log("warn", "hub connection error", { error: error.message }));
+    ws.on("close", () => {
+      this.closeAll();
+      if (this.stopped) return;
+      log("info", "hub connection closed; retrying", { inMs: this.retryMs });
+      setTimeout(() => this.connect(), this.retryMs).unref();
+      this.retryMs = Math.min(this.retryMs * 2, 30_000);
+    });
+  }
+
+  private closeAll(): void {
+    for (const process of this.processes.values()) process.close();
+    this.processes.clear();
+  }
+
+  private async workspace(key: string): Promise<string> {
+    const dir = await resolveInside(this.options.workspacesDir, key);
+    await mkdir(dir, { recursive: true });
+    return dir;
+  }
+
+  private process(processId: string): AgentProcess {
+    const process = this.processes.get(processId);
+    if (!process) throw new Error("that agent is no longer running on this node");
+    return process;
+  }
+
+  private serve(rpc: Rpc): void {
+    const root = this.options.workspacesDir;
+    rpc
+      .on("start", async (params: { processId: string; command: AgentDefinition; key: string; resumeSessionId?: string; mcpServers: acp.McpServer[] }) => {
+        const { processId } = params;
+        const cwd = await this.workspace(params.key);
+        const process = await this.options.runner.start({
+          command: params.command,
+          cwd,
+          ...(params.resumeSessionId ? { resumeSessionId: params.resumeSessionId } : {}),
+          onEvent: (event) => rpc.notify("event", { processId, event }),
+          onPermission: (request) => rpc.call("permission", { processId, request }),
+          onUsage: (usage) => rpc.notify("usage", { processId, usage }),
+          onConfig: (options) => rpc.notify("config", { processId, options }),
+          mcpServers: (supportsHttp) => {
+            const skipped = params.mcpServers.filter((s) => "type" in s && s.type === "http" && !supportsHttp);
+            if (skipped.length > 0) {
+              rpc.notify("event", {
+                processId,
+                event: { kind: "notice", text: `Bu ajan HTTP MCP desteklemiyor, atlandı: ${skipped.map((s) => s.name).join(", ")}` },
+              });
+            }
+            return params.mcpServers.filter((s) => !skipped.includes(s));
+          },
+        });
+        this.processes.set(processId, process);
+        process.exited.then(() => {
+          if (this.processes.get(processId) !== process) return;
+          this.processes.delete(processId);
+          rpc.notify("exited", { processId });
+        });
+        return { sessionId: process.sessionId, canConfigure: process.setConfig !== undefined };
+      })
+      .on("prompt", async (params: { processId: string; text: string; files: string[]; preface?: string }) => {
+        const files = await Promise.all(params.files.map((file) => resolveInside(root, file)));
+        return { stopReason: await this.process(params.processId).prompt(params.text, files, params.preface) };
+      })
+      .on("cancel", (params: { processId: string }) => this.processes.get(params.processId)?.cancel())
+      .on("close", (params: { processId: string }) => {
+        this.processes.get(params.processId)?.close();
+        this.processes.delete(params.processId);
+      })
+      .on("setConfig", (params: { processId: string; configId: string; value: string }) => {
+        const process = this.process(params.processId);
+        if (!process.setConfig) throw new Error("this agent has no settings");
+        return process.setConfig(params.configId, params.value);
+      })
+      .on("files.list", async (params: { key: string }) => listTree(await this.workspace(params.key)))
+      .on("files.read", async (params: { key: string; path: string }) => {
+        const file = await resolveInside(await this.workspace(params.key), params.path);
+        const data = await readFile(file);
+        if (data.length > MAX_NODE_FILE_BYTES) throw new Error(`files on a node can be downloaded up to ${MAX_NODE_FILE_BYTES / 1024 / 1024} MB`);
+        return { data: data.toString("base64") };
+      })
+      .on("files.write", async (params: { key: string; path: string; data: string }) => {
+        if (!isSafeRelativePath(params.path)) throw new Error("path must stay inside the workspace");
+        const file = await resolveInside(await this.workspace(params.key), params.path);
+        await mkdir(dirname(file), { recursive: true });
+        const temp = join(dirname(file), `.kervan-upload-${randomUUID()}`);
+        const data = Buffer.from(params.data, "base64");
+        try {
+          await writeFile(temp, data, { mode: 0o640 });
+          await rename(temp, file);
+        } catch (error) {
+          await rm(temp, { force: true });
+          throw error;
+        }
+        return { size: data.length };
+      });
+  }
+}

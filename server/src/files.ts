@@ -8,6 +8,7 @@ import { pipeline } from "node:stream/promises";
 import { log } from "./log.ts";
 import { KervanError } from "./protocol.ts";
 import type { SessionManager } from "./sessions.ts";
+import { MAX_NODE_FILE_BYTES } from "./node-agent.ts";
 
 const ROUTE = /^\/v1\/sessions\/([^/]+)\/files(?:\/(.+))?$/;
 const SKIP_DIRS = new Set([".git", "node_modules"]);
@@ -117,8 +118,14 @@ export async function handleFiles(
   if (!match) return false;
 
   try {
-    const root = sessions.workspace(decodeURIComponent(match[1]));
+    const sessionId = decodeURIComponent(match[1]);
     const relPath = match[2] ? decodeURIComponent(match[2]) : "";
+    const where = sessions.location(sessionId);
+    if ("node" in where) {
+      await remoteFiles(req, res, sessions, where, relPath, maxUploadBytes);
+      return true;
+    }
+    const root = where.path;
 
     if (req.method === "GET" && relPath === "") {
       sendJson(res, 200, await listTree(root));
@@ -147,7 +154,10 @@ export async function handleFiles(
       sendJson(res, 413, { error: "too_large", maxBytes: maxUploadBytes });
       req.resume();
     } else if (error instanceof KervanError) {
-      sendJson(res, error.code === "unknown_session" ? 404 : 400, { error: error.code, message: error.message });
+      const status = error.code === "unknown_session" ? 404 : error.code === "node_offline" ? 503 : 400;
+      sendJson(res, status, { error: error.code, message: error.message });
+    } else if (error instanceof Error && /ENOENT/.test(error.message)) {
+      sendJson(res, 404, { error: "not_found" });
     } else if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       sendJson(res, 404, { error: "not_found" });
     } else {
@@ -156,4 +166,47 @@ export async function handleFiles(
     }
   }
   return true;
+}
+
+/**
+ * The same routes for a session whose workspace is on a node: the node lists, reads and writes inside
+ * its own folder, and whole files travel over the hub's connection to it (so they are capped).
+ */
+async function remoteFiles(
+  req: IncomingMessage,
+  res: ServerResponse,
+  sessions: SessionManager,
+  where: { node: string; key: string },
+  relPath: string,
+  maxUploadBytes: number,
+): Promise<void> {
+  const nodes = sessions.nodes;
+  if (!nodes) throw new KervanError("node_offline", "this server doesn't accept nodes");
+  if (relPath !== "" && !isSafeRelativePath(relPath)) throw new KervanError("bad_message", "path must stay inside the workspace");
+
+  if (req.method === "GET" && relPath === "") {
+    sendJson(res, 200, await nodes.listFiles(where.node, where.key));
+  } else if (req.method === "GET") {
+    const data = await nodes.readFile(where.node, where.key, relPath);
+    res.writeHead(200, {
+      "content-type": "application/octet-stream",
+      "content-length": data.length,
+      "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(relPath.split("/").at(-1)!)}`,
+    });
+    res.end(data);
+  } else if (req.method === "PUT" && relPath !== "") {
+    const limit = Math.min(maxUploadBytes, MAX_NODE_FILE_BYTES);
+    const chunks: Buffer[] = [];
+    let size = 0;
+    for await (const chunk of req as AsyncIterable<Buffer>) {
+      size += chunk.length;
+      if (size > limit) throw new TooLargeError();
+      chunks.push(chunk);
+    }
+    await nodes.writeFile(where.node, where.key, relPath, Buffer.concat(chunks));
+    log("info", "file uploaded to node", { node: where.node, path: relPath, size });
+    sendJson(res, 201, { path: relPath, size });
+  } else {
+    sendJson(res, 405, { error: "method_not_allowed" });
+  }
 }

@@ -202,7 +202,15 @@ private struct MemberPanel: View {
                                 .foregroundStyle(.secondary)
                         }
                         ForEach(items) { item in
-                            TranscriptRow(item: item, agentName: agentName, senderName: name, terminal: store.isTerminal(session.id)) { requestId, choice in
+                            TranscriptRow(
+                                item: item,
+                                agentName: agentName,
+                                senderName: name,
+                                terminal: store.isTerminal(session.id),
+                                resume: item.id == Transcript.resumable(items) && session.status == .idle
+                                    ? { Task { await store.resume(session.id) } }
+                                    : nil
+                            ) { requestId, choice in
                                 Task { await store.respond(session.id, requestId: requestId, optionId: choice.optionId) }
                             }
                             .font(.callout)

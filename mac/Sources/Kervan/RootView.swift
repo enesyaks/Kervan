@@ -260,7 +260,7 @@ struct NewSessionButton: View {
             if agents.count > 1 {
                 Menu {
                     ForEach(agents) { agent in
-                        Button(agent.name) { model.newSession(agent: agent.id) }
+                        Button(agent.displayName) { model.newSession(agent: agent.id) }
                     }
                 } label: {
                     Label(label, systemImage: "square.and.pencil")

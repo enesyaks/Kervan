@@ -1,0 +1,196 @@
+import { randomUUID } from "node:crypto";
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { isAbsolute } from "node:path";
+import type * as acp from "@agentclientprotocol/sdk";
+import type { WebSocket } from "ws";
+import type { AgentCommand } from "./agents.ts";
+import type { FileEntry } from "./files.ts";
+import { log } from "./log.ts";
+import { KervanError, type ConfigOption, type SessionEventBody } from "./protocol.ts";
+import { Rpc } from "./rpc.ts";
+import type { AgentProcess, AgentRunner, PermissionDecision, PermissionRequest, StartOptions } from "./runner.ts";
+
+export const LOCAL_NODE = "local";
+export const NODE_NAME = /^[a-z0-9][a-z0-9-]{0,31}$/;
+
+export interface NodeInfo {
+  name: string;
+  connected: boolean;
+  version?: string;
+  /** ISO time the node last connected or disconnected. */
+  lastSeen?: string;
+}
+
+interface RemoteProcess {
+  options: StartOptions;
+  markExited: () => void;
+}
+
+interface Connection {
+  rpc: Rpc;
+  ws: WebSocket;
+  processes: Map<string, RemoteProcess>;
+}
+
+/**
+ * The hub's side of the nodes: other machines running `kervan-node`, connected over WebSocket.
+ * Nodes that ever connected are remembered in `nodes.json`, so agents assigned to one stay listed while
+ * it is offline; starting such an agent then fails with a clear message.
+ */
+export class NodeHub {
+  private readonly file: string;
+  private readonly known = new Map<string, NodeInfo>();
+  private readonly connections = new Map<string, Connection>();
+  private readonly onChange: () => void;
+
+  constructor(file: string, onChange: () => void = () => {}) {
+    this.file = file;
+    this.onChange = onChange;
+    const stored = existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as NodeInfo[]) : [];
+    for (const node of stored) this.known.set(node.name, { ...node, connected: false });
+  }
+
+  /** Every node an agent can be assigned to: this server first, then the remembered ones. */
+  names(): string[] {
+    return [LOCAL_NODE, ...[...this.known.keys()].sort()];
+  }
+
+  isConnected(name: string): boolean {
+    return this.connections.has(name);
+  }
+
+  list(): NodeInfo[] {
+    return [...this.known.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /** A node connected (its token already checked by the upgrade handler). A second connection replaces the first. */
+  accept(name: string, ws: WebSocket): void {
+    this.connections.get(name)?.ws.terminate();
+    const rpc = new Rpc(ws);
+    const connection: Connection = { rpc, ws, processes: new Map() };
+    this.connections.set(name, connection);
+
+    const find = (processId: string) => connection.processes.get(processId);
+    rpc
+      .on("hello", (params: { version?: string }) => {
+        this.remember({ name, connected: true, ...(params.version ? { version: params.version } : {}), lastSeen: new Date().toISOString() });
+        log("info", "node connected", { node: name, version: params.version });
+      })
+      .on("event", (params: { processId: string; event: SessionEventBody }) => find(params.processId)?.options.onEvent(params.event))
+      .on("usage", (params: { processId: string; usage: { used: number; size: number; costUsd?: number } }) =>
+        find(params.processId)?.options.onUsage?.(params.usage),
+      )
+      .on("config", (params: { processId: string; options: ConfigOption[] }) => find(params.processId)?.options.onConfig?.(params.options))
+      .on("exited", (params: { processId: string }) => {
+        find(params.processId)?.markExited();
+        connection.processes.delete(params.processId);
+      })
+      .on("permission", (params: { processId: string; request: PermissionRequest }): Promise<PermissionDecision> | null =>
+        find(params.processId)?.options.onPermission(params.request) ?? null,
+      );
+
+    ws.on("close", () => {
+      if (this.connections.get(name) !== connection) return;
+      this.connections.delete(name);
+      // Its agents are gone with the connection; sessions treat this like a crash and resume later.
+      for (const process of connection.processes.values()) process.markExited();
+      connection.processes.clear();
+      this.remember({ ...(this.known.get(name) ?? { name }), connected: false, lastSeen: new Date().toISOString() });
+      log("warn", "node disconnected", { node: name });
+    });
+  }
+
+  close(): void {
+    for (const { ws } of this.connections.values()) ws.terminate();
+    this.connections.clear();
+  }
+
+  /** Runs agents assigned to a node there, everything else with `local`. */
+  runner(local: AgentRunner): AgentRunner {
+    return {
+      start: (options) => {
+        const node = options.command.node;
+        return node && node !== LOCAL_NODE ? this.startRemote(node, options) : local.start(options);
+      },
+    };
+  }
+
+  async listFiles(node: string, key: string): Promise<{ entries: FileEntry[]; truncated: boolean }> {
+    return this.require(node).rpc.call("files.list", { key });
+  }
+
+  async readFile(node: string, key: string, path: string): Promise<Buffer> {
+    const { data } = await this.require(node).rpc.call<{ data: string }>("files.read", { key, path });
+    return Buffer.from(data, "base64");
+  }
+
+  async writeFile(node: string, key: string, path: string, data: Buffer): Promise<number> {
+    const { size } = await this.require(node).rpc.call<{ size: number }>("files.write", { key, path, data: data.toString("base64") });
+    return size;
+  }
+
+  private require(node: string): Connection {
+    const connection = this.connections.get(node);
+    if (!connection) {
+      throw new KervanError("node_offline", this.known.has(node) ? `node '${node}' is offline` : `no node named '${node}'`);
+    }
+    return connection;
+  }
+
+  private async startRemote(node: string, options: StartOptions): Promise<AgentProcess> {
+    const { rpc, processes } = this.require(node);
+    const processId = randomUUID();
+    let markExited!: () => void;
+    const exited = new Promise<void>((resolve) => (markExited = resolve));
+    processes.set(processId, { options, markExited });
+
+    // Servers are filtered on the node, which learns what its agent supports; ask for all of them here.
+    const mcpServers: acp.McpServer[] = options.mcpServers?.(true) ?? [];
+    let started: { sessionId: string; canConfigure: boolean };
+    try {
+      started = await rpc.call("start", {
+        processId,
+        command: options.command,
+        // Sessions pass a workspace key; a trial run before saving an agent passes a folder of this
+        // server's, which means nothing on the node, so it gets a throwaway one there.
+        key: isAbsolute(options.cwd) ? `.kervan-probe/${processId}` : options.cwd,
+        ...(options.resumeSessionId ? { resumeSessionId: options.resumeSessionId } : {}),
+        mcpServers,
+      });
+    } catch (error) {
+      processes.delete(processId);
+      throw error;
+    }
+
+    return {
+      sessionId: started.sessionId,
+      exited,
+      close: () => {
+        void rpc.call("close", { processId }).catch(() => {});
+        processes.delete(processId);
+        markExited();
+      },
+      prompt: async (text, files = [], preface) => {
+        const { stopReason } = await rpc.call<{ stopReason: string }>("prompt", { processId, text, files, ...(preface ? { preface } : {}) });
+        return stopReason;
+      },
+      cancel: async () => {
+        await rpc.call("cancel", { processId });
+      },
+      ...(started.canConfigure
+        ? { setConfig: (configId: string, value: string) => rpc.call<ConfigOption[]>("setConfig", { processId, configId, value }) }
+        : {}),
+    };
+  }
+
+  private remember(node: NodeInfo): void {
+    this.known.set(node.name, node);
+    const temp = `${this.file}.tmp`;
+    writeFileSync(temp, JSON.stringify(this.list().map(({ connected: _c, ...rest }) => rest), null, 2), { mode: 0o600 });
+    renameSync(temp, this.file);
+    this.onChange();
+  }
+}
+
+/** Where an agent runs: the node named in its definition, else this server. */
+export const nodeOf = (command: AgentCommand | undefined): string => command?.node ?? LOCAL_NODE;

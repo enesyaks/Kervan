@@ -13,6 +13,7 @@ import type { EventStore, IndexedMessage, SearchHit, StoredTeam } from "./store.
 import type { RoleRegistry } from "./roles.ts";
 import type * as acp from "@agentclientprotocol/sdk";
 import { isOrchestraCall } from "./orchestra.ts";
+import { LOCAL_NODE, nodeOf, type NodeHub } from "./nodes.ts";
 import { addWorktree, branchDiff, branchName, hasCommits, mergeBranch, type MergeResult } from "./worktree.ts";
 
 const fail = (message: string): never => {
@@ -124,14 +125,23 @@ export class SessionManager {
   private readonly teams = new Map<string, StoredTeam>();
   private orchestra?: Orchestrator;
   readonly limits: Limits;
+  readonly nodes?: NodeHub;
 
   constructor(
     runner: AgentRunner,
     agents: AgentRegistry,
     workspacesDir: string,
     store: EventStore,
-    extras: { skills?: SkillLibrary; mcp?: McpRegistry; catalog?: AgentCatalog; roles?: RoleRegistry; limits?: Partial<Limits> } = {},
+    extras: {
+      skills?: SkillLibrary;
+      mcp?: McpRegistry;
+      catalog?: AgentCatalog;
+      roles?: RoleRegistry;
+      limits?: Partial<Limits>;
+      nodes?: NodeHub;
+    } = {},
   ) {
+    this.nodes = extras.nodes;
     this.limits = { maxHelpers: MAX_HELPERS, helperTurnMinutes: HELPER_TURN_MINUTES, ...extras.limits };
     this.roles = extras.roles;
     this.skills = extras.skills;
@@ -167,7 +177,31 @@ export class SessionManager {
   }
 
   get agentDetails(): AgentDetail[] {
-    return [...this.agents].map(([id, agent]) => ({ id, name: agent.name, ...(agent.protocol === "pty" ? { terminal: true } : {}) }));
+    return [...this.agents].map(([id, agent]) => ({
+      id,
+      name: agent.name,
+      ...(agent.protocol === "pty" ? { terminal: true } : {}),
+      ...(nodeOf(agent) !== LOCAL_NODE ? { node: nodeOf(agent) } : {}),
+    }));
+  }
+
+  /** Tell every client which nodes exist and which are connected. */
+  nodesChanged(): void {
+    if (this.nodes) this.broadcast({ type: "nodes.updated", nodes: this.nodes.list() });
+  }
+
+  /**
+   * Where a session's files are: a folder on this server, or a workspace key on a node.
+   * Remote workspaces are named by a key relative to the node's own workspaces folder.
+   */
+  location(sessionId: string): { path: string } | { node: string; key: string } {
+    const session = this.require(sessionId);
+    const node = this.nodeFor(session.info);
+    return node === LOCAL_NODE ? { path: session.cwd } : { node, key: session.cwd };
+  }
+
+  private nodeFor(info: SessionInfo): string {
+    return nodeOf(this.agents.get(info.agent));
   }
 
   /** Tell every client the agent list changed (agents added or removed from the app). */
@@ -205,6 +239,12 @@ export class SessionManager {
     if (missingMcp) throw new KervanError("bad_message", `no MCP server named '${missingMcp}'`);
     if (!this.agents.has(agent)) throw new KervanError("unknown_agent", `no agent named '${agent}'`);
     if (options.orchestrate && !this.orchestra) throw new KervanError("bad_message", "this server can't start helpers");
+    const node = nodeOf(this.agents.get(agent));
+    if (node !== LOCAL_NODE) {
+      if (options.orchestrate) throw new KervanError("bad_message", `a lead must run on this server; '${agent}' runs on node '${node}'`);
+      if (skills.length > 0) throw new KervanError("bad_message", `skills aren't available on node '${node}' yet`);
+      if (!this.nodes) throw new KervanError("node_offline", `this server doesn't accept nodes, so '${agent}' can't run`);
+    }
     if (options.orchestrate && this.agents.get(agent)?.protocol === "pty") {
       throw new KervanError("bad_message", "terminal agents can't use Kervan's tools, so they can't start helpers");
     }
@@ -234,8 +274,9 @@ export class SessionManager {
       costBase: 0,
     };
     session.cwd = this.cwdFor(this.workspacesDir, session.info);
+    // A node makes its own workspace folder when the agent starts there.
     if (options.worktreeFrom) await addWorktree(options.worktreeFrom, session.cwd, session.info.branch!);
-    else await mkdir(session.cwd, { recursive: true });
+    else if (node === LOCAL_NODE) await mkdir(session.cwd, { recursive: true });
     if (session.info.skills.length > 0) {
       const target = this.agents.get(agent)!.skillsDir ?? FALLBACK_SKILLS_DIR;
       await this.skills!.copyInto(session.info.skills, join(session.cwd, target));
@@ -264,6 +305,11 @@ export class SessionManager {
     }
     if (session.info.status === "running" || session.info.status === "waiting") {
       throw new KervanError("session_busy", "the agent is still answering");
+    }
+    const node = this.nodeFor(session.info);
+    if (!session.process && node !== LOCAL_NODE && !this.nodes?.isConnected(node)) {
+      // Leave the session as it is; it can continue once the node is back.
+      throw new KervanError("node_offline", `node '${node}' is offline; the session continues when it reconnects`);
     }
     const resumable = !session.process && session.agentSessionId !== undefined;
     if (session.info.status !== "idle" || (!session.process && !resumable)) {
@@ -350,6 +396,9 @@ export class SessionManager {
 
   /** Team members share one folder so they see each other's files; helpers work in their lead's. */
   private cwdFor(root: string, info: SessionInfo): string {
+    // On a node: a key the node resolves inside its own workspaces folder. Helpers there can't reach
+    // their lead's folder on this server, so they get their own.
+    if (this.nodeFor(info) !== LOCAL_NODE) return info.teamId ? `team-${info.teamId}` : info.id;
     if (info.branch) return join(root, `worktree-${info.id}`);
     if (info.teamId) return join(root, `team-${info.teamId}`);
     return join(root, info.parentId ?? info.id);
@@ -375,9 +424,11 @@ export class SessionManager {
     if (this.helperSessions(leadId).length >= max) {
       throw new KervanError("bad_message", `at most ${max} helpers; message or reuse one you have`);
     }
-    const isolated = request.isolate !== false && (await hasCommits(lead.cwd));
     const role = request.role === undefined ? undefined : (this.roles?.get(request.role) ?? fail(`no role named '${request.role}'`));
     const agent = role?.agent ?? request.agent ?? fail("give an agent or a role (see list_agents)");
+    const remoteNode = nodeOf(this.agents.get(agent));
+    const remote = remoteNode !== LOCAL_NODE;
+    const isolated = !remote && request.isolate !== false && (await hasCommits(lead.cwd));
     const info = await this.create(agent, role?.skills ?? [], role?.mcpServers ?? [], {
       title: request.name.trim().slice(0, TITLE_CHARS),
       parentId: leadId,
@@ -389,8 +440,9 @@ export class SessionManager {
     await helper.ready;
     if (helper.info.status !== "idle") throw new KervanError("bad_message", `helper didn't start: ${helper.info.error ?? helper.info.status}`);
     this.prompt(info.id, request.task, [], leadId);
-    const note =
-      request.isolate !== false && !isolated
+    const note = remote
+      ? `This helper runs on node '${remoteNode}' in a folder of its own there; it can't see your files, so put what it needs in the task and get results from its reply.`
+      : request.isolate !== false && !isolated
         ? "Your folder is not a git repository with a commit, so this helper works in your folder, not on a branch."
         : undefined;
     return { ...this.helperSummary(helper), ...(note ? { note } : {}) };

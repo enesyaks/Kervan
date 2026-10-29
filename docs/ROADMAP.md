@@ -19,7 +19,7 @@ Her adım tek başına çalışan, test edilebilir bir özellik bırakır.
 | M10 | Takım görünümü: çok panelli ekran, akış şeridi | ✅ |
 | M11 | Git worktree ile yardımcı izolasyonu, bütçe ve sınırlar | ✅ |
 | M12 | PTY yedeği, bildirimler, dayanıklılık; model seçici | ✅ |
-| M13 | Çoklu sunucu (node) | |
+| M13 | Çoklu sunucu (node): ajanları başka makinelerde çalıştırma | ✅ |
 | sonra | Ekip: kullanıcılar, giriş, paylaşım | |
 
 ## M7b: Skill ve MCP yönetimi
@@ -61,3 +61,24 @@ Bir görevi birden çok sunucudaki ajanlara dağıtmak.
   Uzak node, bu arayüzün ikinci bir uygulaması olacak; oturum ve takım kodu değişmeyecek.
 - **Riskler:** node başına ajan girişleri (her sunucuda ayrı login), merkez ile node arasında bağlantı kopması
   (node olayları tamponlar, yeniden bağlanınca gönderir), maliyetin node'lara dağılması.
+
+## M13: Node'lar
+
+Hub (ana Kervan sunucusu) ajanları başka makinelerde de çalıştırabilir. Her makinede `kervan-node` çalışır,
+hub'a Tailscale üzerinden kendisi bağlanır (node'da açık port gerekmez) ve hub'ın verdiği ajanları kendi
+`/srv/kervan/workspaces` klasöründe başlatır. Sohbet, onaylar, model seçimi ve dosyalar uygulamada aynı görünür.
+
+Kurulum (node makinesinde, vm-setup.sh'tan sonra):
+
+1. Hub'da `/etc/kervan/env` dosyasına `KERVAN_NODE_TOKEN=<en az 16 karakter>` ekleyip `kervan`'ı yeniden başlatın.
+2. Node'da `/etc/kervan/node.env`: `KERVAN_HUB_URL=ws://kervan:7420`, aynı `KERVAN_NODE_TOKEN`, isterseniz `KERVAN_NODE_NAME=gpu`.
+3. `infra/kervan-node.service` dosyasını `/etc/systemd/system/` altına kopyalayıp `systemctl enable --now kervan-node`.
+4. Kod güncellemesi: `infra/deploy.sh ubuntu@<node> kervan-node`.
+5. Uygulamada Ayarlar › Ajanlar'da node bağlı görünür; bir ajanı düzenleyip Node alanından seçin.
+
+İlk sürümün sınırları: ana ajanlar (yardımcı başlatan) ve skill'li oturumlar hub'da çalışır; node'daki yardımcılar
+ana ajanın klasörünü göremez, kendi klasörlerinde çalışır. Node'dan inen/yüklenen dosyalar 50 MB ile sınırlı.
+Bağlantı koparsa node'daki ajanlar durur; node geri gelince bir sonraki mesajla kaldıkları yerden devam ederler.
+
+Sonra: bir görevi node'lar arasında otomatik dağıtma (ana ajan hangi yardımcının nerede çalışacağını seçer),
+node'lara skill dağıtımı.

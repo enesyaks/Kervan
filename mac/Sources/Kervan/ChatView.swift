@@ -34,7 +34,15 @@ struct ChatView: View {
                             EmptySession(status: status, agentName: agentName)
                         }
                         ForEach(items) { item in
-                            TranscriptRow(item: item, agentName: agentName, senderName: senderName, terminal: model.store.isTerminal(sessionID)) { requestId, choice in
+                            TranscriptRow(
+                                item: item,
+                                agentName: agentName,
+                                senderName: senderName,
+                                terminal: model.store.isTerminal(sessionID),
+                                resume: item.id == Transcript.resumable(items) && status == .idle
+                                    ? { Task { await model.store.resume(sessionID) } }
+                                    : nil
+                            ) { requestId, choice in
                                 Task { await model.store.respond(sessionID, requestId: requestId, optionId: choice.optionId) }
                             }
                             .padding(highlighted == item.id ? 6 : 0)
@@ -270,6 +278,8 @@ struct TranscriptRow: View {
     let senderName: (String) -> String
     /// A terminal agent: its answers are shown as they were printed.
     var terminal = false
+    /// Set on a turn a server restart cut off, while the agent is free: continues it.
+    var resume: (() -> Void)?
     let respond: (String, PermissionChoice) -> Void
 
     var body: some View {
@@ -330,9 +340,17 @@ struct TranscriptRow: View {
             PermissionCard(prompt: prompt, agentName: agentName) { respond(prompt.requestId, $0) }
 
         case .stopped(_, let reason):
-            Label(Self.stopText(reason), systemImage: "stop.circle")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+                Label(Self.stopText(reason), systemImage: "stop.circle")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                if let resume {
+                    Button("Devam et", action: resume)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .help("Ajana kaldığı yerden sürdürmesini söyler")
+                }
+            }
 
         case .notice(_, let text):
             Label(text, systemImage: "arrow.triangle.2.circlepath")
@@ -357,7 +375,7 @@ struct TranscriptRow: View {
         case "max_tokens": "Yanıt uzunluk sınırına ulaştı."
         case "max_turn_requests": "Adım sınırına ulaşıldı."
         case "refusal": "Ajan bu isteği yanıtlamadı."
-        case "interrupted": "Sunucu yeniden başladığı için yarıda kaldı. Devam etmek için yeni bir mesaj yazın."
+        case "interrupted": "Sunucu yeniden başladığı için yarıda kaldı."
         default: "Tur bitti: \(reason)"
         }
     }

@@ -43,7 +43,7 @@ private struct NewSessionCommands: View {
         if agents.count > 1 {
             Menu("Ajanla yeni oturum") {
                 ForEach(agents) { agent in
-                    Button(agent.name) { model.newSession(agent: agent.id) }
+                    Button(agent.displayName) { model.newSession(agent: agent.id) }
                 }
             }
             .disabled(!model.canCreateSession)

@@ -622,3 +622,34 @@ import Testing
         )
     }
 }
+
+@MainActor @Suite struct NodeTests {
+    @Test func namesTheNodeAndTracksWhichNodesAreConnected() throws {
+        let store = SessionStore { _ in }
+        store.handle(.agentsUpdated([AgentInfo(id: "claude", name: "Claude Code"), AgentInfo(id: "gpu-claude", name: "Claude Code", node: "gpu")]))
+        #expect(store.agentName("gpu-claude") == "Claude Code (gpu)")
+        #expect(store.agentName("claude") == "Claude Code")
+
+        let message = try ServerMessage.decode(#"{"type":"nodes.updated","nodes":[{"name":"gpu","connected":false,"version":"0.1.0","lastSeen":"t"}]}"#)
+        store.handle(message)
+        #expect(store.nodeInfos == [NodeInfo(name: "gpu", connected: false, version: "0.1.0", lastSeen: "t")])
+        store.handle(.error(code: "node_offline", message: "node 'gpu' is offline", id: "x"))
+        #expect(store.lastError?.hasPrefix("Ajanın çalıştığı makine (node) şu an bağlı değil") == true)
+    }
+}
+
+@MainActor @Suite struct ResumeTests {
+    @Test func offersToContinueOnlyTheLastTurnARestartCutOff() async {
+        let cut = [SessionEvent(seq: 1, body: .userMessage("yap")), SessionEvent(seq: 2, body: .turnEnd(stopReason: "interrupted"))]
+        #expect(Transcript.resumable(Transcript.build(cut)) == 2)
+        #expect(Transcript.resumable(Transcript.build(cut + [SessionEvent(seq: 3, body: .userMessage("sonra"))])) == nil)
+        #expect(Transcript.resumable(Transcript.build([SessionEvent(seq: 1, body: .turnEnd(stopReason: "cancelled"))])) == nil)
+
+        final class Box { var sent: [ClientMessage] = [] }
+        let box = Box()
+        let store = SessionStore { box.sent.append($0) }
+        await store.resume("s")
+        guard case .sessionPrompt(_, "s", let text, _)? = box.sent.last else { Issue.record("expected a prompt"); return }
+        #expect(text == Transcript.resumePrompt)
+    }
+}

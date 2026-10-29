@@ -20,20 +20,43 @@ public struct AgentInfo: Codable, Equatable, Sendable, Identifiable {
     public let name: String
     /// Runs in a pseudo-terminal without ACP: answers are plain terminal text.
     public let terminal: Bool
+    /// The node it runs on, when that isn't the server itself.
+    public let node: String?
 
-    public init(id: String, name: String, terminal: Bool = false) {
+    public init(id: String, name: String, terminal: Bool = false, node: String? = nil) {
         self.id = id
         self.name = name
         self.terminal = terminal
+        self.node = node
     }
 
-    private enum CodingKeys: String, CodingKey { case id, name, terminal }
+    /// The name as menus show it, with the node when the agent runs on another machine.
+    public var displayName: String { node.map { "\(name) (\($0))" } ?? name }
+
+    private enum CodingKeys: String, CodingKey { case id, name, terminal, node }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
         name = try c.decode(String.self, forKey: .name)
         terminal = try c.decodeIfPresent(Bool.self, forKey: .terminal) ?? false
+        node = try c.decodeIfPresent(String.self, forKey: .node)
+    }
+}
+
+/// A machine running kervan-node for this server, as the server last saw it.
+public struct NodeInfo: Codable, Equatable, Sendable, Identifiable {
+    public let name: String
+    public let connected: Bool
+    public let version: String?
+    public let lastSeen: String?
+    public var id: String { name }
+
+    public init(name: String, connected: Bool, version: String? = nil, lastSeen: String? = nil) {
+        self.name = name
+        self.connected = connected
+        self.version = version
+        self.lastSeen = lastSeen
     }
 }
 
@@ -534,6 +557,7 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
     case ping(id: String)
     case sessionCreate(id: String, agent: String, skills: [String] = [], mcpServers: [String] = [], orchestrate: Bool = false, budgetUsd: Double? = nil)
     case sessionList(id: String)
+    case nodeList(id: String)
     case sessionConfig(id: String, sessionId: String, configId: String, value: String)
     case sessionHistory(id: String, sessionId: String)
     case sessionPrompt(id: String, sessionId: String, text: String, attachments: [String] = [])
@@ -583,6 +607,9 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
             try c.encode(sessionId, forKey: .sessionId)
             try c.encode(configId, forKey: .configId)
             try c.encode(value, forKey: .value)
+        case .nodeList(let id):
+            try c.encode("node.list", forKey: .type)
+            try c.encode(id, forKey: .id)
         case .sessionList(let id):
             try c.encode("session.list", forKey: .type)
             try c.encode(id, forKey: .id)
@@ -686,6 +713,8 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
     case mcpListResult(id: String, servers: [McpServerSummary])
     case agentListResult(id: String, agents: [AgentConfig], nodes: [String])
     case agentsUpdated([AgentInfo])
+    case nodeListResult(id: String, nodes: [NodeInfo])
+    case nodesUpdated([NodeInfo])
     case roleListResult(id: String, roles: [Role])
     case teamCreated(id: String, team: TeamInfo)
     case teamListResult(id: String, teams: [TeamInfo])
@@ -748,6 +777,10 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
             self = .teamUpdated(try c.decode(TeamInfo.self, forKey: .team))
         case "agents.updated":
             self = .agentsUpdated(try c.decode([AgentInfo].self, forKey: .agentDetails))
+        case "node.list.result":
+            self = .nodeListResult(id: try c.decode(String.self, forKey: .id), nodes: try c.decode([NodeInfo].self, forKey: .nodes))
+        case "nodes.updated":
+            self = .nodesUpdated(try c.decode([NodeInfo].self, forKey: .nodes))
         case "mcp.list.result":
             self = .mcpListResult(id: try c.decode(String.self, forKey: .id), servers: try c.decode([McpServerSummary].self, forKey: .servers))
         case "session.search.result":

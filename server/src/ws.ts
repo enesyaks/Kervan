@@ -4,7 +4,8 @@ import type { Duplex } from "node:stream";
 import { WebSocketServer, type WebSocket } from "ws";
 import { log } from "./log.ts";
 import { KervanError, PROTOCOL_VERSION, parseClientMessage, type ClientMessage, type ServerMessage } from "./protocol.ts";
-import { NODES } from "./catalog.ts";
+import { MAX_NODE_FRAME_BYTES, NODE_PATH } from "./node-agent.ts";
+import { NODE_NAME, LOCAL_NODE } from "./nodes.ts";
 import type { SessionManager } from "./sessions.ts";
 import { VERSION } from "./version.ts";
 
@@ -34,7 +35,8 @@ function requireCatalog(sessions: SessionManager) {
 }
 
 function agentList(id: string, sessions: SessionManager): ServerMessage {
-  return { type: "agent.list.result", id, agents: requireCatalog(sessions).list(), nodes: NODES };
+  const catalog = requireCatalog(sessions);
+  return { type: "agent.list.result", id, agents: catalog.list(), nodes: catalog.nodes() };
 }
 
 function requireRoles(sessions: SessionManager) {
@@ -63,6 +65,8 @@ async function handleRequest(ws: WebSocket, message: Exclude<ClientMessage, { ty
     case "session.config":
       await sessions.setConfig(message.sessionId, message.configId, message.value);
       return send(ws, { type: "ok", id: message.id });
+    case "node.list":
+      return send(ws, { type: "node.list.result", id: message.id, nodes: sessions.nodes?.list() ?? [] });
     case "session.list":
       return send(ws, { type: "session.list.result", id: message.id, sessions: sessions.list() });
     case "session.history":
@@ -198,12 +202,33 @@ export function attachWebSocket(
   token: string,
   sessions: SessionManager,
   heartbeatMs = HEARTBEAT_MS,
+  nodeToken?: string,
 ): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES });
+  const nodeServer = new WebSocketServer({ noServer: true, maxPayload: MAX_NODE_FRAME_BYTES });
   const alive = new WeakSet<WebSocket>();
 
   server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
     const path = new URL(req.url ?? "/", "http://localhost").pathname;
+    // Nodes use their own token, so a leaked node token can't drive the app's API.
+    if (path === NODE_PATH && nodeToken && sessions.nodes) {
+      const name = req.headers["x-kervan-node"];
+      if (!isAuthorized(req.headers.authorization, nodeToken)) {
+        log("warn", "node auth rejected", { remote: req.socket.remoteAddress });
+        rejectUpgrade(socket, 401, "Unauthorized");
+        return;
+      }
+      if (typeof name !== "string" || !NODE_NAME.test(name) || name === LOCAL_NODE) {
+        rejectUpgrade(socket, 400, "Bad Node Name");
+        return;
+      }
+      nodeServer.handleUpgrade(req, socket, head, (ws) => {
+        alive.add(ws);
+        ws.on("pong", () => alive.add(ws));
+        sessions.nodes!.accept(name, ws);
+      });
+      return;
+    }
     if (path !== WS_PATH) {
       rejectUpgrade(socket, 404, "Not Found");
       return;
@@ -224,7 +249,7 @@ export function attachWebSocket(
 
   // Drop clients that missed a whole heartbeat round (sleeping laptop, dead network).
   const heartbeat = setInterval(() => {
-    for (const ws of wss.clients) {
+    for (const ws of [...wss.clients, ...nodeServer.clients]) {
       if (!alive.has(ws)) {
         ws.terminate();
         continue;

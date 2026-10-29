@@ -336,6 +336,10 @@ private struct AgentsSettings: View {
             }
             .listStyle(.bordered)
 
+            if !model.store.nodeInfos.isEmpty {
+                NodesList(nodes: model.store.nodeInfos)
+            }
+
             HStack {
                 Spacer()
                 Button("Ajan ekle…") { editing = AgentDraft() }
@@ -356,6 +360,34 @@ private struct AgentsSettings: View {
             }
         } message: {
             Text("Bu ajanla açılmış oturumlar geçmişleriyle kalır ama yeniden başlatılamaz.")
+        }
+    }
+}
+
+/// Other machines running kervan-node for this server, and whether each is connected now.
+private struct NodesList: View {
+    let nodes: [NodeInfo]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Node'lar").font(.headline)
+            ForEach(nodes) { node in
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(node.connected ? Color.kervanOasis : Color.secondary.opacity(0.5))
+                        .frame(width: 7, height: 7)
+                    Text(node.name).font(.body.monospaced())
+                    Text(node.connected ? "bağlı" : "bağlı değil").foregroundStyle(.secondary)
+                    Spacer()
+                    if let version = node.version {
+                        Text("v\(version)").font(.caption).foregroundStyle(.tertiary)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+            }
+            Text("Bir ajanı node'da çalıştırmak için düzenleyip Node alanından seçin.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 }
@@ -440,7 +472,7 @@ private struct AgentEditor: View {
                         Text(node == "local" ? "Bu sunucu" : node).tag(node)
                     }
                 }
-                .help("Birden çok sunucu (M13) geldiğinde ajanın hangi sunucuda çalışacağını buradan seçeceksiniz.")
+                .help("Ajanın çalışacağı makine. Bu sunucu ya da ona bağlanmış bir kervan-node.")
 
                 Picker("Kaynak", selection: $draft.kind) {
                     Text("Komut").tag(AgentDraft.Kind.command)

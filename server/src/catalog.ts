@@ -53,7 +53,16 @@ export class AgentCatalog {
   private readonly probe: (definition: AgentDefinition) => Promise<void>;
   private managed: Map<string, ManagedAgent>;
 
-  constructor(file: string, base: AgentRegistry, probe: (definition: AgentDefinition) => Promise<void>) {
+  /** The nodes an agent can be assigned to; only this server unless nodes are set up. */
+  readonly nodes: () => string[];
+
+  constructor(
+    file: string,
+    base: AgentRegistry,
+    probe: (definition: AgentDefinition) => Promise<void>,
+    nodes: () => string[] = () => NODES,
+  ) {
+    this.nodes = nodes;
     this.file = file;
     this.base = base;
     this.probe = probe;
@@ -106,7 +115,9 @@ export class AgentCatalog {
     const id = raw.id;
     if (typeof id !== "string") return bad("agent needs an 'id'");
     const node = raw.node ?? "local";
-    if (typeof node !== "string" || !NODES.includes(node)) bad(`node '${String(node)}' is not available; this server has: ${NODES.join(", ")}`);
+    if (typeof node !== "string" || !this.nodes().includes(node)) {
+      bad(`node '${String(node)}' is not available; this server has: ${this.nodes().join(", ")}`);
+    }
     const previous = this.managed.get(id);
     const env = mergeEnv(raw.env, previous?.env);
 
@@ -118,8 +129,9 @@ export class AgentCatalog {
     } catch (error) {
       return bad((error as Error).message.replace(/^agent: /, ""));
     }
-    if (!isRunnable(definition.command)) bad(`command '${definition.command}' can't be run on this server`);
-    const withEnv = { ...definition, ...(env ? { env } : {}) };
+    // An agent on another node is checked there, by the probe.
+    if (node === "local" && !isRunnable(definition.command)) bad(`command '${definition.command}' can't be run on this server`);
+    const withEnv = { ...definition, ...(env ? { env } : {}), ...(node !== "local" ? { node: node as string } : {}) };
 
     try {
       await this.probe(withEnv);
@@ -153,10 +165,13 @@ export class AgentCatalog {
     this.live.clear();
     for (const [id, definition] of this.base) this.live.set(id, definition);
     for (const agent of this.managed.values()) {
-      const { env, node: _node, id, ...fields } = agent;
+      const { env, node, id, ...fields } = agent;
       try {
         const [definition] = parseAgents(stringify({ agents: { [id]: fields } }), "agents.json");
-        if (isRunnable(definition.command)) this.live.set(id, { ...definition, ...(env ? { env } : {}) });
+        const remote = node !== "local";
+        if (remote || isRunnable(definition.command)) {
+          this.live.set(id, { ...definition, ...(env ? { env } : {}), ...(remote ? { node } : {}) });
+        }
       } catch {
         // A stored agent that no longer validates is listed as unavailable rather than breaking startup.
       }
