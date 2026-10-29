@@ -57,6 +57,7 @@ describe("MCP registry", () => {
     assert.throws(() => registry.save({ name: "x", transport: "http", url: "ftp://x" }), /http\(s\) url/);
     assert.throws(() => registry.save({ name: "x", transport: "carrier-pigeon" }), /transport/);
     assert.throws(() => registry.save({ ...github, name: "new", env: { TOKEN: null } }), /no stored value/);
+    assert.throws(() => registry.save({ ...github, name: "kervan" }), /reserved/);
   });
 
   it("drops HTTP servers for agents that can't use them", () => {

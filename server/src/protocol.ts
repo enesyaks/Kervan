@@ -33,6 +33,10 @@ export interface SessionInfo {
   /** Set for team members: the team and the member's role name. */
   teamId?: string;
   role?: string;
+  /** Set for helpers: the lead session that started them. */
+  parentId?: string;
+  /** The agent may start and message helpers (Kervan's orchestration tools). */
+  orchestrate?: boolean;
   error?: string;
 }
 
@@ -71,7 +75,8 @@ export interface SearchHit {
 
 // Agent-neutral events. Runners translate their agent's own updates (ACP, PTY…) into these.
 export type SessionEventBody =
-  | { kind: "user_message"; text: string; attachments?: string[] }
+  /** `from` is the lead session when a lead agent, not the user, wrote it. */
+  | { kind: "user_message"; text: string; attachments?: string[]; from?: string }
   | { kind: "agent_message_chunk"; text: string }
   | { kind: "agent_thought_chunk"; text: string }
   | { kind: "tool_call"; toolCallId: string; title: string; toolKind: string; status: string }
@@ -95,7 +100,7 @@ export type SessionEvent = SessionEventBody & { seq: number; at: string };
 export type ClientMessage =
   | { type: "hello"; protocol: number; client: PeerInfo }
   | { type: "ping"; id: string }
-  | { type: "session.create"; id: string; agent: string; skills?: string[]; mcpServers?: string[] }
+  | { type: "session.create"; id: string; agent: string; skills?: string[]; mcpServers?: string[]; orchestrate?: boolean }
   | { type: "session.list"; id: string }
   | { type: "session.history"; id: string; sessionId: string }
   | { type: "session.prompt"; id: string; sessionId: string; text: string; attachments?: string[] }
@@ -242,6 +247,10 @@ export function parseClientMessage(raw: string): ParseResult {
         return fail("bad_message", `${field} must be up to ${MAX_SELECTED} names`);
       }
       (message as Record<string, unknown>)[field] = list;
+    }
+    if (data.orchestrate !== undefined) {
+      if (typeof data.orchestrate !== "boolean") return fail("bad_message", "orchestrate must be true or false");
+      (message as Record<string, unknown>).orchestrate = data.orchestrate;
     }
   }
   if (data.type === "role.save") {

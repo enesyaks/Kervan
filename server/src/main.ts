@@ -10,7 +10,8 @@ import { SkillLibrary } from "./skills.ts";
 import { AgentCatalog } from "./catalog.ts";
 import { RoleRegistry } from "./roles.ts";
 import { probeAgent } from "./runner.ts";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { OrchestraHub } from "./orchestra.ts";
 
 const config = loadConfig();
 const store = new EventStore(join(config.dataDir, "kervan.db"));
@@ -26,6 +27,10 @@ const roles = new RoleRegistry(join(config.dataDir, "roles.json"), {
   hasMcp: (name) => mcp.has(name),
 });
 const sessions = new SessionManager(runner, catalog.live, config.workspacesDir, store, { skills, mcp, catalog, roles });
+// Absolute: lead agents' MCP bridges run in their own working folders.
+const orchestra = new OrchestraHub(resolve(config.dataDir, "orchestra.sock"), sessions);
+await orchestra.listen();
+sessions.useOrchestra(orchestra);
 const server = createKervanServer({ token: config.token, sessions, maxUploadBytes: config.maxUploadBytes, skills });
 
 server.listen(config.port, config.host, () => {
@@ -35,6 +40,7 @@ server.listen(config.port, config.host, () => {
 function shutdown(signal: string): void {
   log("info", "shutting down", { signal });
   sessions.closeAll();
+  orchestra.close();
   server.close(() => {
     store.close();
     process.exit(0);

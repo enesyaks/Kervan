@@ -8,6 +8,10 @@
 //   "prefacecheck" → the hidden text block sent before the user's text, or "no preface"
 //   "authstate" → answers with the auth method chosen via `authenticate`, or "none"
 //   "whoami" → answers with the ACP session id it is running (new or resumed)
+//   "delegate: <task>" → starts a helper through the `kervan` MCP server, waits, answers "helper said: <reply>"
+//   "mcptools" → names of the tools the `kervan` MCP server offers
+import { spawn } from "node:child_process";
+import { createInterface } from "node:readline";
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 
@@ -19,6 +23,33 @@ const stream = acp.ndJsonStream(
 let current = "";
 let authenticated = "none";
 let mcpNames: string[] = [];
+let mcpServers: acp.McpServer[] = [];
+
+/** A bare MCP client: starts the named stdio server and returns a function that calls one method on it. */
+async function mcpClient(name: string): Promise<(method: string, params?: object) => Promise<any>> {
+  const server = mcpServers.find((s) => s.name === name) as acp.McpServerStdio | undefined;
+  if (!server) throw new Error(`no MCP server '${name}'`);
+  const child = spawn(server.command, server.args, {
+    env: { ...process.env, ...Object.fromEntries(server.env.map((e) => [e.name, e.value])) },
+    stdio: ["pipe", "pipe", "inherit"],
+  });
+  const waiting = new Map<number, (result: any) => void>();
+  createInterface({ input: child.stdout! }).on("line", (line) => {
+    const message = JSON.parse(line);
+    waiting.get(message.id)?.(message.result ?? message.error);
+  });
+  let next = 0;
+  const call = (method: string, params: object = {}) =>
+    new Promise<any>((resolve) => {
+      const id = ++next;
+      waiting.set(id, resolve);
+      child.stdin!.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
+    });
+  await call("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "fake", version: "0" } });
+  child.stdin!.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
+  process.on("exit", () => child.kill());
+  return call;
+}
 
 acp
   .agent({ name: "fake" })
@@ -32,12 +63,14 @@ acp
     return {};
   })
   .onRequest("session/new", ({ params }) => {
+    mcpServers = params.mcpServers;
     mcpNames = params.mcpServers.map((server) => server.name);
     current = `fake-${process.pid}`;
     return { sessionId: current };
   })
   .onRequest("session/resume", ({ params }) => {
-    mcpNames = (params.mcpServers ?? []).map((server) => server.name);
+    mcpServers = params.mcpServers ?? [];
+    mcpNames = mcpServers.map((server) => server.name);
     current = params.sessionId;
     return {};
   })
@@ -49,6 +82,30 @@ acp
     if (text.includes("crash")) process.exit(1);
     if (text.includes("mcpcheck")) {
       await update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `mcp: ${mcpNames.join(",")}` } });
+      return { stopReason: "end_turn" };
+    }
+    if (text.includes("mcptools")) {
+      const call = await mcpClient("kervan");
+      const { tools } = await call("tools/list");
+      await update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: tools.map((t: any) => t.name).join(",") } });
+      return { stopReason: "end_turn" };
+    }
+    if (text.startsWith("delegate: ")) {
+      const call = await mcpClient("kervan");
+      const tool = async (name: string, args: object) => {
+        const result = await call("tools/call", { name, arguments: args });
+        if (result.isError) throw new Error(result.content[0].text);
+        return JSON.parse(result.content[0].text);
+      };
+      try {
+        const { agents } = await tool("list_agents", {});
+        const { helperId } = await tool("start_helper", { agent: agents[0].id, name: "Yardımcı", task: text.slice("delegate: ".length) });
+        let summary = await tool("wait_for_helper", { helperId, timeoutSec: 20 });
+        while (!summary.done) summary = await tool("wait_for_helper", { helperId, timeoutSec: 20 });
+        await update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `helper said: ${summary.reply}` } });
+      } catch (error) {
+        await update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `refused: ${(error as Error).message}` } });
+      }
       return { stopReason: "end_turn" };
     }
     if (text.includes("prefacecheck")) {

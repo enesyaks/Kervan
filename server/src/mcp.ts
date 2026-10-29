@@ -88,6 +88,7 @@ export class McpRegistry {
     if (!isRecord(input)) bad("server must be an object");
     const { name, transport } = input as Record<string, unknown>;
     if (typeof name !== "string" || !NAME.test(name)) bad("name must be lowercase letters, digits or '-'");
+    if (name === "kervan") bad("'kervan' is reserved for Kervan's own tools");
     const previous = this.servers.get(name as string);
 
     let server: McpServerConfig;

@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import type { SessionEvent, SessionInfo } from "./protocol.ts";
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 export interface IndexedMessage {
   /** seq of the first event of the message; matches the Mac transcript row id. */
@@ -141,9 +141,9 @@ export class EventStore {
     this.migrate();
     this.upsertSession = this.db.prepare(`
       INSERT INTO sessions (id, agent, title, status, created_at, error, agent_session_id, archived, skills, mcp_servers,
-                            team_id, role, instructions)
+                            team_id, role, instructions, parent_id, orchestrate)
       VALUES (:id, :agent, :title, :status, :createdAt, :error, :agentSessionId, :archived, :skills, :mcpServers,
-              :teamId, :role, :instructions)
+              :teamId, :role, :instructions, :parentId, :orchestrate)
       ON CONFLICT (id) DO UPDATE SET
         title = excluded.title,
         status = excluded.status,
@@ -175,11 +175,18 @@ export class EventStore {
         `);
       }
       // v4 (M8): teams, and each member's team, role and role instructions.
+      if (version < 4) {
+        this.db.exec(`
+          ALTER TABLE sessions ADD COLUMN team_id TEXT;
+          ALTER TABLE sessions ADD COLUMN role TEXT;
+          ALTER TABLE sessions ADD COLUMN instructions TEXT NOT NULL DEFAULT '';
+          CREATE TABLE teams (id TEXT PRIMARY KEY, title TEXT NOT NULL, created_at TEXT NOT NULL);
+        `);
+      }
+      // v5 (M9): helpers point at the lead that started them; leads may start helpers.
       this.db.exec(`
-        ALTER TABLE sessions ADD COLUMN team_id TEXT;
-        ALTER TABLE sessions ADD COLUMN role TEXT;
-        ALTER TABLE sessions ADD COLUMN instructions TEXT NOT NULL DEFAULT '';
-        CREATE TABLE teams (id TEXT PRIMARY KEY, title TEXT NOT NULL, created_at TEXT NOT NULL);
+        ALTER TABLE sessions ADD COLUMN parent_id TEXT;
+        ALTER TABLE sessions ADD COLUMN orchestrate INTEGER NOT NULL DEFAULT 0;
       `);
       this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
       this.db.exec("COMMIT");
@@ -223,6 +230,8 @@ export class EventStore {
       teamId: info.teamId ?? null,
       role: info.role ?? null,
       instructions: instructions ?? "",
+      parentId: info.parentId ?? null,
+      orchestrate: info.orchestrate ? 1 : 0,
     });
   }
 
@@ -278,6 +287,8 @@ export class EventStore {
         mcpServers: JSON.parse(String(row.mcp_servers ?? "[]")) as string[],
         ...(row.team_id ? { teamId: String(row.team_id) } : {}),
         ...(row.role ? { role: String(row.role) } : {}),
+        ...(row.parent_id ? { parentId: String(row.parent_id) } : {}),
+        ...(row.orchestrate === 1 ? { orchestrate: true } : {}),
         ...(row.error ? { error: String(row.error) } : {}),
       },
       ...(row.agent_session_id ? { agentSessionId: String(row.agent_session_id) } : {}),

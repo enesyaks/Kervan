@@ -34,6 +34,13 @@ describe("EventStore", () => {
     ]);
   });
 
+  it("keeps which lead a helper belongs to and which sessions may start helpers", () => {
+    const store = new EventStore(":memory:");
+    store.saveSession({ info: { ...info, orchestrate: true } });
+    store.saveSession({ info: { ...info, id: "s2", parentId: "s1" } });
+    assert.deepEqual(store.loadSessions().map((s) => s.info), [{ ...info, orchestrate: true }, { ...info, id: "s2", parentId: "s1" }]);
+  });
+
   it("refuses a duplicate seq", () => {
     const store = new EventStore(":memory:");
     store.saveSession({ info });

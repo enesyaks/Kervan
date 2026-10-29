@@ -11,6 +11,7 @@ import type { McpRegistry } from "./mcp.ts";
 import type { SkillLibrary } from "./skills.ts";
 import type { EventStore, IndexedMessage, SearchHit, StoredTeam } from "./store.ts";
 import type { RoleRegistry } from "./roles.ts";
+import type * as acp from "@agentclientprotocol/sdk";
 
 const fail = (message: string): never => {
   throw new KervanError("bad_message", message);
@@ -21,6 +22,36 @@ const FALLBACK_SKILLS_DIR = ".kervan/skills";
 
 const DEFAULT_TITLE = "Yeni oturum";
 const TITLE_CHARS = 60;
+/** Per lead; a runaway lead can't fill the server with agents. */
+export const MAX_HELPERS = 6;
+const REPLY_CHARS = 20_000;
+
+/** What a lead agent learns about one of its helpers. */
+export interface HelperSummary {
+  helperId: string;
+  name: string;
+  agent: string;
+  status: SessionInfo["status"];
+  /** False while the helper is still working (or waiting for the user's approval). */
+  done: boolean;
+  /** The helper's last answer. */
+  reply?: string;
+  error?: string;
+}
+
+/** Hands lead agents the MCP server with Kervan's orchestration tools. */
+export interface Orchestrator {
+  mcpServer(sessionId: string): acp.McpServer;
+}
+
+interface CreateOptions {
+  title?: string;
+  teamId?: string;
+  role?: string;
+  instructions?: string;
+  parentId?: string;
+  orchestrate?: boolean;
+}
 
 interface PendingPermission {
   optionIds: string[];
@@ -40,6 +71,8 @@ interface Session {
   streaming?: IndexedMessage;
   /** Role instructions given to the agent before the first message. */
   instructions?: string;
+  /** Settles once the agent has started (or failed to). */
+  ready?: Promise<void>;
 }
 
 type Listener = (message: ServerMessage) => void;
@@ -65,6 +98,7 @@ export class SessionManager {
   readonly catalog?: AgentCatalog;
   readonly roles?: RoleRegistry;
   private readonly teams = new Map<string, StoredTeam>();
+  private orchestra?: Orchestrator;
 
   constructor(
     runner: AgentRunner,
@@ -85,7 +119,7 @@ export class SessionManager {
       const session: Session = {
         info: stored.info,
         events: store.loadEvents(stored.info.id),
-        cwd: this.cwdFor(workspacesDir, stored.info.id, stored.info.teamId),
+        cwd: this.cwdFor(workspacesDir, stored.info),
         agentSessionId: stored.agentSessionId,
         instructions: stored.instructions,
         pending: new Map(),
@@ -94,6 +128,11 @@ export class SessionManager {
       this.recover(session);
     }
     for (const team of store.loadTeams()) this.teams.set(team.id, team);
+  }
+
+  /** Lets sessions created with `orchestrate` start helpers. Set once, after construction (the hub needs this manager). */
+  useOrchestra(orchestra: Orchestrator): void {
+    this.orchestra = orchestra;
   }
 
   get agentKinds(): string[] {
@@ -131,32 +170,37 @@ export class SessionManager {
     agent: string,
     skills: string[] = [],
     mcpServers: string[] = [],
-    member?: { teamId: string; role: string; instructions: string },
+    options: CreateOptions = {},
   ): Promise<SessionInfo> {
     const missingSkill = skills.find((name) => !this.skills?.has(name));
     if (missingSkill) throw new KervanError("bad_message", `no skill named '${missingSkill}'`);
     const missingMcp = mcpServers.find((name) => !this.mcp?.has(name));
     if (missingMcp) throw new KervanError("bad_message", `no MCP server named '${missingMcp}'`);
     if (!this.agents.has(agent)) throw new KervanError("unknown_agent", `no agent named '${agent}'`);
+    if (options.orchestrate && !this.orchestra) throw new KervanError("bad_message", "this server can't start helpers");
 
     const id = randomUUID();
     const session: Session = {
       info: {
         id,
         agent,
-        title: member?.role ?? DEFAULT_TITLE,
+        title: options.title ?? options.role ?? DEFAULT_TITLE,
         status: "starting",
         createdAt: new Date().toISOString(),
         archived: false,
         skills: [...new Set(skills)],
         mcpServers: [...new Set(mcpServers)],
-        ...(member ? { teamId: member.teamId, role: member.role } : {}),
+        ...(options.teamId ? { teamId: options.teamId } : {}),
+        ...(options.role ? { role: options.role } : {}),
+        ...(options.parentId ? { parentId: options.parentId } : {}),
+        ...(options.orchestrate && !options.parentId ? { orchestrate: true } : {}),
       },
-      ...(member?.instructions ? { instructions: member.instructions } : {}),
+      ...(options.instructions ? { instructions: options.instructions } : {}),
       events: [],
-      cwd: this.cwdFor(this.workspacesDir, id, member?.teamId),
+      cwd: "",
       pending: new Map(),
     };
+    session.cwd = this.cwdFor(this.workspacesDir, session.info);
     await mkdir(session.cwd, { recursive: true });
     if (session.info.skills.length > 0) {
       const target = this.agents.get(agent)!.skillsDir ?? FALLBACK_SKILLS_DIR;
@@ -166,7 +210,7 @@ export class SessionManager {
     this.save(session);
     log("info", "session starting", { id, agent });
 
-    this.startAgent(session)
+    session.ready = this.startAgent(session)
       .then(() => {
         if (session.info.status === "starting") this.setStatus(session, "idle");
       })
@@ -175,8 +219,11 @@ export class SessionManager {
     return { ...session.info };
   }
 
-  /** `attachments` are workspace-relative paths, usually files the user just uploaded. */
-  prompt(sessionId: string, text: string, attachments: string[] = []): void {
+  /**
+   * `attachments` are workspace-relative paths, usually files the user just uploaded.
+   * `from` is the lead session when a lead agent writes to its helper.
+   */
+  prompt(sessionId: string, text: string, attachments: string[] = [], from?: string): void {
     const session = this.require(sessionId);
     if (!attachments.every(isSafeRelativePath)) {
       throw new KervanError("bad_message", "attachments must be paths inside the workspace");
@@ -194,7 +241,12 @@ export class SessionManager {
       session.info.title = line.length > TITLE_CHARS ? `${line.slice(0, TITLE_CHARS - 1)}…` : line;
     }
     const firstMessage = !session.events.some((event) => event.kind === "user_message");
-    this.record(session, { kind: "user_message", text, ...(attachments.length > 0 ? { attachments } : {}) });
+    this.record(session, {
+      kind: "user_message",
+      text,
+      ...(attachments.length > 0 ? { attachments } : {}),
+      ...(from ? { from } : {}),
+    });
     this.setStatus(session, "running");
 
     (async () => {
@@ -221,7 +273,12 @@ export class SessionManager {
     this.teams.set(team.id, team);
     this.store.saveTeam(team);
     for (const role of roles) {
-      await this.create(role.agent, role.skills, role.mcpServers, { teamId: team.id, role: role.name, instructions: role.instructions });
+      await this.create(role.agent, role.skills, role.mcpServers, {
+        teamId: team.id,
+        role: role.name,
+        instructions: role.instructions,
+        orchestrate: role.lead === true && this.orchestra !== undefined,
+      });
     }
     const info = this.teamInfo(team);
     this.broadcast({ type: "team.updated", team: info });
@@ -237,9 +294,103 @@ export class SessionManager {
     return { ...team, sessionIds: members.sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map((s) => s.id) };
   }
 
-  /** Team members share one folder so they see each other's files. */
-  private cwdFor(root: string, sessionId: string, teamId?: string): string {
-    return join(root, teamId ? `team-${teamId}` : sessionId);
+  /** Team members share one folder so they see each other's files; helpers work in their lead's. */
+  private cwdFor(root: string, info: SessionInfo): string {
+    if (info.teamId) return join(root, `team-${info.teamId}`);
+    return join(root, info.parentId ?? info.id);
+  }
+
+  /** start_helper can pick from these. */
+  helperChoices(): { agents: { id: string; name: string }[]; roles: { id: string; name: string; agent: string }[] } {
+    return {
+      agents: this.agentDetails,
+      roles: (this.roles?.list() ?? []).map(({ id, name, agent }) => ({ id, name, agent })),
+    };
+  }
+
+  /** A lead agent starts a helper in its own folder and gives it its first task. */
+  async startHelper(
+    leadId: string,
+    request: { name: string; task: string; agent?: string; role?: string },
+  ): Promise<HelperSummary> {
+    const lead = this.require(leadId);
+    if (!lead.info.orchestrate) throw new KervanError("bad_message", "this session can't start helpers");
+    if (this.helperSessions(leadId).length >= MAX_HELPERS) {
+      throw new KervanError("bad_message", `at most ${MAX_HELPERS} helpers; message or reuse one you have`);
+    }
+    const role = request.role === undefined ? undefined : (this.roles?.get(request.role) ?? fail(`no role named '${request.role}'`));
+    const agent = role?.agent ?? request.agent ?? fail("give an agent or a role (see list_agents)");
+    const info = await this.create(agent, role?.skills ?? [], role?.mcpServers ?? [], {
+      title: request.name.trim().slice(0, TITLE_CHARS),
+      parentId: leadId,
+      ...(lead.info.teamId ? { teamId: lead.info.teamId } : {}),
+      ...(role ? { role: role.name, instructions: role.instructions } : {}),
+    });
+    const helper = this.require(info.id);
+    await helper.ready;
+    if (helper.info.status !== "idle") throw new KervanError("bad_message", `helper didn't start: ${helper.info.error ?? helper.info.status}`);
+    this.prompt(info.id, request.task, [], leadId);
+    return this.helperSummary(helper);
+  }
+
+  messageHelper(leadId: string, helperId: string, text: string): void {
+    this.requireHelper(leadId, helperId);
+    this.prompt(helperId, text, [], leadId);
+  }
+
+  /** Resolves when the helper's turn is over, or after `timeoutMs` with `done: false`. */
+  async waitForHelper(leadId: string, helperId: string, timeoutMs: number): Promise<HelperSummary> {
+    const helper = this.requireHelper(leadId, helperId);
+    if (!this.isDone(helper)) {
+      await new Promise<void>((resolve) => {
+        const finish = () => {
+          clearTimeout(timer);
+          unsubscribe();
+          resolve();
+        };
+        const timer = setTimeout(finish, timeoutMs);
+        const unsubscribe = this.subscribe((message) => {
+          if (message.type === "session.updated" && message.session.id === helperId && this.isDone(helper)) finish();
+        });
+      });
+    }
+    return this.helperSummary(helper);
+  }
+
+  helpers(leadId: string): HelperSummary[] {
+    return this.helperSessions(leadId).map((helper) => this.helperSummary(helper));
+  }
+
+  async stopHelper(leadId: string, helperId: string): Promise<void> {
+    this.requireHelper(leadId, helperId);
+    await this.cancel(helperId);
+  }
+
+  private helperSessions(leadId: string): Session[] {
+    return [...this.sessions.values()].filter((s) => s.info.parentId === leadId);
+  }
+
+  private requireHelper(leadId: string, helperId: string): Session {
+    const helper = this.sessions.get(helperId);
+    if (!helper || helper.info.parentId !== leadId) throw new KervanError("unknown_session", `no helper '${helperId}'`);
+    return helper;
+  }
+
+  private isDone(session: Session): boolean {
+    return !["starting", "running", "waiting"].includes(session.info.status);
+  }
+
+  private helperSummary(helper: Session): HelperSummary {
+    const reply = lastReply(helper.events);
+    return {
+      helperId: helper.info.id,
+      name: helper.info.title,
+      agent: helper.info.agent,
+      status: helper.info.status,
+      done: this.isDone(helper),
+      ...(reply ? { reply: reply.length > REPLY_CHARS ? `${reply.slice(0, REPLY_CHARS - 1)}…` : reply } : {}),
+      ...(helper.info.error ? { error: helper.info.error } : {}),
+    };
   }
 
   rename(sessionId: string, title: string): void {
@@ -295,9 +446,24 @@ export class SessionManager {
    * where. Agents that load skills from their own folder get it too, in case that folder isn't trusted.
    */
   private async preface(session: Session): Promise<string | undefined> {
+    const lead = session.info.parentId ? this.sessions.get(session.info.parentId) : undefined;
     const parts = [
-      session.instructions ? `[Kervan] Your role in this team: ${session.info.role}.\n${session.instructions}` : undefined,
-      session.info.teamId ? "[Kervan] Other team members work in this same folder; check files before overwriting them." : undefined,
+      lead
+        ? `[Kervan] You are a helper agent named "${session.info.title}", started by the lead agent "${lead.info.title}". ` +
+          "Messages come from the lead, not the user, and your final answer each turn goes back to it: " +
+          "end with a short summary of what you did, which files you changed and anything left open."
+        : undefined,
+      session.instructions && !lead ? `[Kervan] Your role in this team: ${session.info.role}.\n${session.instructions}` : undefined,
+      session.instructions && lead ? `[Kervan] Your role: ${session.info.role}.\n${session.instructions}` : undefined,
+      session.info.orchestrate
+        ? "[Kervan] You can hand subtasks to helper agents with the `kervan` MCP tools: list_agents, start_helper, " +
+          `message_helper, wait_for_helper, list_helpers, stop_helper (up to ${MAX_HELPERS} helpers). They work in your folder ` +
+          "and can't see this conversation, so give each a self-contained task. Start independent tasks together, " +
+          "then wait for their replies and check their work before you report back."
+        : undefined,
+      session.info.teamId || session.info.parentId || session.info.orchestrate
+        ? "[Kervan] Other agents may work in this same folder; check files before overwriting them."
+        : undefined,
       await this.skillPreface(session),
     ].filter(Boolean);
     return parts.length > 0 ? parts.join("\n\n") : undefined;
@@ -328,6 +494,7 @@ export class SessionManager {
           if (skipped.length > 0) {
             this.record(session, { kind: "notice", text: `Bu ajan HTTP MCP desteklemiyor, atlandı: ${skipped.join(", ")}` });
           }
+          if (session.info.orchestrate && this.orchestra) servers.push(this.orchestra.mcpServer(session.info.id));
           return servers;
         },
         ...(resume ? { resumeSessionId: session.agentSessionId } : {}),
@@ -451,4 +618,14 @@ export class SessionManager {
   private broadcast(message: ServerMessage): void {
     for (const listener of this.listeners) listener(message);
   }
+}
+
+/** Everything the agent said since the last message it was given. */
+function lastReply(events: SessionEvent[]): string {
+  let text = "";
+  for (const event of events) {
+    if (event.kind === "user_message") text = "";
+    else if (event.kind === "agent_message_chunk") text += event.text;
+  }
+  return text.trim();
 }

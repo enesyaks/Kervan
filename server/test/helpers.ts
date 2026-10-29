@@ -12,6 +12,7 @@ import { SessionManager } from "../src/sessions.ts";
 import { EventStore } from "../src/store.ts";
 import { McpRegistry } from "../src/mcp.ts";
 import { SkillLibrary } from "../src/skills.ts";
+import { OrchestraHub } from "../src/orchestra.ts";
 
 export const TEST_TOKEN = "test-token-0123456789";
 
@@ -33,12 +34,16 @@ export async function startServer(
     hasMcp: (name) => mcp.has(name),
   });
   const sessions = new SessionManager(runner, catalog.live, workspaces, new EventStore(":memory:"), { skills, mcp, catalog, roles });
+  const orchestra = new OrchestraHub(join(dataDir, "orchestra.sock"), sessions);
+  await orchestra.listen();
+  sessions.useOrchestra(orchestra);
   const server = createKervanServer({ token: TEST_TOKEN, sessions, skills, ...options });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const port = (server.address() as AddressInfo).port;
   const stop = () =>
     new Promise<void>((resolve) => {
       sessions.closeAll();
+      orchestra.close();
       server.close(() => resolve());
     });
   return { server, port, sessions, dataDir, stop };

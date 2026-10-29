@@ -13,6 +13,8 @@ export interface Role {
   instructions: string;
   skills: string[];
   mcpServers: string[];
+  /** A lead: in a team, this member may start and message helper agents. */
+  lead?: boolean;
 }
 
 export interface RoleChecks {
@@ -77,6 +79,7 @@ export class RoleRegistry {
       instructions: (instructions as string).trim(),
       skills,
       mcpServers,
+      ...(raw.lead === true ? { lead: true } : {}),
     };
     this.roles.set(role.id, role);
     this.persist();

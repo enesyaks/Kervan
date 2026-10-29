@@ -12,6 +12,7 @@ import { SessionManager } from "../src/sessions.ts";
 import { EventStore } from "../src/store.ts";
 import { McpRegistry } from "../src/mcp.ts";
 import { SkillLibrary } from "../src/skills.ts";
+import { OrchestraHub } from "../src/orchestra.ts";
 
 const dataDir = mkdtempSync(join(tmpdir(), "kervan-dev-data-"));
 const skills = new SkillLibrary(join(dataDir, "skills"));
@@ -34,5 +35,8 @@ const sessions = new SessionManager(runner, catalog.live, mkdtempSync(join(tmpdi
   catalog,
   roles,
 });
+const orchestra = new OrchestraHub(join(dataDir, "orchestra.sock"), sessions);
+await orchestra.listen();
+sessions.useOrchestra(orchestra);
 const server = createKervanServer({ token: "local-dev-token-not-secret", sessions, skills });
 server.listen(7420, "127.0.0.1", () => log("info", "fake-agent dev server on 127.0.0.1:7420"));
