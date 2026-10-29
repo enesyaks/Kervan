@@ -118,6 +118,78 @@ public struct McpServerSummary: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
+/// An agent as the server lists it for editing; env values are reduced to their names.
+public struct AgentConfig: Decodable, Equatable, Sendable, Identifiable {
+    public enum Source: String, Decodable, Sendable { case builtin, app }
+
+    public let id: String
+    public let name: String
+    public let command: String
+    public let args: [String]
+    public let authMethod: String?
+    public let skillsDir: String?
+    public let envKeys: [String]
+    public let node: String
+    public let source: Source
+    public let available: Bool
+
+    public init(
+        id: String, name: String, command: String, args: [String] = [], authMethod: String? = nil, skillsDir: String? = nil,
+        envKeys: [String] = [], node: String = "local", source: Source, available: Bool = true
+    ) {
+        self.id = id
+        self.name = name
+        self.command = command
+        self.args = args
+        self.authMethod = authMethod
+        self.skillsDir = skillsDir
+        self.envKeys = envKeys
+        self.node = node
+        self.source = source
+        self.available = available
+    }
+}
+
+/// What the app sends to add or edit an agent. A `nil` env value keeps the one stored on the server.
+public struct AgentInput: Encodable, Equatable, Sendable {
+    public var id: String
+    public var name: String
+    public var command: String
+    public var args: [String]
+    public var authMethod: String?
+    public var skillsDir: String?
+    public var env: [String: String?]
+    public var node: String
+
+    public init(
+        id: String, name: String, command: String, args: [String] = [], authMethod: String? = nil,
+        skillsDir: String? = nil, env: [String: String?] = [:], node: String = "local"
+    ) {
+        self.id = id
+        self.name = name
+        self.command = command
+        self.args = args
+        self.authMethod = authMethod
+        self.skillsDir = skillsDir
+        self.env = env
+        self.node = node
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, name, command, args, authMethod, skillsDir, env, node }
+
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encode(command, forKey: .command)
+        try c.encode(args, forKey: .args)
+        try c.encodeIfPresent(authMethod, forKey: .authMethod)
+        try c.encodeIfPresent(skillsDir, forKey: .skillsDir)
+        try c.encode(node, forKey: .node)
+        try c.encode(McpServerInput.nullable(env), forKey: .env)
+    }
+}
+
 /// What the app sends to save an MCP server. A `nil` secret value keeps the one stored on the server.
 public struct McpServerInput: Encodable, Equatable, Sendable {
     public var name: String
@@ -151,11 +223,16 @@ public struct McpServerInput: Encodable, Equatable, Sendable {
         try c.encodeIfPresent(args, forKey: .args)
         try c.encodeIfPresent(url, forKey: .url)
         // Encode nil values as JSON null ("keep"), which the synthesized encoder would drop.
-        if let env { try c.encode(env.mapValues { NullableString($0) }, forKey: .env) }
-        if let headers { try c.encode(headers.mapValues { NullableString($0) }, forKey: .headers) }
+        if let env { try c.encode(Self.nullable(env), forKey: .env) }
+        if let headers { try c.encode(Self.nullable(headers), forKey: .headers) }
     }
 
-    private struct NullableString: Encodable {
+    /// Secret maps with JSON null for "keep the stored value", which the synthesized encoder would drop.
+    static func nullable(_ map: [String: String?]) -> [String: NullableString] {
+        map.mapValues { NullableString($0) }
+    }
+
+    struct NullableString: Encodable {
         let value: String?
         init(_ value: String?) { self.value = value }
         func encode(to encoder: any Encoder) throws {
@@ -297,10 +374,13 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
     case mcpList(id: String)
     case mcpSave(id: String, server: McpServerInput)
     case mcpDelete(id: String, name: String)
+    case agentList(id: String)
+    case agentSave(id: String, agent: AgentInput)
+    case agentDelete(id: String, agentId: String)
 
     private enum CodingKeys: String, CodingKey {
         case type, `protocol`, client, id, agent, sessionId, text, requestId, optionId, attachments, title, archived, query
-        case skills, mcpServers, server, name
+        case skills, mcpServers, server, name, agentId
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -367,6 +447,17 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
             try c.encode("mcp.delete", forKey: .type)
             try c.encode(id, forKey: .id)
             try c.encode(name, forKey: .name)
+        case .agentList(let id):
+            try c.encode("agent.list", forKey: .type)
+            try c.encode(id, forKey: .id)
+        case .agentSave(let id, let agent):
+            try c.encode("agent.save", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(agent, forKey: .agent)
+        case .agentDelete(let id, let agentId):
+            try c.encode("agent.delete", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(agentId, forKey: .agentId)
         }
     }
 
@@ -390,11 +481,14 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
     case sessionEvent(sessionId: String, event: SessionEvent)
     case sessionSearchResult(id: String, hits: [SearchHit])
     case mcpListResult(id: String, servers: [McpServerSummary])
+    case agentListResult(id: String, agents: [AgentConfig], nodes: [String])
+    case agentsUpdated([AgentInfo])
     /// A type this client doesn't know yet. Ignored, so the server can add types without a version bump.
     case unknown(type: String)
 
     private enum CodingKeys: String, CodingKey {
         case type, `protocol`, server, agents, agentDetails, id, code, message, session, sessions, sessionId, events, event, hits, servers
+        case nodes
     }
 
     public init(from decoder: any Decoder) throws {
@@ -431,6 +525,14 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
         case "session.updated": self = .sessionUpdated(try c.decode(SessionInfo.self, forKey: .session))
         case "session.event":
             self = .sessionEvent(sessionId: try c.decode(String.self, forKey: .sessionId), event: try c.decode(SessionEvent.self, forKey: .event))
+        case "agent.list.result":
+            self = .agentListResult(
+                id: try c.decode(String.self, forKey: .id),
+                agents: try c.decode([AgentConfig].self, forKey: .agents),
+                nodes: try c.decodeIfPresent([String].self, forKey: .nodes) ?? ["local"]
+            )
+        case "agents.updated":
+            self = .agentsUpdated(try c.decode([AgentInfo].self, forKey: .agentDetails))
         case "mcp.list.result":
             self = .mcpListResult(id: try c.decode(String.self, forKey: .id), servers: try c.decode([McpServerSummary].self, forKey: .servers))
         case "session.search.result":
@@ -443,4 +545,44 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
     public static func decode(_ text: String) throws -> ServerMessage {
         try JSONDecoder().decode(ServerMessage.self, from: Data(text.utf8))
     }
+}
+
+/// Splits a command line the way a shell would for plain words: spaces separate, "…" and '…' group,
+/// a backslash escapes the next character. Lets argument fields hold paths with spaces.
+public func splitArguments(_ line: String) -> [String] {
+    var args: [String] = []
+    var current = ""
+    var quote: Character?
+    var escaped = false
+    var started = false
+    for ch in line {
+        if escaped {
+            current.append(ch)
+            escaped = false
+        } else if ch == "\\" && quote != "'" {
+            escaped = true
+            started = true
+        } else if let open = quote {
+            if ch == open { quote = nil } else { current.append(ch) }
+        } else if ch == "\"" || ch == "'" {
+            quote = ch
+            started = true
+        } else if ch == " " || ch == "\t" {
+            if started { args.append(current) }
+            current = ""
+            started = false
+        } else {
+            current.append(ch)
+            started = true
+        }
+    }
+    if started { args.append(current) }
+    return args
+}
+
+/// The inverse: quotes arguments that need it, so an edit form shows what `splitArguments` reads back.
+public func joinArguments(_ args: [String]) -> String {
+    args.map { arg in
+        arg.isEmpty || arg.contains(where: { " \t\"'\\".contains($0) }) ? "\"" + arg.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\"" : arg
+    }.joined(separator: " ")
 }

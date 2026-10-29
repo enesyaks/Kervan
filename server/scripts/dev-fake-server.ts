@@ -4,7 +4,8 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { log } from "../src/log.ts";
-import { LocalAcpRunner } from "../src/runner.ts";
+import { AgentCatalog } from "../src/catalog.ts";
+import { LocalAcpRunner, probeAgent } from "../src/runner.ts";
 import { createKervanServer } from "../src/server.ts";
 import { SessionManager } from "../src/sessions.ts";
 import { EventStore } from "../src/store.ts";
@@ -16,15 +17,15 @@ const skills = new SkillLibrary(join(dataDir, "skills"));
 const mcp = new McpRegistry(join(dataDir, "mcp.json"));
 
 const fakeAgent = { name: "Fake", command: process.execPath, args: [join(import.meta.dirname, "../test/fixtures/fake-agent.ts")] };
-const sessions = new SessionManager(
-  new LocalAcpRunner(),
-  new Map([
+const runner = new LocalAcpRunner();
+const catalog = new AgentCatalog(join(dataDir, "agents.json"), new Map([
     ["claude", { ...fakeAgent, name: "Claude (sahte)" }],
     ["codex", { ...fakeAgent, name: "Codex (sahte)" }],
-  ]),
-  mkdtempSync(join(tmpdir(), "kervan-dev-")),
-  new EventStore(":memory:"),
-  { skills, mcp },
-);
+]), (definition) => probeAgent(runner, definition));
+const sessions = new SessionManager(runner, catalog.live, mkdtempSync(join(tmpdir(), "kervan-dev-")), new EventStore(":memory:"), {
+  skills,
+  mcp,
+  catalog,
+});
 const server = createKervanServer({ token: "local-dev-token-not-secret", sessions, skills });
 server.listen(7420, "127.0.0.1", () => log("info", "fake-agent dev server on 127.0.0.1:7420"));

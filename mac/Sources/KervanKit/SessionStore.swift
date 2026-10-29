@@ -18,6 +18,12 @@ public final class SessionStore {
     public var lastError: String?
     /// Hits for the latest search only; older, slower answers are dropped.
     public private(set) var searchHits: [SearchHit] = []
+    /// Every agent with its settings, for the Agents settings tab; loaded on request.
+    public private(set) var agentConfigs: [AgentConfig] = []
+    /// Where agents can run. Only "local" until multi-server nodes (M13).
+    public private(set) var nodes: [String] = ["local"]
+    /// The server's refusal of the last agent save (it tries the agent first), if any.
+    public private(set) var agentSaveError: String?
     /// MCP servers registered on the server, refreshed on connect and after every change.
     public private(set) var mcpServers: [McpServerSummary] = []
     /// True while the latest search is on its way.
@@ -26,6 +32,7 @@ public final class SessionStore {
     private let send: Sender
     private var pendingCreates: Set<String> = []
     private var latestSearch: String?
+    private var pendingAgentSave: String?
 
     public init(send: @escaping Sender) {
         self.send = send
@@ -55,6 +62,24 @@ public final class SessionStore {
         let id = Self.newID()
         pendingCreates.insert(id)
         await request(.sessionCreate(id: id, agent: agent, skills: skills, mcpServers: mcpServers))
+    }
+
+    public func loadAgentConfigs() async {
+        await request(.agentList(id: Self.newID()))
+    }
+
+    /// Asks the server to try the agent and keep it. Returns once the server answered; on refusal
+    /// `agentSaveError` says why.
+    public func saveAgent(_ agent: AgentInput) async {
+        let id = Self.newID()
+        agentSaveError = nil
+        pendingAgentSave = id
+        await request(.agentSave(id: id, agent: agent))
+        while pendingAgentSave == id { try? await Task.sleep(for: .milliseconds(100)) }
+    }
+
+    public func deleteAgent(_ id: String) async {
+        await request(.agentDelete(id: Self.newID(), agentId: id))
     }
 
     public func saveMcp(_ server: McpServerInput) async {
@@ -125,11 +150,20 @@ public final class SessionStore {
             events[sessionID] = history
         case .sessionEvent(let sessionID, let event):
             append(event, to: sessionID)
+        case .agentListResult(let id, let configs, let nodes):
+            agentConfigs = configs
+            self.nodes = nodes
+            if id == pendingAgentSave { pendingAgentSave = nil }
+        case .agentsUpdated(let agents):
+            self.agents = agents
         case .mcpListResult(_, let servers):
             mcpServers = servers
         case .sessionSearchResult(let id, let hits) where id == latestSearch:
             searchHits = hits
             isSearching = false
+        case .error(let code, let message, let id?) where id == pendingAgentSave:
+            pendingAgentSave = nil
+            agentSaveError = Self.describe(code: code, message: message)
         case .error(let code, let message, let id?):
             pendingCreates.remove(id)
             lastError = Self.describe(code: code, message: message)

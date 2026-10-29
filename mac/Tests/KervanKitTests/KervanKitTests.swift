@@ -392,3 +392,43 @@ import Testing
         #expect(created == #"{"agent":"claude","id":"c","mcpServers":["github"],"skills":["rapor"],"type":"session.create"}"#)
     }
 }
+
+@MainActor @Suite struct AgentCatalogTests {
+    @Test func encodesAgentWithKeptSecret() throws {
+        let json = try ClientMessage.agentSave(id: "r", agent: AgentInput(id: "gemini", name: "Gemini", command: "builtin", env: ["GEMINI_API_KEY": nil])).jsonString()
+        #expect(json.contains(#""GEMINI_API_KEY":null"#))
+        #expect(json.contains(#""node":"local""#))
+    }
+
+    @Test func tracksSavesAndBroadcasts() async {
+        final class Box { var sent: [ClientMessage] = [] }
+        let box = Box()
+        let store = SessionStore { box.sent.append($0) }
+        let save = Task { await store.saveAgent(AgentInput(id: "x", name: "X", command: "x")) }
+        try? await Task.sleep(for: .milliseconds(50))
+        guard case .agentSave(let id, _)? = box.sent.last else { Issue.record("expected agent.save"); return }
+        store.handle(.error(code: "bad_message", message: "the agent didn't start: boom", id: id))
+        await save.value
+        #expect(store.agentSaveError == "the agent didn't start: boom")
+
+        let list = try? ServerMessage.decode(#"{"type":"agent.list.result","id":"l","agents":[{"id":"claude","name":"Claude Code","command":"/x","args":[],"envKeys":[],"node":"local","source":"builtin","available":true}],"nodes":["local"]}"#)
+        store.handle(list!)
+        #expect(store.agentConfigs.map(\.id) == ["claude"])
+
+        store.handle(try! ServerMessage.decode(#"{"type":"agents.updated","agents":["claude","x"],"agentDetails":[{"id":"claude","name":"Claude Code"},{"id":"x","name":"X"}]}"#))
+        #expect(store.agents.map(\.name) == ["Claude Code", "X"])
+    }
+}
+
+@Suite struct ArgumentTests {
+    @Test func splitsLikeAShell() {
+        #expect(splitArguments(#"-y  @mcp/server "/Users/enes/untitled folder/a.ts" 'it''s' a\ b"#) == ["-y", "@mcp/server", "/Users/enes/untitled folder/a.ts", "its", "a b"])
+        #expect(splitArguments(#"--flag "" x"#) == ["--flag", "", "x"])
+        #expect(splitArguments("   ") == [])
+    }
+
+    @Test func joinRoundTrips() {
+        let args = ["acp", "/a b/c.ts", #"say "hi""#, ""]
+        #expect(splitArguments(joinArguments(args)) == args)
+    }
+}
