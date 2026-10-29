@@ -9,8 +9,11 @@ import type { PermissionChoice, SessionEventBody } from "./protocol.ts";
 
 /** One running agent conversation. */
 export interface AgentProcess {
-  /** Resolves with the stop reason once the agent finishes the turn. `files` are absolute paths. */
-  prompt(text: string, files?: string[]): Promise<string>;
+  /**
+   * Resolves with the stop reason once the agent finishes the turn. `files` are absolute paths;
+   * `preface` is context for the agent that the user didn't type (e.g. the session's skills).
+   */
+  prompt(text: string, files?: string[], preface?: string): Promise<string>;
   cancel(): Promise<void>;
   close(): void;
   /** Settles when the agent process is gone, whether closed or crashed. */
@@ -38,6 +41,8 @@ export interface StartOptions {
   onPermission: (request: PermissionRequest) => Promise<PermissionDecision>;
   /** Continue this earlier agent session instead of starting a new one. */
   resumeSessionId?: string;
+  /** Called with the agent's MCP capabilities; returns the servers to pass to session/new or resume. */
+  mcpServers?: (supportsHttp: boolean) => acp.McpServer[];
 }
 
 /**
@@ -50,7 +55,7 @@ export interface AgentRunner {
 
 /** Runs an ACP agent as a child process on this machine and talks to it over stdio. */
 export class LocalAcpRunner implements AgentRunner {
-  async start({ command, cwd, onEvent, onPermission, resumeSessionId }: StartOptions): Promise<AgentProcess> {
+  async start({ command, cwd, onEvent, onPermission, resumeSessionId, mcpServers }: StartOptions): Promise<AgentProcess> {
     const child = spawn(command.command, command.args, {
       cwd,
       env: { ...process.env, ...command.env },
@@ -104,21 +109,23 @@ export class LocalAcpRunner implements AgentRunner {
         await agent.request("authenticate", { methodId: command.authMethod });
       }
 
+      const servers = mcpServers?.(init.agentCapabilities?.mcpCapabilities?.http === true) ?? [];
       let sessionId: string;
       if (resumeSessionId) {
         if (!init.agentCapabilities?.sessionCapabilities?.resume) throw new Error("agent cannot resume sessions");
-        await agent.request("session/resume", { sessionId: resumeSessionId, cwd, mcpServers: [] });
+        await agent.request("session/resume", { sessionId: resumeSessionId, cwd, mcpServers: servers });
         sessionId = resumeSessionId;
       } else {
-        ({ sessionId } = await agent.request("session/new", { cwd, mcpServers: [] }));
+        ({ sessionId } = await agent.request("session/new", { cwd, mcpServers: servers }));
       }
 
       return {
         sessionId,
         exited,
         close,
-        async prompt(text, files = []) {
+        async prompt(text, files = [], preface) {
           const prompt: acp.ContentBlock[] = [
+            ...(preface ? [{ type: "text" as const, text: preface }] : []),
             { type: "text", text },
             ...files.map((path) => ({ type: "resource_link" as const, uri: pathToFileURL(path).href, name: basename(path) })),
           ];

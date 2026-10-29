@@ -6,7 +6,12 @@ import { isSafeRelativePath } from "./files.ts";
 import { log } from "./log.ts";
 import { KervanError, type ServerMessage, type SessionEvent, type SessionEventBody, type SessionInfo } from "./protocol.ts";
 import type { AgentProcess, AgentRunner, PermissionDecision, PermissionRequest } from "./runner.ts";
+import type { McpRegistry } from "./mcp.ts";
+import type { SkillLibrary } from "./skills.ts";
 import type { EventStore, IndexedMessage, SearchHit } from "./store.ts";
+
+/** Where a skill lands in a workspace when the agent has no skills folder of its own. */
+const FALLBACK_SKILLS_DIR = ".kervan/skills";
 
 const DEFAULT_TITLE = "Yeni oturum";
 const TITLE_CHARS = 60;
@@ -47,7 +52,18 @@ export class SessionManager {
   /** Set by closeAll: agents may still emit a few events while dying, and the store is closing. */
   private shuttingDown = false;
 
-  constructor(runner: AgentRunner, agents: AgentRegistry, workspacesDir: string, store: EventStore) {
+  readonly skills?: SkillLibrary;
+  readonly mcp?: McpRegistry;
+
+  constructor(
+    runner: AgentRunner,
+    agents: AgentRegistry,
+    workspacesDir: string,
+    store: EventStore,
+    extras: { skills?: SkillLibrary; mcp?: McpRegistry } = {},
+  ) {
+    this.skills = extras.skills;
+    this.mcp = extras.mcp;
     this.runner = runner;
     this.agents = agents;
     this.workspacesDir = workspacesDir;
@@ -91,17 +107,34 @@ export class SessionManager {
     return this.require(sessionId).cwd;
   }
 
-  async create(agent: string): Promise<SessionInfo> {
+  async create(agent: string, skills: string[] = [], mcpServers: string[] = []): Promise<SessionInfo> {
+    const missingSkill = skills.find((name) => !this.skills?.has(name));
+    if (missingSkill) throw new KervanError("bad_message", `no skill named '${missingSkill}'`);
+    const missingMcp = mcpServers.find((name) => !this.mcp?.has(name));
+    if (missingMcp) throw new KervanError("bad_message", `no MCP server named '${missingMcp}'`);
     if (!this.agents.has(agent)) throw new KervanError("unknown_agent", `no agent named '${agent}'`);
 
     const id = randomUUID();
     const session: Session = {
-      info: { id, agent, title: DEFAULT_TITLE, status: "starting", createdAt: new Date().toISOString(), archived: false },
+      info: {
+        id,
+        agent,
+        title: DEFAULT_TITLE,
+        status: "starting",
+        createdAt: new Date().toISOString(),
+        archived: false,
+        skills: [...new Set(skills)],
+        mcpServers: [...new Set(mcpServers)],
+      },
       events: [],
       cwd: join(this.workspacesDir, id),
       pending: new Map(),
     };
     await mkdir(session.cwd, { recursive: true });
+    if (session.info.skills.length > 0) {
+      const target = this.agents.get(agent)!.skillsDir ?? FALLBACK_SKILLS_DIR;
+      await this.skills!.copyInto(session.info.skills, join(session.cwd, target));
+    }
     this.sessions.set(id, session);
     this.save(session);
     log("info", "session starting", { id, agent });
@@ -133,6 +166,7 @@ export class SessionManager {
       const line = text.trim().split("\n")[0].replace(/[*_`#>~]/g, "").trim();
       session.info.title = line.length > TITLE_CHARS ? `${line.slice(0, TITLE_CHARS - 1)}…` : line;
     }
+    const firstMessage = !session.events.some((event) => event.kind === "user_message");
     this.record(session, { kind: "user_message", text, ...(attachments.length > 0 ? { attachments } : {}) });
     this.setStatus(session, "running");
 
@@ -141,7 +175,8 @@ export class SessionManager {
         await this.startAgent(session, true);
         this.record(session, { kind: "notice", text: "Ajan yeniden başlatıldı; konuşma kaldığı yerden devam ediyor." });
       }
-      const stopReason = await session.process!.prompt(text, attachments.map((path) => join(session.cwd, path)));
+      const preface = firstMessage ? await this.skillPreface(session) : undefined;
+      const stopReason = await session.process!.prompt(text, attachments.map((path) => join(session.cwd, path)), preface);
       this.record(session, { kind: "turn_end", stopReason });
     })()
       .catch((error: unknown) => {
@@ -200,6 +235,22 @@ export class SessionManager {
     }
   }
 
+  /**
+   * Told to the agent before the first message, unseen by the user: which skills this session has and
+   * where. Agents that load skills from their own folder get it too, in case that folder isn't trusted.
+   */
+  private async skillPreface(session: Session): Promise<string | undefined> {
+    if (session.info.skills.length === 0 || !this.skills) return undefined;
+    const dir = this.agents.get(session.info.agent)?.skillsDir ?? FALLBACK_SKILLS_DIR;
+    const lines = (await this.skills.describe(session.info.skills)).map(
+      ({ name, description }) => `- ${name}: ${description || "(no description)"} — instructions: ${dir}/${name}/SKILL.md`,
+    );
+    return [
+      "[Kervan] Agent Skills available in this session. When a task matches one, read its SKILL.md first and follow it:",
+      ...lines,
+    ].join("\n");
+  }
+
   /** Starts (or resumes) the session's agent. On failure the session ends up in `error`. */
   private async startAgent(session: Session, resume = false): Promise<void> {
     try {
@@ -208,6 +259,13 @@ export class SessionManager {
         cwd: session.cwd,
         onEvent: (event) => this.record(session, event),
         onPermission: (request) => this.askPermission(session, request),
+        mcpServers: (supportsHttp) => {
+          const { servers, skipped } = this.mcp?.toAcp(session.info.mcpServers, supportsHttp) ?? { servers: [], skipped: [] };
+          if (skipped.length > 0) {
+            this.record(session, { kind: "notice", text: `Bu ajan HTTP MCP desteklemiyor, atlandı: ${skipped.join(", ")}` });
+          }
+          return servers;
+        },
         ...(resume ? { resumeSessionId: session.agentSessionId } : {}),
       });
       session.process = process;

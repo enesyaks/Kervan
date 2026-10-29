@@ -8,6 +8,8 @@ import { LocalAcpRunner } from "../src/runner.ts";
 import { createKervanServer } from "../src/server.ts";
 import { SessionManager } from "../src/sessions.ts";
 import { EventStore } from "../src/store.ts";
+import { McpRegistry } from "../src/mcp.ts";
+import { SkillLibrary } from "../src/skills.ts";
 
 export const TEST_TOKEN = "test-token-0123456789";
 
@@ -15,10 +17,14 @@ export const fakeAgent = { name: "Fake", command: process.execPath, args: [join(
 
 export async function startServer(
   options: { maxUploadBytes?: number } = {},
-): Promise<{ server: Server; port: number; sessions: SessionManager; stop: () => Promise<void> }> {
+): Promise<{ server: Server; port: number; sessions: SessionManager; dataDir: string; stop: () => Promise<void> }> {
   const workspaces = mkdtempSync(join(tmpdir(), "kervan-test-"));
-  const sessions = new SessionManager(new LocalAcpRunner(), new Map([["fake", fakeAgent]]), workspaces, new EventStore(":memory:"));
-  const server = createKervanServer({ token: TEST_TOKEN, sessions, ...options });
+  const dataDir = mkdtempSync(join(tmpdir(), "kervan-data-"));
+  const skills = new SkillLibrary(join(dataDir, "skills"));
+  const mcp = new McpRegistry(join(dataDir, "mcp.json"));
+  const agents = new Map([["fake", { ...fakeAgent, skillsDir: ".fake/skills" }]]);
+  const sessions = new SessionManager(new LocalAcpRunner(), agents, workspaces, new EventStore(":memory:"), { skills, mcp });
+  const server = createKervanServer({ token: TEST_TOKEN, sessions, skills, ...options });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const port = (server.address() as AddressInfo).port;
   const stop = () =>
@@ -26,7 +32,7 @@ export async function startServer(
       sessions.closeAll();
       server.close(() => resolve());
     });
-  return { server, port, sessions, stop };
+  return { server, port, sessions, dataDir, stop };
 }
 
 export function openSocket(port: number, token: string | null = TEST_TOKEN, path = "/v1/ws"): WebSocket {

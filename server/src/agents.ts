@@ -2,6 +2,7 @@ import { accessSync, constants, existsSync, readFileSync } from "node:fs";
 import { delimiter, dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
+import { isSafeRelativePath } from "./files.ts";
 import { log } from "./log.ts";
 
 /** How to start an agent that speaks ACP over stdio. */
@@ -11,6 +12,8 @@ export interface AgentCommand {
   env?: Record<string, string>;
   /** ACP auth method to select right after `initialize`, for agents that wait for one (Gemini). */
   authMethod?: string;
+  /** Workspace folder the agent loads Agent Skills from; others get them in `.kervan/skills`. */
+  skillsDir?: string;
 }
 
 export interface AgentDefinition extends AgentCommand {
@@ -26,10 +29,10 @@ const bin = (name: string) => join(serverRoot, "node_modules/.bin", name);
 
 /** Adapters shipped in server/package.json; `command: builtin` in agents.yaml refers to these. */
 const BUILTIN: Record<string, AgentDefinition> = {
-  claude: { name: "Claude Code", command: bin("claude-agent-acp"), args: [] },
-  codex: { name: "Codex", command: bin("codex-acp"), args: [] },
+  claude: { name: "Claude Code", command: bin("claude-agent-acp"), args: [], skillsDir: ".claude/skills" },
+  codex: { name: "Codex", command: bin("codex-acp"), args: [], skillsDir: ".agents/skills" },
   // Gemini blocks on its first prompt until a method is chosen; Google account login is closed to individuals.
-  gemini: { name: "Gemini", command: bin("gemini"), args: ["--acp"], authMethod: "gemini-api-key" },
+  gemini: { name: "Gemini", command: bin("gemini"), args: ["--acp"], authMethod: "gemini-api-key", skillsDir: ".gemini/skills" },
 };
 
 function fail(file: string, message: string): never {
@@ -78,6 +81,10 @@ export function parseAgents(text: string, file = "agents.yaml"): AgentDefinition
     if (typeof name !== "string") fail(file, `agent '${id}': 'name' must be text`);
     const authMethod = entry.authMethod ?? base?.authMethod;
     if (authMethod !== undefined && typeof authMethod !== "string") fail(file, `agent '${id}': 'authMethod' must be text`);
+    const skillsDir = entry.skillsDir ?? base?.skillsDir;
+    if (skillsDir !== undefined && (typeof skillsDir !== "string" || !isSafeRelativePath(skillsDir))) {
+      fail(file, `agent '${id}': 'skillsDir' must be a path inside the workspace`);
+    }
 
     ids.push(id);
     definitions.push({
@@ -86,6 +93,7 @@ export function parseAgents(text: string, file = "agents.yaml"): AgentDefinition
       args,
       ...(entry.env ? { env: entry.env as Record<string, string> } : {}),
       ...(authMethod ? { authMethod } : {}),
+      ...(skillsDir ? { skillsDir: skillsDir as string } : {}),
     });
   }
   return Object.assign(definitions, { ids });

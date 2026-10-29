@@ -4,6 +4,8 @@
 //   "slow"   → waits 300 ms before answering
 //   "crash"  → exits mid-turn
 //   attached files → answers "files: <file:// uris>"
+//   "mcpcheck" → names of the MCP servers it was given
+//   "prefacecheck" → the hidden text block sent before the user's text, or "no preface"
 //   "authstate" → answers with the auth method chosen via `authenticate`, or "none"
 //   "whoami" → answers with the ACP session id it is running (new or resumed)
 import { Readable, Writable } from "node:stream";
@@ -16,6 +18,7 @@ const stream = acp.ndJsonStream(
 
 let current = "";
 let authenticated = "none";
+let mcpNames: string[] = [];
 
 acp
   .agent({ name: "fake" })
@@ -28,19 +31,30 @@ acp
     authenticated = params.methodId;
     return {};
   })
-  .onRequest("session/new", () => {
+  .onRequest("session/new", ({ params }) => {
+    mcpNames = params.mcpServers.map((server) => server.name);
     current = `fake-${process.pid}`;
     return { sessionId: current };
   })
   .onRequest("session/resume", ({ params }) => {
+    mcpNames = (params.mcpServers ?? []).map((server) => server.name);
     current = params.sessionId;
     return {};
   })
   .onRequest("session/prompt", async ({ params, client }) => {
-    const text = params.prompt.map((block) => (block.type === "text" ? block.text : "")).join("");
+    const texts = params.prompt.flatMap((block) => (block.type === "text" ? [block.text] : []));
+    const text = texts.at(-1) ?? "";
     const update = (u: acp.SessionUpdate) => client.notify("session/update", { sessionId: params.sessionId, update: u });
 
     if (text.includes("crash")) process.exit(1);
+    if (text.includes("mcpcheck")) {
+      await update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `mcp: ${mcpNames.join(",")}` } });
+      return { stopReason: "end_turn" };
+    }
+    if (text.includes("prefacecheck")) {
+      await update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: texts.length > 1 ? texts[0] : "no preface" } });
+      return { stopReason: "end_turn" };
+    }
     if (text.includes("authstate")) {
       await update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: authenticated } });
       return { stopReason: "end_turn" };

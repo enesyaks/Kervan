@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 import { EventStore } from "../src/store.ts";
 
-const info = { id: "s1", agent: "claude", title: "Yeni oturum", status: "idle" as const, createdAt: "2026-10-29T10:00:00.000Z", archived: false };
+const info = { id: "s1", agent: "claude", title: "Yeni oturum", status: "idle" as const, createdAt: "2026-10-29T10:00:00.000Z", archived: false, skills: [], mcpServers: [] };
 
 describe("EventStore", () => {
   it("round-trips sessions and events across reopening the file", () => {

@@ -12,7 +12,8 @@ Her adım tek başına çalışan, test edilebilir bir özellik bırakır.
 | M5 | Çoklu oturum, geçmiş ekranı, tam metin arama | ✅ |
 | M6 | Dosya yükleme / indirme, çalışma klasörü tarayıcısı | ✅ |
 | M7 | Ajan kayıt defteri (`agents.yaml`): Codex, Gemini, OpenCode | ✅ |
-| M7b | Skill ve MCP yönetimi: skill kütüphanesi, oturum/rol başına açma | |
+| M7b | Skill ve MCP yönetimi: skill kütüphanesi, oturum/rol başına açma | 🚧 |
+| M7c | Ajanları uygulamadan ekleme / düzenleme (node seçimi M13 ile) | |
 | M8 | Takımlar ve roller (`roles.yaml`), takımı elle kurma | |
 | M9 | Orkestrasyon MCP sunucusu: ana ajan yardımcı başlatır ve mesajlaşır | |
 | M10 | Takım görünümü: çok panelli ekran, akış şeridi | |
@@ -34,6 +35,16 @@ Ajanlara yetenek eklemek, Mac uygulamasından.
   `session/new` / `session/resume` içindeki `mcpServers` ile her ajana verilir; böylece Claude, Codex ve Gemini aynı
   araçları kullanır. Gizli değerler (API anahtarları) Mac'te değil sunucuda, `/etc/kervan/` altında tutulur.
 
+## M7c: Ajanları uygulamadan yönetme
+
+`agents.yaml`'ı elle düzenlemeden, Mac uygulamasının Ayarlar ekranından ajan eklemek.
+
+- **Form:** ad, komut (ya da yerleşik adaptör), argümanlar, `authMethod`, ortam değişkenleri (gizli değerler sunucuda kalır),
+  skill klasörü. Kaydetmeden önce sunucu komutun çalıştırılabildiğini ve ACP `initialize` cevabını dener.
+- **Kayıt:** sunucu tarafında `agents.json` (yönetilen ajanlar) + isteğe bağlı elle yazılmış `agents.yaml`.
+- **Node alanı:** her ajan kaydında `node` (bugün yalnızca `local`). M13 geldiğinde formda node seçici açılır; ajan seçilen
+  node'da çalışır, oturum ekranı hangi node'da çalıştığını gösterir.
+
 ## M13: Çoklu sunucu
 
 Bir görevi birden çok sunucudaki ajanlara dağıtmak.
@@ -42,6 +53,7 @@ Bir görevi birden çok sunucudaki ajanlara dağıtmak.
 - **Node:** diğer sunucularda çalışan hafif `kervan-node` servisi. Merkeze Tailscale üzerinden kendisi bağlanır,
   hangi ajanların kurulu olduğunu ve boş kapasitesini bildirir. Durum tutmaz; ajanları çalıştırır, olayları merkeze akıtır.
 - **Yerleştirme:** ana ajan `spawn_helper` dediğinde merkez, ajan türüne ve node yüküne göre node seçer.
+  Uygulamadan eklenen ajanlar (M7c) belirli bir node'a bağlanabilir.
   Kullanıcı rolü belirli bir node'a sabitleyebilir.
 - **Ortak dosyalar:** git üzerinden. Her node görevin reposunu klonlar, her yardımcı kendi branch'inde çalışır ve push eder,
   ana ajan birleştirir. Ağ dosya sistemi (NFS) kullanılmaz.

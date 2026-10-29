@@ -27,12 +27,21 @@ function send(ws: WebSocket, message: ServerMessage): void {
   ws.send(JSON.stringify(message));
 }
 
+function requireMcp(sessions: SessionManager) {
+  if (!sessions.mcp) throw new KervanError("bad_message", "this server has no MCP registry");
+  return sessions.mcp;
+}
+
 async function handleRequest(ws: WebSocket, message: Exclude<ClientMessage, { type: "hello" }>, sessions: SessionManager) {
   switch (message.type) {
     case "ping":
       return send(ws, { type: "pong", id: message.id });
     case "session.create":
-      return send(ws, { type: "session.created", id: message.id, session: await sessions.create(message.agent) });
+      return send(ws, {
+        type: "session.created",
+        id: message.id,
+        session: await sessions.create(message.agent, message.skills, message.mcpServers),
+      });
     case "session.list":
       return send(ws, { type: "session.list.result", id: message.id, sessions: sessions.list() });
     case "session.history":
@@ -57,6 +66,14 @@ async function handleRequest(ws: WebSocket, message: Exclude<ClientMessage, { ty
     case "session.archive":
       sessions.archive(message.sessionId, message.archived);
       return send(ws, { type: "ok", id: message.id });
+    case "mcp.list":
+      return send(ws, { type: "mcp.list.result", id: message.id, servers: requireMcp(sessions).list() });
+    case "mcp.save":
+      requireMcp(sessions).save(message.server);
+      return send(ws, { type: "mcp.list.result", id: message.id, servers: requireMcp(sessions).list() });
+    case "mcp.delete":
+      requireMcp(sessions).remove(message.name);
+      return send(ws, { type: "mcp.list.result", id: message.id, servers: requireMcp(sessions).list() });
     case "session.search":
       return send(ws, {
         type: "session.search.result",

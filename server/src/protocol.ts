@@ -27,7 +27,21 @@ export interface SessionInfo {
   status: SessionStatus;
   createdAt: string;
   archived: boolean;
+  /** Skills and MCP servers chosen when the session was created. */
+  skills: string[];
+  mcpServers: string[];
   error?: string;
+}
+
+export interface McpServerSummary {
+  name: string;
+  transport: "stdio" | "http";
+  command?: string;
+  args?: string[];
+  url?: string;
+  /** Names only; values never leave the server. */
+  envKeys: string[];
+  headerKeys: string[];
 }
 
 export interface SearchHit {
@@ -64,7 +78,7 @@ export type SessionEvent = SessionEventBody & { seq: number; at: string };
 export type ClientMessage =
   | { type: "hello"; protocol: number; client: PeerInfo }
   | { type: "ping"; id: string }
-  | { type: "session.create"; id: string; agent: string }
+  | { type: "session.create"; id: string; agent: string; skills?: string[]; mcpServers?: string[] }
   | { type: "session.list"; id: string }
   | { type: "session.history"; id: string; sessionId: string }
   | { type: "session.prompt"; id: string; sessionId: string; text: string; attachments?: string[] }
@@ -72,7 +86,10 @@ export type ClientMessage =
   | { type: "session.permission"; id: string; sessionId: string; requestId: string; optionId: string }
   | { type: "session.rename"; id: string; sessionId: string; title: string }
   | { type: "session.archive"; id: string; sessionId: string; archived: boolean }
-  | { type: "session.search"; id: string; query: string };
+  | { type: "session.search"; id: string; query: string }
+  | { type: "mcp.list"; id: string }
+  | { type: "mcp.save"; id: string; server: Record<string, unknown> }
+  | { type: "mcp.delete"; id: string; name: string };
 
 export type ErrorCode =
   | "bad_message"
@@ -95,7 +112,8 @@ export type ServerMessage =
   | { type: "session.history.result"; id: string; sessionId: string; events: SessionEvent[] }
   | { type: "session.updated"; session: SessionInfo }
   | { type: "session.event"; sessionId: string; event: SessionEvent }
-  | { type: "session.search.result"; id: string; hits: SearchHit[] };
+  | { type: "session.search.result"; id: string; hits: SearchHit[] }
+  | { type: "mcp.list.result"; id: string; servers: McpServerSummary[] };
 
 export type ParseResult =
   | { ok: true; message: ClientMessage }
@@ -131,7 +149,12 @@ const STRING_FIELDS: Record<string, readonly string[]> = {
   "session.rename": ["id", "sessionId", "title"],
   "session.archive": ["id", "sessionId"],
   "session.search": ["id", "query"],
+  "mcp.list": ["id"],
+  "mcp.save": ["id"],
+  "mcp.delete": ["id", "name"],
 };
+
+const MAX_SELECTED = 32;
 
 export function parseClientMessage(raw: string): ParseResult {
   let data: unknown;
@@ -168,6 +191,20 @@ export function parseClientMessage(raw: string): ParseResult {
   }
   if (data.type === "session.prompt" && (message.text.trim() === "" || message.text.length > MAX_PROMPT_CHARS)) {
     return fail("bad_message", `prompt text must be 1–${MAX_PROMPT_CHARS} characters`);
+  }
+  if (data.type === "session.create") {
+    for (const field of ["skills", "mcpServers"] as const) {
+      const list = data[field];
+      if (list === undefined) continue;
+      if (!Array.isArray(list) || list.length > MAX_SELECTED || !list.every((x) => typeof x === "string")) {
+        return fail("bad_message", `${field} must be up to ${MAX_SELECTED} names`);
+      }
+      (message as Record<string, unknown>)[field] = list;
+    }
+  }
+  if (data.type === "mcp.save") {
+    if (!isRecord(data.server)) return fail("bad_message", "mcp.save needs a 'server' object");
+    (message as Record<string, unknown>).server = data.server;
   }
   if (data.type === "session.archive") {
     if (typeof data.archived !== "boolean") return fail("bad_message", "session.archive needs a boolean 'archived'");

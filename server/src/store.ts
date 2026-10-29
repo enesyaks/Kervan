@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import type { SessionEvent, SessionInfo } from "./protocol.ts";
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 export interface IndexedMessage {
   /** seq of the first event of the message; matches the Mac transcript row id. */
@@ -132,8 +132,8 @@ export class EventStore {
     `);
     this.migrate();
     this.upsertSession = this.db.prepare(`
-      INSERT INTO sessions (id, agent, title, status, created_at, error, agent_session_id, archived)
-      VALUES (:id, :agent, :title, :status, :createdAt, :error, :agentSessionId, :archived)
+      INSERT INTO sessions (id, agent, title, status, created_at, error, agent_session_id, archived, skills, mcp_servers)
+      VALUES (:id, :agent, :title, :status, :createdAt, :error, :agentSessionId, :archived, :skills, :mcpServers)
       ON CONFLICT (id) DO UPDATE SET
         title = excluded.title,
         status = excluded.status,
@@ -148,12 +148,30 @@ export class EventStore {
     this.deleteMessage = this.db.prepare("DELETE FROM message_index WHERE session_id = ? AND seq = ?");
   }
 
-  /** v2 (M5): archived flag and the full-text index, backfilled from the events already stored. */
+  /**
+   * v2 (M5): archived flag and the full-text index, backfilled from the events already stored.
+   * v3 (M7b): the skills and MCP servers a session was created with.
+   */
   private migrate(): void {
     const { user_version: version } = this.db.prepare("PRAGMA user_version").get() as { user_version: number };
     if (version >= SCHEMA_VERSION) return;
     this.db.exec("BEGIN");
     try {
+      if (version < 2) this.migrateToV2();
+      this.db.exec(`
+        ALTER TABLE sessions ADD COLUMN skills TEXT NOT NULL DEFAULT '[]';
+        ALTER TABLE sessions ADD COLUMN mcp_servers TEXT NOT NULL DEFAULT '[]';
+      `);
+      this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  private migrateToV2(): void {
+    {
       this.db.exec(`
         ALTER TABLE sessions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;
         CREATE VIRTUAL TABLE message_index USING fts5(
@@ -168,11 +186,6 @@ export class EventStore {
       for (const { id } of ids) {
         for (const m of foldMessages(this.loadEvents(id))) insert.run(foldText(m.text), m.text, id, m.seq, m.role);
       }
-      this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
-      this.db.exec("COMMIT");
-    } catch (error) {
-      this.db.exec("ROLLBACK");
-      throw error;
     }
   }
 
@@ -186,6 +199,8 @@ export class EventStore {
       error: info.error ?? null,
       agentSessionId: agentSessionId ?? null,
       archived: info.archived ? 1 : 0,
+      skills: JSON.stringify(info.skills),
+      mcpServers: JSON.stringify(info.mcpServers),
     });
   }
 
@@ -226,6 +241,8 @@ export class EventStore {
         status: row.status as SessionInfo["status"],
         createdAt: String(row.created_at),
         archived: row.archived === 1,
+        skills: JSON.parse(String(row.skills ?? "[]")) as string[],
+        mcpServers: JSON.parse(String(row.mcp_servers ?? "[]")) as string[],
         ...(row.error ? { error: String(row.error) } : {}),
       },
       ...(row.agent_session_id ? { agentSessionId: String(row.agent_session_id) } : {}),

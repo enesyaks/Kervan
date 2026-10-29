@@ -21,7 +21,7 @@ export interface FileEntry {
   modifiedAt: string;
 }
 
-class TooLargeError extends Error {}
+export class TooLargeError extends Error {}
 
 /** A workspace-relative path the client may use: no absolute paths, no `..`, no NUL. */
 export function isSafeRelativePath(path: string): boolean {
@@ -76,13 +76,14 @@ export async function listTree(root: string): Promise<{ entries: FileEntry[]; tr
   return { entries, truncated: false };
 }
 
-function sendJson(res: ServerResponse, status: number, body: unknown): void {
+export function sendJson(res: ServerResponse, status: number, body: unknown): void {
   const payload = JSON.stringify(body);
   res.writeHead(status, { "content-type": "application/json; charset=utf-8", "content-length": Buffer.byteLength(payload) });
   res.end(payload);
 }
 
-async function upload(req: IncomingMessage, target: string, maxBytes: number): Promise<number> {
+/** Streams a request body to `target` via a temp file, so readers never see half a file. */
+export async function upload(req: IncomingMessage, target: string, maxBytes: number): Promise<number> {
   await mkdir(dirname(target), { recursive: true });
   const temp = join(dirname(target), `${TEMP_PREFIX}${randomUUID()}`);
   let received = 0;
