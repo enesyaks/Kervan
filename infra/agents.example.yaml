@@ -1,0 +1,19 @@
+# Copy to /etc/kervan/agents.yaml and set KERVAN_AGENTS_FILE=/etc/kervan/agents.yaml in /etc/kervan/env.
+# Without the file the server offers the builtin adapters it can run: claude, codex, gemini.
+# The first agent is the app's default. Agents whose command can't be run are skipped (see the log).
+# Secrets (API keys) belong in /etc/kervan/env, which every agent inherits; per-agent `env` is for plain settings.
+agents:
+  claude:
+    name: Claude Code
+    command: builtin          # bundled @agentclientprotocol/claude-agent-acp
+  codex:
+    name: Codex
+    command: builtin          # bundled @agentclientprotocol/codex-acp; needs CODEX_API_KEY or OPENAI_API_KEY
+  gemini:
+    name: Gemini
+    command: builtin          # bundled @google/gemini-cli --acp; needs GEMINI_API_KEY or a one-time login
+  # Any ACP agent on the VM's PATH:
+  # opencode:
+  #   name: OpenCode
+  #   command: opencode
+  #   args: [acp]

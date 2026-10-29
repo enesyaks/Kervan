@@ -14,7 +14,7 @@ struct ChatView: View {
     var body: some View {
         let session = model.store.session(sessionID)
         let status = session?.status ?? .unknown
-        let agentName = (session?.agent ?? "").agentDisplayName
+        let agentName = model.store.agentName(session?.agent ?? "")
         let items = model.store.transcript(for: sessionID)
 
         VStack(spacing: 0) {
@@ -194,7 +194,7 @@ private struct EmptySession: View {
                 Text("\(agentName) başlatılıyor…").foregroundStyle(.secondary)
             }
         case .idle:
-            Text("Oturum hazır. \(agentName)'dan ne yapmasını istediğinizi yazın.")
+            Text("Oturum hazır: \(agentName). Ne yapılmasını istediğinizi yazın.")
                 .foregroundStyle(.secondary)
         default:
             EmptyView()

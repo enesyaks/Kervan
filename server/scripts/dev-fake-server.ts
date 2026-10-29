@@ -9,10 +9,13 @@ import { createKervanServer } from "../src/server.ts";
 import { SessionManager } from "../src/sessions.ts";
 import { EventStore } from "../src/store.ts";
 
-const fakeAgent = { command: process.execPath, args: [join(import.meta.dirname, "../test/fixtures/fake-agent.ts")] };
+const fakeAgent = { name: "Fake", command: process.execPath, args: [join(import.meta.dirname, "../test/fixtures/fake-agent.ts")] };
 const sessions = new SessionManager(
   new LocalAcpRunner(),
-  new Map([["claude", fakeAgent]]),
+  new Map([
+    ["claude", { ...fakeAgent, name: "Claude (sahte)" }],
+    ["codex", { ...fakeAgent, name: "Codex (sahte)" }],
+  ]),
   mkdtempSync(join(tmpdir(), "kervan-dev-")),
   new EventStore(":memory:"),
 );

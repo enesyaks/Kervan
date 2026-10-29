@@ -23,14 +23,10 @@ struct OverviewView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 10) {
-                    Button {
-                        model.newSession()
-                    } label: {
-                        Label("Yeni oturum başlat", systemImage: "square.and.pencil")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .disabled(!model.canCreateSession)
+                    NewSessionButton()
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        .fixedSize()
 
                     if model.store.sessions.isEmpty {
                         Text("Henüz oturum yok. İlk oturumu başlattığınızda soldaki listede görünecek.")
@@ -58,7 +54,7 @@ struct OverviewView: View {
                     }
                     GridRow {
                         Text("Ajanlar").foregroundStyle(.secondary)
-                        Text(model.store.agents.map(\.agentDisplayName).joined(separator: ", "))
+                        Text(model.store.agents.map(\.name).joined(separator: ", "))
                     }
                     GridRow {
                         Text("Adres").foregroundStyle(.secondary)

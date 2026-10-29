@@ -1,4 +1,4 @@
-import { defaultAgents } from "./agents.ts";
+import { loadAgents } from "./agents.ts";
 import { loadConfig } from "./config.ts";
 import { log } from "./log.ts";
 import { LocalAcpRunner } from "./runner.ts";
@@ -9,7 +9,7 @@ import { join } from "node:path";
 
 const config = loadConfig();
 const store = new EventStore(join(config.dataDir, "kervan.db"));
-const sessions = new SessionManager(new LocalAcpRunner(), defaultAgents(), config.workspacesDir, store);
+const sessions = new SessionManager(new LocalAcpRunner(), loadAgents(config.agentsFile), config.workspacesDir, store);
 const server = createKervanServer({ token: config.token, sessions, maxUploadBytes: config.maxUploadBytes });
 
 server.listen(config.port, config.host, () => {

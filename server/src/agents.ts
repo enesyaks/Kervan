@@ -1,5 +1,8 @@
-import { dirname, join } from "node:path";
+import { accessSync, constants, existsSync, readFileSync } from "node:fs";
+import { delimiter, dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parse } from "yaml";
+import { log } from "./log.ts";
 
 /** How to start an agent that speaks ACP over stdio. */
 export interface AgentCommand {
@@ -8,11 +11,92 @@ export interface AgentCommand {
   env?: Record<string, string>;
 }
 
-export type AgentRegistry = ReadonlyMap<string, AgentCommand>;
+export interface AgentDefinition extends AgentCommand {
+  /** Shown in the app, e.g. "Claude Code". */
+  name: string;
+}
+
+/** Insertion order is the app's order; the first agent is the default. */
+export type AgentRegistry = ReadonlyMap<string, AgentDefinition>;
 
 const serverRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+const bin = (name: string) => join(serverRoot, "node_modules/.bin", name);
 
-// M7 moves this into agents.yaml. Until then: Claude Code through its ACP adapter.
-export function defaultAgents(): AgentRegistry {
-  return new Map([["claude", { command: join(serverRoot, "node_modules/.bin/claude-agent-acp"), args: [] }]]);
+/** Adapters shipped in server/package.json; `command: builtin` in agents.yaml refers to these. */
+const BUILTIN: Record<string, AgentDefinition> = {
+  claude: { name: "Claude Code", command: bin("claude-agent-acp"), args: [] },
+  codex: { name: "Codex", command: bin("codex-acp"), args: [] },
+  gemini: { name: "Gemini", command: bin("gemini"), args: ["--acp"] },
+};
+
+function fail(file: string, message: string): never {
+  throw new Error(`${file}: ${message}`);
+}
+
+const isStringRecord = (value: unknown): value is Record<string, string> =>
+  typeof value === "object" && value !== null && !Array.isArray(value) && Object.values(value).every((v) => typeof v === "string");
+
+/** True if `command` is an executable path, or a bare name found on PATH. */
+export function isRunnable(command: string, path = process.env.PATH ?? ""): boolean {
+  const candidates = isAbsolute(command) || command.includes("/") ? [command] : path.split(delimiter).map((dir) => join(dir, command));
+  return candidates.some((candidate) => {
+    try {
+      accessSync(candidate, constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
+/** Parses agents.yaml text. Throws with the file name and the offending agent on bad input. */
+export function parseAgents(text: string, file = "agents.yaml"): AgentDefinition[] & { ids: string[] } {
+  const doc = parse(text) as unknown;
+  const agents = (doc as { agents?: unknown } | null)?.agents;
+  if (typeof agents !== "object" || agents === null || Array.isArray(agents)) fail(file, "expected an 'agents:' map");
+
+  const ids: string[] = [];
+  const definitions: AgentDefinition[] = [];
+  for (const [id, raw] of Object.entries(agents)) {
+    if (!/^[a-z][a-z0-9-]{0,31}$/.test(id)) fail(file, `agent id '${id}' must be lowercase letters, digits or '-'`);
+    if (typeof raw !== "object" || raw === null) fail(file, `agent '${id}' must be a map`);
+    const entry = raw as Record<string, unknown>;
+
+    const builtin = BUILTIN[id];
+    if (entry.command === "builtin" && !builtin) fail(file, `agent '${id}' has no builtin adapter`);
+    const base = entry.command === "builtin" ? builtin : undefined;
+
+    const command = base?.command ?? entry.command;
+    if (typeof command !== "string" || command === "") fail(file, `agent '${id}' needs a 'command'`);
+    const args = entry.args ?? base?.args ?? [];
+    if (!Array.isArray(args) || !args.every((a) => typeof a === "string")) fail(file, `agent '${id}': 'args' must be a list of strings`);
+    if (entry.env !== undefined && !isStringRecord(entry.env)) fail(file, `agent '${id}': 'env' must map names to strings`);
+    const name = entry.name ?? base?.name ?? id;
+    if (typeof name !== "string") fail(file, `agent '${id}': 'name' must be text`);
+
+    ids.push(id);
+    definitions.push({ name, command, args, ...(entry.env ? { env: entry.env as Record<string, string> } : {}) });
+  }
+  return Object.assign(definitions, { ids });
+}
+
+/**
+ * Agents from `file` (agents.yaml), or the builtin adapters when there is none.
+ * Agents whose command can't be run here are left out, so the app only offers what works.
+ */
+export function loadAgents(file?: string): AgentRegistry {
+  const entries: [string, AgentDefinition][] =
+    file && existsSync(file)
+      ? (() => {
+          const parsed = parseAgents(readFileSync(file, "utf8"), file);
+          return parsed.ids.map((id, i): [string, AgentDefinition] => [id, parsed[i]]);
+        })()
+      : Object.entries(BUILTIN);
+
+  const registry = new Map<string, AgentDefinition>();
+  for (const [id, definition] of entries) {
+    if (isRunnable(definition.command)) registry.set(id, definition);
+    else log("warn", "agent not available, skipping", { id, command: definition.command });
+  }
+  return registry;
 }

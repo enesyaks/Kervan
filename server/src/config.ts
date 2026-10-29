@@ -8,6 +8,8 @@ export interface KervanConfig {
   workspacesDir: string;
   token: string;
   maxUploadBytes: number;
+  /** agents.yaml; without it the builtin adapters are offered. */
+  agentsFile?: string;
 }
 
 const MIN_TOKEN_LENGTH = 16;
@@ -29,5 +31,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): KervanConfig {
     workspacesDir: resolve(env.KERVAN_WORKSPACES_DIR ?? join(dataDir, "workspaces")),
     token,
     maxUploadBytes: Number(env.KERVAN_MAX_UPLOAD_MB ?? 512) * 1024 * 1024,
+    ...(env.KERVAN_AGENTS_FILE ? { agentsFile: env.KERVAN_AGENTS_FILE } : {}),
   };
 }

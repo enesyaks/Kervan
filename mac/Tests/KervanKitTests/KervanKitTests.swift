@@ -36,7 +36,11 @@ import Testing
 
     @Test func decodesWelcome() throws {
         let message = try ServerMessage.decode(#"{"type":"welcome","protocol":1,"server":{"name":"kervan","version":"0.1.0"},"agents":["claude"]}"#)
-        #expect(message == .welcome(protocolVersion: 1, server: PeerInfo(name: "kervan", version: "0.1.0"), agents: ["claude"]))
+        #expect(message == .welcome(protocolVersion: 1, server: PeerInfo(name: "kervan", version: "0.1.0"), agents: [AgentInfo(id: "claude", name: "claude")]))
+
+        let named = try ServerMessage.decode(#"{"type":"welcome","protocol":1,"server":{"name":"kervan","version":"0.2.0"},"agents":["claude","codex"],"agentDetails":[{"id":"claude","name":"Claude Code"},{"id":"codex","name":"Codex"}]}"#)
+        guard case .welcome(_, _, let agents) = named else { Issue.record("expected welcome"); return }
+        #expect(agents.map(\.name) == ["Claude Code", "Codex"])
     }
 
     @Test func encodesSessionRequests() throws {
@@ -346,5 +350,14 @@ import Testing
         #expect(store.searchHits.map(\.snippet) == ["yeni"])
         await store.search("  ")
         #expect(store.searchHits.isEmpty)
+    }
+}
+
+@MainActor @Suite struct AgentNameTests {
+    @Test func namesAgentsAndFallsBackToTheId() async {
+        let store = SessionStore { _ in }
+        await store.connected(agents: [AgentInfo(id: "codex", name: "Codex")])
+        #expect(store.agentName("codex") == "Codex")
+        #expect(store.agentName("gone") == "gone")
     }
 }

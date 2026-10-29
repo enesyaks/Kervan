@@ -14,6 +14,17 @@ public struct PeerInfo: Codable, Equatable, Sendable {
     }
 }
 
+/// An agent the server can start, e.g. ("codex", "Codex").
+public struct AgentInfo: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let name: String
+
+    public init(id: String, name: String) {
+        self.id = id
+        self.name = name
+    }
+}
+
 public struct PermissionChoice: Codable, Equatable, Sendable, Identifiable {
     public var optionId: String
     public var name: String
@@ -272,7 +283,8 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
 }
 
 public enum ServerMessage: Decodable, Equatable, Sendable {
-    case welcome(protocolVersion: Int, server: PeerInfo, agents: [String])
+    /// `agents` is in the server's order; the first is its default.
+    case welcome(protocolVersion: Int, server: PeerInfo, agents: [AgentInfo])
     case pong(id: String)
     case ok(id: String)
     case error(code: String, message: String, id: String?)
@@ -286,7 +298,7 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
     case unknown(type: String)
 
     private enum CodingKeys: String, CodingKey {
-        case type, `protocol`, server, agents, id, code, message, session, sessions, sessionId, events, event, hits
+        case type, `protocol`, server, agents, agentDetails, id, code, message, session, sessions, sessionId, events, event, hits
     }
 
     public init(from decoder: any Decoder) throws {
@@ -294,10 +306,13 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
         let type = try c.decode(String.self, forKey: .type)
         switch type {
         case "welcome":
+            // Servers before M7 send only ids; their names then are the ids.
+            let ids = try c.decodeIfPresent([String].self, forKey: .agents) ?? []
+            let details = try c.decodeIfPresent([AgentInfo].self, forKey: .agentDetails)
             self = .welcome(
                 protocolVersion: try c.decode(Int.self, forKey: .protocol),
                 server: try c.decode(PeerInfo.self, forKey: .server),
-                agents: try c.decodeIfPresent([String].self, forKey: .agents) ?? []
+                agents: details ?? ids.map { AgentInfo(id: $0, name: $0) }
             )
         case "pong": self = .pong(id: try c.decode(String.self, forKey: .id))
         case "ok": self = .ok(id: try c.decode(String.self, forKey: .id))

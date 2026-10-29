@@ -90,13 +90,6 @@ extension SessionStatus {
     }
 }
 
-extension String {
-    /// "claude" → "Claude". M7's agent registry will carry real display names.
-    var agentDisplayName: String {
-        ["claude": "Claude", "codex": "Codex", "gemini": "Gemini"][self] ?? capitalized
-    }
-}
-
 /// Three saffron dots in single file, the caravan from the route line in miniature.
 struct CaravanDots: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion

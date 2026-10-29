@@ -95,13 +95,14 @@ private struct SidebarView: View {
         }
         .toolbar {
             ToolbarItem {
+                // A plain button: a menu button here pushes the whole toolbar into overflow on macOS 15.
+                // Other agents are in File › New Session and on the overview's split button.
                 Button {
                     model.newSession()
                 } label: {
                     Label("Yeni oturum", systemImage: "square.and.pencil")
                 }
-                .help("Yeni oturum başlat (⌘N)")
-                .keyboardShortcut("n")
+                .help("\(model.defaultAgent?.name ?? "Ajan") ile yeni oturum (⌘N)")
                 .disabled(!model.canCreateSession)
             }
         }
@@ -178,6 +179,8 @@ private struct HitRow: View {
 
 private struct SessionRow: View {
     let session: SessionInfo
+    @Environment(AppModel.self) private var model
+    private var agentName: String { model.store.agentName(session.agent) }
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -188,7 +191,7 @@ private struct SessionRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(session.title)
                     .lineLimit(1)
-                Text("\(session.agent.agentDisplayName), \(session.status.label.lowercased())")
+                Text("\(agentName), \(session.status.label.lowercased())")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -217,5 +220,37 @@ private struct SidebarStatus: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// Starts a session with the default agent; with several agents the arrow menu picks another.
+struct NewSessionButton: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let agents = model.store.agents
+        let label = "Yeni oturum başlat"
+        Group {
+            if agents.count > 1 {
+                Menu {
+                    ForEach(agents) { agent in
+                        Button(agent.name) { model.newSession(agent: agent.id) }
+                    }
+                } label: {
+                    Label(label, systemImage: "square.and.pencil")
+                } primaryAction: {
+                    model.newSession()
+                }
+                .help("\(model.defaultAgent?.name ?? "Ajan") ile yeni oturum (⌘N); okla başka bir ajan seçin")
+            } else {
+                Button {
+                    model.newSession()
+                } label: {
+                    Label(label, systemImage: "square.and.pencil")
+                }
+                .help("Yeni oturum başlat (⌘N)")
+            }
+        }
+        .disabled(!model.canCreateSession)
     }
 }

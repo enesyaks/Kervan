@@ -83,8 +83,21 @@ final class AppModel {
         selectedSessionID = sessionID
     }
 
-    func newSession() {
-        guard let agent = store.agents.first else { return }
+    private static let lastAgentKey = "lastAgent"
+
+    /// Observable copy of the last agent used, so menus that name the default redraw when it changes.
+    private var lastAgentID = UserDefaults.standard.string(forKey: AppModel.lastAgentKey) {
+        didSet { UserDefaults.standard.set(lastAgentID, forKey: Self.lastAgentKey) }
+    }
+
+    /// The agent ⌘N starts: the one used last if the server still offers it, else the server's default.
+    var defaultAgent: AgentInfo? {
+        store.agents.first { $0.id == lastAgentID } ?? store.agents.first
+    }
+
+    func newSession(agent: String? = nil) {
+        guard let agent = agent ?? defaultAgent?.id else { return }
+        lastAgentID = agent
         Task { await store.create(agent: agent) }
     }
 

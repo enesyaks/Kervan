@@ -29,7 +29,7 @@ public final class KervanConnection {
     public private(set) var latency: Duration?
 
     /// Called after every successful handshake with the server's agent list.
-    @ObservationIgnored public var onConnected: (@MainActor ([String]) -> Void)?
+    @ObservationIgnored public var onConnected: (@MainActor ([AgentInfo]) -> Void)?
     /// Every server message other than the handshake and pongs.
     @ObservationIgnored public var onMessage: (@MainActor (ServerMessage) -> Void)?
 

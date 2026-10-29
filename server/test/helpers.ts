@@ -11,7 +11,7 @@ import { EventStore } from "../src/store.ts";
 
 export const TEST_TOKEN = "test-token-0123456789";
 
-export const fakeAgent = { command: process.execPath, args: [join(import.meta.dirname, "fixtures/fake-agent.ts")] };
+export const fakeAgent = { name: "Fake", command: process.execPath, args: [join(import.meta.dirname, "fixtures/fake-agent.ts")] };
 
 export async function startServer(
   options: { maxUploadBytes?: number } = {},

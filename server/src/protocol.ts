@@ -86,7 +86,7 @@ export type ErrorCode =
   | "unknown_request";
 
 export type ServerMessage =
-  | { type: "welcome"; protocol: number; server: PeerInfo; agents: string[] }
+  | { type: "welcome"; protocol: number; server: PeerInfo; agents: string[]; agentDetails: { id: string; name: string }[] }
   | { type: "pong"; id: string }
   | { type: "ok"; id: string }
   | { type: "error"; code: ErrorCode; message: string; id?: string }

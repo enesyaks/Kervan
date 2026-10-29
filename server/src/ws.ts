@@ -106,6 +106,7 @@ function handleConnection(ws: WebSocket, req: IncomingMessage, sessions: Session
         protocol: PROTOCOL_VERSION,
         server: { name: "kervan", version: VERSION },
         agents: sessions.agentKinds,
+        agentDetails: sessions.agentDetails,
       });
       return;
     }

@@ -10,7 +10,8 @@ public final class SessionStore {
     /// Newest first.
     public private(set) var sessions: [SessionInfo] = []
     public private(set) var events: [String: [SessionEvent]] = [:]
-    public private(set) var agents: [String] = []
+    /// The server's agents, its default first.
+    public private(set) var agents: [AgentInfo] = []
     /// Set when a session this client asked for arrives, so the UI can select it.
     public private(set) var lastCreatedSessionID: String?
     /// The most recent failed request, in the server's words.
@@ -28,6 +29,11 @@ public final class SessionStore {
         self.send = send
     }
 
+    /// Display name for an agent id; falls back to the id for agents the server no longer offers.
+    public func agentName(_ id: String) -> String {
+        agents.first { $0.id == id }?.name ?? id
+    }
+
     public func session(_ id: String) -> SessionInfo? {
         sessions.first { $0.id == id }
     }
@@ -37,7 +43,7 @@ public final class SessionStore {
     }
 
     /// Call after every (re)connect: refreshes the list, and with it every session's history.
-    public func connected(agents: [String]) async {
+    public func connected(agents: [AgentInfo]) async {
         self.agents = agents
         await request(.sessionList(id: Self.newID()))
     }
