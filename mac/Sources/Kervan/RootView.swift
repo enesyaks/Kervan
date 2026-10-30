@@ -55,6 +55,7 @@ struct RootView: View {
                 .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 1.04)))
             }
         }
+        .welcomeTour()
         .sheet(isPresented: Bindable(model).showServerUpdate) {
             ServerUpdateSheet().environment(model)
         }

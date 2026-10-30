@@ -55,6 +55,8 @@ enum SnapshotRunner {
         ]
         model.store.handle(.agentListResult(id: "snapshot", agents: sampleConfigs, nodes: []))
 
+        // The language is a saved setting; put the user's own choice back before quitting.
+        let ownLanguage = Language.shared.choice
         for lang in languages {
             Language.shared.choice = lang.choice
 
@@ -89,6 +91,7 @@ enum SnapshotRunner {
             }
         }
 
+        Language.shared.choice = ownLanguage
         print("[SnapshotRunner] All screenshots captured successfully.")
         exit(0)
     }

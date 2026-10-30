@@ -92,10 +92,17 @@ The side panel includes an interactive bash terminal running inside the session 
 ### Localization
 Complete bilingual support across the native macOS application in English and Turkish, automatically matching system language preferences or selectable in Settings.
 
+### In-app updates
+The Mac app checks GitHub releases, verifies the download against its `.sha256` file, swaps itself and relaunches. When the connected server is older than the app, the sidebar offers a server update over SSH that replaces only the code and service, keeping settings, workspaces and the token.
+
+### Report a problem
+Help › Report a Problem… collects versions, connection state and the server's recent log, with API keys, tokens and secrets removed, and opens a prefilled GitHub issue you can edit before sending.
+
+### First-use tour
+After the onboarding, six short cards walk through sessions, projects, approvals, the side panel, scheduled tasks and usage, and where to get help. Shown once; Help › Welcome Tour plays it again.
+
 ---
 
 ## Up next
 
-- **In-app updates (app and server):** Automated update checking against GitHub releases, one-click in-app downloads and restarts for the Mac app, and guided remote server updates.
-- **"Report a problem" flow:** Built-in bug reporting that collects system versions, connection diagnostics, and recent server logs with automatic redaction of API keys, bearer tokens, and secrets, pre-filling a GitHub issue.
 - **Real-agent end-to-end testing:** Automated test suites that execute real coding agents (Claude Code, Codex, Gemini) against sample repositories over ACP, validating tool calls, plan updates, diff generation, and recovery.

@@ -87,6 +87,18 @@ struct OnboardingView: View {
             .scrollBounceBehavior(.basedOnSize)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.kervanCanvas)
+            .overlay(alignment: .topTrailing) {
+                // It can be opened again from Help, so there has to be a way back. Not while a setup is
+                // running: leaving stops the installer.
+                if stage != .setupProgress {
+                    Button(L("Close", "Kapat")) {
+                        withAnimation(Motion.pick(Motion.smooth, reduce: reduceMotion)) { model.showOnboarding = false }
+                    }
+                    .buttonStyle(QuietPillStyle())
+                    .padding(.top, 18)
+                    .padding(.trailing, 20)
+                }
+            }
         }
         .ignoresSafeArea()
         .onChange(of: isConnected, initial: true) { _, connected in

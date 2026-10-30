@@ -153,7 +153,7 @@ private struct TourCard: Identifiable {
             TourCard(
                 art: .help,
                 title: L("Where to find help", "Yardım nerede"),
-                text: L("If something doesn't work, choose Help › Report a Problem… and send us the details.", "Bir şey çalışmazsa Yardım › Sorun Bildir… ile ayrıntıları bize gönderin.")
+                text: L("If something doesn't work, choose Help › Report a Problem… and send us the details. The setup and this tour are in the Help menu too.", "Bir şey çalışmazsa Yardım › Sorun Bildir… ile ayrıntıları bize gönderin. Kurulum ve bu tur da Yardım menüsünde.")
             ),
         ]
     }
@@ -703,6 +703,12 @@ private struct HelpArt: View {
             HStack {
                 Spacer()
                 VStack(alignment: .leading, spacing: 2) {
+                    ForEach([L("Set Up Kervan…", "Kervan'ı Kur…"), L("Welcome Tour", "Tanıtım Turu")], id: \.self) { item in
+                        Text(item)
+                            .artFont(11)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                    }
                     Text(L("Report a Problem…", "Sorun Bildir…"))
                         .artFont(11)
                         .foregroundStyle(.white)

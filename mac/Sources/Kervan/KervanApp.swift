@@ -21,6 +21,10 @@ struct KervanApp: App {
                 NewSessionCommands(model: model)
             }
             CommandGroup(replacing: .help) {
+                Button(L("Set Up Kervan…", "Kervan'ı Kur…")) {
+                    withAnimation(Motion.smooth) { model.showOnboarding = true }
+                }
+                Button(L("Welcome Tour", "Tanıtım Turu")) { WelcomeTour.show() }
                 Button(L("Report a Problem…", "Sorun Bildir…")) { model.showReportProblem = true }
                 Link(L("Kervan on GitHub", "GitHub'da Kervan"), destination: URL(string: "https://github.com/enesyaks/Kervan")!)
             }
