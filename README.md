@@ -305,7 +305,7 @@ infra/      Server setup, systemd service, deploy
 docs/       Roadmap and media
 ```
 
-Roadmap: [`docs/ROADMAP.md`](docs/ROADMAP.md) (in Turkish).
+Roadmap: [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Contributing and license
 

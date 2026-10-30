@@ -1,88 +1,101 @@
-# Kervan yol haritası
+# Kervan roadmap
 
-Her adım tek başına çalışan, test edilebilir bir özellik bırakır.
+Every step produces a self-contained, testable feature.
 
-| # | Özellik | Durum |
+| # | Feature | Status |
 |---|---|---|
-| M0 | VM, systemd servisi, `/health` | ✅ |
-| M1 | Protokol v1, token'lı WebSocket, Mac bağlantı ekranı | ✅ |
-| M2 | Tek ajan oturumu (Claude Code, ACP), Mac sohbet ekranı, cevap akışı | ✅ |
-| M3 | Kalıcılık: SQLite olay günlüğü, yeniden başlatmada kurtarma ve devam | ✅ |
-| M4 | Araç çağrıları ve izin onayı (Onayla / Reddet) | ✅ |
-| M5 | Çoklu oturum, geçmiş ekranı, tam metin arama | ✅ |
-| M6 | Dosya yükleme / indirme, çalışma klasörü tarayıcısı | ✅ |
-| M7 | Ajan kayıt defteri (`agents.yaml`): Codex, Gemini, OpenCode | ✅ |
-| M7b | Skill ve MCP yönetimi: skill kütüphanesi, oturum/rol başına açma | ✅ |
-| M7c | Ajanları uygulamadan ekleme / düzenleme (node seçimi M13 ile) | ✅ |
-| M8 | Takımlar ve roller, takımı elle kurma | ✅ |
-| M9 | Orkestrasyon MCP sunucusu: ana ajan yardımcı başlatır ve mesajlaşır | ✅ |
-| M10 | Takım görünümü: çok panelli ekran, akış şeridi | ✅ |
-| M11 | Git worktree ile yardımcı izolasyonu, bütçe ve sınırlar | ✅ |
-| M12 | PTY yedeği, bildirimler, dayanıklılık; model seçici | ✅ |
-| M13 | Çoklu sunucu (node): ajanları başka makinelerde çalıştırma | ✅ |
-| sonra | Ekip: kullanıcılar, giriş, paylaşım | |
+| M0 | VM, systemd service, `/health` | ✅ |
+| M1 | Protocol v1, token-authenticated WebSocket, Mac connect screen | ✅ |
+| M2 | Single-agent session (Claude Code, ACP), Mac chat screen, streamed responses | ✅ |
+| M3 | Persistence: SQLite event log, restart recovery and resumption | ✅ |
+| M4 | Tool calls and permission approval (Allow / Reject) | ✅ |
+| M5 | Multi-session, history screen, full-text search | ✅ |
+| M6 | File upload / download, workspace browser | ✅ |
+| M7 | Agent registry (`agents.yaml`): Codex, Gemini, OpenCode | ✅ |
+| M7b | Skill and MCP management: skill library, per-session/role toggles | ✅ |
+| M7c | Add / edit agents from the app (node picker via M13) | ✅ |
+| M8 | Teams and roles, manual team creation | ✅ |
+| M9 | Orchestration MCP server: lead agent starts helpers and messages them | ✅ |
+| M10 | Team view: multi-panel display, activity stream | ✅ |
+| M11 | Helper isolation via git worktrees, budgets and limits | ✅ |
+| M12 | PTY fallback, notifications, resilience; model picker | ✅ |
+| M13 | Multi-server (nodes): run agents on other machines | ✅ |
+| — | Changes panel with checkpoints and rewind | ✅ |
+| — | Agent plan and slash commands | ✅ |
+| — | @-mentions and image paste | ✅ |
+| — | Projects: shared workspaces, instructions, repository cloning | ✅ |
+| — | Scheduled tasks: recurring and interval runs, timezone support | ✅ |
+| — | Usage view: cost tracking by agent and session, daily reports | ✅ |
+| — | In-workspace terminal and localhost port preview tunnel | ✅ |
+| — | Localization: English and Turkish UI | ✅ |
+| later | Team: users, authentication, sharing | |
 
-## M7b: Skill ve MCP yönetimi
+## M7b: Skill and MCP management
 
-Ajanlara yetenek eklemek, Mac uygulamasından.
+Adding capabilities to agents directly from the Mac app.
 
-- **Skill kütüphanesi:** sunucuda `/var/lib/kervan/skills/<ad>/SKILL.md` (+ yardımcı dosyalar). Mac'ten klasör olarak
-  yüklenir, listelenir, silinir.
-- **Oturum / rol başına seçim:** yeni oturum açarken (ve M8'de rol tanımında) hangi skill'lerin açık olacağı seçilir.
-- **Ajana iletme:** Claude için seçilen skill'ler oturum başlarken çalışma klasörüne `.claude/skills/` olarak bağlanır
-  (kopya ya da sembolik bağlantı). Skill kavramı olmayan ajanlar için içerik sistem talimatına eklenir.
-- **MCP sunucuları:** aynı ekrandan tanımlanır (komut + argümanlar ya da HTTP adresi + başlıklar) ve ACP
-  `session/new` / `session/resume` içindeki `mcpServers` ile her ajana verilir; böylece Claude, Codex ve Gemini aynı
-  araçları kullanır. Gizli değerler (API anahtarları) Mac'te değil sunucuda, `/etc/kervan/` altında tutulur.
+- **Skill library:** On the server under `/var/lib/kervan/skills/<name>/SKILL.md` (+ supporting files). Uploaded as a folder from the Mac, listed, and deleted.
+- **Per-session / per-role selection:** Choose which skills are active when starting a new session (and in M8 role definitions).
+- **Passing to agents:** For Claude, selected skills are symlinked or copied into `.claude/skills/` in the session's workspace at launch. For agents without native skill support, content is injected into the system prompt.
+- **MCP servers:** Configured from the same screen (command + args or HTTP URL + headers) and passed to each agent via ACP `session/new` / `session/resume` in `mcpServers`. This lets Claude, Codex, and Gemini share the same tools. Secret values (API keys) stay on the server under `/etc/kervan/` and never reach the Mac.
 
-## M7c: Ajanları uygulamadan yönetme
+## M7c: Managing agents from the app
 
-`agents.yaml`'ı elle düzenlemeden, Mac uygulamasının Ayarlar ekranından ajan eklemek.
+Adding and configuring agents from the Mac app's Settings screen without manually editing `agents.yaml`.
 
-- **Form:** ad, komut (ya da yerleşik adaptör), argümanlar, `authMethod`, ortam değişkenleri (gizli değerler sunucuda kalır),
-  skill klasörü. Kaydetmeden önce sunucu komutun çalıştırılabildiğini ve ACP `initialize` cevabını dener.
-- **Kayıt:** sunucu tarafında `agents.json` (yönetilen ajanlar) + isteğe bağlı elle yazılmış `agents.yaml`.
-- **Node alanı:** her ajan kaydında `node` (bugün yalnızca `local`). M13 geldiğinde formda node seçici açılır; ajan seçilen
-  node'da çalışır, oturum ekranı hangi node'da çalıştığını gösterir.
+- **Form:** Name, command (or built-in adapter), args, `authMethod`, environment variables (secrets stay on the server), skills folder. Before saving, the server tests that the command executes and responds to ACP `initialize`.
+- **Storage:** Server-side `agents.json` (managed agents) + optional manual `agents.yaml`.
+- **Node field:** Each agent record includes `node` (defaults to `local`). When M13 is enabled, the form offers a node picker; the agent runs on the selected node, and the session view indicates where it is running.
 
-## M13: Çoklu sunucu
+## M13: Multi-server (nodes)
 
-Bir görevi birden çok sunucudaki ajanlara dağıtmak.
+Distributing tasks across agents on multiple machines.
 
-- **Merkez (hub):** bugünkü `kervan` sunucusu. Geçmiş, takımlar, görev dağıtımı ve Mac bağlantısı burada kalır.
-- **Node:** diğer sunucularda çalışan hafif `kervan-node` servisi. Merkeze Tailscale üzerinden kendisi bağlanır,
-  hangi ajanların kurulu olduğunu ve boş kapasitesini bildirir. Durum tutmaz; ajanları çalıştırır, olayları merkeze akıtır.
-- **Yerleştirme:** ana ajan `spawn_helper` dediğinde merkez, ajan türüne ve node yüküne göre node seçer.
-  Uygulamadan eklenen ajanlar (M7c) belirli bir node'a bağlanabilir.
-  Kullanıcı rolü belirli bir node'a sabitleyebilir.
-- **Ortak dosyalar:** git üzerinden. Her node görevin reposunu klonlar, her yardımcı kendi branch'inde çalışır ve push eder,
-  ana ajan birleştirir. Ağ dosya sistemi (NFS) kullanılmaz.
-- **Hazırlık (M2'den itibaren):** ajanları çalıştıran kod `AgentRunner` arayüzünün arkasında.
-  Uzak node, bu arayüzün ikinci bir uygulaması olacak; oturum ve takım kodu değişmeyecek.
-- **Riskler:** node başına ajan girişleri (her sunucuda ayrı login), merkez ile node arasında bağlantı kopması
-  (node olayları tamponlar, yeniden bağlanınca gönderir), maliyetin node'lara dağılması.
+- **Hub:** The primary `kervan` server. History, teams, task dispatch, and the Mac connection live here.
+- **Node:** A lightweight `kervan-node` service running on secondary machines. It connects outbound to the hub over Tailscale, reports installed agents and idle capacity, keeps no persistent state, runs agents, and streams events back to the hub.
+- **Placement:** When a lead agent calls `start_helper`, the hub assigns the helper based on agent capability and node load. Agents added from the app (M7c) can target a specific node, and user roles can be pinned to a specific node.
+- **Shared files:** Handled via git. Each node clones the task's repository, each helper works on its own branch and pushes changes, and the lead agent merges. Network filesystems (NFS) are not required.
+- **AgentRunner abstraction:** Agent execution is decoupled behind the `AgentRunner` interface. Remote nodes implement this interface, leaving session and team logic unchanged.
 
-## M13: Node'lar
+### Adding nodes
 
-Hub (ana Kervan sunucusu) ajanları başka makinelerde de çalıştırabilir. Her makinede `kervan-node` çalışır,
-hub'a Tailscale üzerinden kendisi bağlanır (node'da açık port gerekmez) ve hub'ın verdiği ajanları kendi
-`/srv/kervan/workspaces` klasöründe başlatır. Sohbet, onaylar, model seçimi ve dosyalar uygulamada aynı görünür.
+Nodes are managed from the app under **Settings › Agents › Add node…**. Provide a name; the app requests a single-use, 30-minute invite code from the hub and provides two setup paths:
 
-Node ekleme uygulamadan yapılır: Ayarlar › Ajanlar › **Node ekle…** Bir ad verilir; uygulama hub'dan tek
-kullanımlık, 30 dakika geçerli bir davet alır ve iki yol sunar:
+- **Command:** Run `curl -fsSL 'http://kervan:7420/v1/node/install?code=…' | sudo bash` on the new machine. The onboarding script installs Node.js 24, downloads the Kervan code bundle from the hub, sets up the `kervan` user and `kervan-node` systemd service, and exchanges the invite for a node-specific token in `/etc/kervan/node.env`. Works on Ubuntu/Debian over Tailscale.
+- **SSH:** Enter the address and username; the app runs the installation script over SSH using the Mac's SSH key with `sudo -n`.
 
-- **Komut:** `curl -fsSL 'http://kervan:7420/v1/node/install?code=…' | sudo bash` yeni makinede çalıştırılır.
-  Betik (onboarding.ts) Node.js 24'ü, Kervan kodunu (hub'dan), kervan kullanıcısını ve `kervan-node` servisini
-  kurar, daveti node'a özel bir anahtarla takas eder (`/etc/kervan/node.env`). Ubuntu/Debian, Tailscale ağında.
-- **SSH:** adres ve kullanıcı yazılır; uygulama Mac'in SSH anahtarıyla aynı komutu `sudo -n` ile çalıştırır.
-  Parola sormaz; sudo parola istiyorsa komut yoluna yönlendirir.
+Once connected, the node appears live in the app. Each node has its own authentication key; removing a node revokes its key. Manual configuration via shared `KERVAN_NODE_TOKEN` remains supported. Deploying updates: `infra/deploy.sh ubuntu@<node> kervan-node`.
 
-Node bağlanınca sayfa bunu canlı gösterir. Her node'un kendi anahtarı vardır; "Kaldır" anahtarı geçersiz kılar.
-Elle kurulum için paylaşılan `KERVAN_NODE_TOKEN` hâlâ desteklenir. Kod güncellemesi: `infra/deploy.sh ubuntu@<node> kervan-node`.
+## Shipped features
 
-İlk sürümün sınırları: ana ajanlar (yardımcı başlatan) ve skill'li oturumlar hub'da çalışır; node'daki yardımcılar
-ana ajanın klasörünü göremez, kendi klasörlerinde çalışır. Node'dan inen/yüklenen dosyalar 50 MB ile sınırlı.
-Bağlantı koparsa node'daki ajanlar durur; node geri gelince bir sonraki mesajla kaldıkları yerden devam ederler.
+### Changes panel, checkpoints, and rewind
+Before each prompt, Kervan takes an internal git snapshot of the workspace in a separate store, leaving the project's own git history untouched. The **Changes** panel shows all modified, added, and deleted files with line-by-line diffs since the first or last message. Users can rewind the entire folder or selected files to any previous message checkpoint, or commit working changes directly to the project's git repository.
 
-Sonra: bir görevi node'lar arasında otomatik dağıtma (ana ajan hangi yardımcının nerede çalışacağını seçer),
-node'lara skill dağıtımı.
+### Agent plan and slash commands
+When an agent reports its to-do list, an interactive **plan card** appears above the composer showing pending, in-progress, and completed steps with priorities. Typing `/` surfaces slash commands provided dynamically by the agent (such as `/review` or `/compact`), with inline parameter hints.
+
+### @-mentions and image paste
+Typing `@` in the composer brings up a fuzzy file picker of workspace paths; selecting a file inserts it as an attachment. Pasting images via **⌘V** attaches screenshots as visual inputs for multimodal models, and the microphone button triggers macOS dictation.
+
+### Projects
+Projects link sessions to a shared workspace on the server—from an existing path, an empty folder, or a cloned git repository. Project-level instructions (coding standards, test commands, conventions) are automatically prepended to every session started within that project.
+
+### Scheduled tasks
+Automated tasks run on recurring daily schedules (at specific times on selected weekdays) or periodic intervals (every N minutes). When due, Kervan starts a dedicated session, executes the user prompt, records the outcome, and sends a system notification upon completion. Schedules respect the user's local Mac time zone.
+
+### Usage and cost view
+Tracks spending across models and sessions based on reported ACP usage. The usage dashboard provides daily spending totals and breakdowns by agent over configurable timeframes (7 days, 30 days, or custom ranges), along with highest-spending session rankings.
+
+### In-workspace terminal and port preview tunnel
+The side panel includes an interactive bash terminal running inside the session workspace on the server via PTY. When agents run local dev servers (e.g. `:3000`), Kervan detects listening ports and exposes them to the Mac through a raw TCP-over-WebSocket tunnel, enabling instant browser preview on `localhost`.
+
+### Localization
+Complete bilingual support across the native macOS application in English and Turkish, automatically matching system language preferences or selectable in Settings.
+
+---
+
+## Up next
+
+- **In-app updates (app and server):** Automated update checking against GitHub releases, one-click in-app downloads and restarts for the Mac app, and guided remote server updates.
+- **"Report a problem" flow:** Built-in bug reporting that collects system versions, connection diagnostics, and recent server logs with automatic redaction of API keys, bearer tokens, and secrets, pre-filling a GitHub issue.
+- **Real-agent end-to-end testing:** Automated test suites that execute real coding agents (Claude Code, Codex, Gemini) against sample repositories over ACP, validating tool calls, plan updates, diff generation, and recovery.
