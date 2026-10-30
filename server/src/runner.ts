@@ -1,14 +1,15 @@
 import { spawn } from "node:child_process";
 import { startPty } from "./pty.ts";
 import { mkdtempSync, rmSync } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, extname, isAbsolute, join, relative, sep } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { pathToFileURL } from "node:url";
 import * as acp from "@agentclientprotocol/sdk";
 import type { AgentCommand } from "./agents.ts";
 import { log } from "./log.ts";
-import type { ConfigOption, PermissionChoice, SessionEventBody } from "./protocol.ts";
+import type { ConfigOption, FileDiff, PermissionChoice, SessionEventBody } from "./protocol.ts";
 
 /** One running agent conversation. */
 export interface AgentProcess {
@@ -122,7 +123,7 @@ export class LocalAcpRunner implements AgentRunner {
           onUsage?.({ used: update.used, size: update.size, ...(cost !== undefined ? { costUsd: cost } : {}) });
           return;
         }
-        const event = toEvent(update);
+        const event = toEvent(update, cwd);
         if (event) onEvent(event);
       })
       .onRequest("session/request_permission", async ({ params }) => {
@@ -174,9 +175,13 @@ export class LocalAcpRunner implements AgentRunner {
         exited,
         close,
         async prompt(text, files = [], preface) {
+          // Agents that see images get pictures as pictures; every file is linked as well, so it can be opened by path.
+          const seesImages = init.agentCapabilities?.promptCapabilities?.image === true;
+          const images = seesImages ? await Promise.all(files.map(imageBlock)) : [];
           const prompt: acp.ContentBlock[] = [
             ...(preface ? [{ type: "text" as const, text: preface }] : []),
             { type: "text", text },
+            ...images.filter((block) => block !== null),
             ...files.map((path) => ({ type: "resource_link" as const, uri: pathToFileURL(path).href, name: basename(path) })),
           ];
           const response = await agent.request("session/prompt", { sessionId, prompt });
@@ -304,25 +309,87 @@ function describe(toolCall: acp.ToolCallUpdate): string | undefined {
   return paths.length > 0 ? paths.join("\n") : undefined;
 }
 
-function toEvent(update: acp.SessionUpdate): SessionEventBody | null {
+const IMAGE_TYPES: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+};
+/** Larger pictures are only linked; agents' own limits are around this size. */
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+async function imageBlock(path: string): Promise<acp.ContentBlock | null> {
+  const mimeType = IMAGE_TYPES[extname(path).toLowerCase()];
+  if (!mimeType) return null;
+  try {
+    if ((await stat(path)).size > MAX_IMAGE_BYTES) return null;
+    return { type: "image", mimeType, data: (await readFile(path)).toString("base64"), uri: pathToFileURL(path).href };
+  } catch {
+    return null;
+  }
+}
+
+/** Each side of a reported edit is cut to this; the Changes panel has the whole file from git. */
+export const MAX_DIFF_CHARS = 40_000;
+
+/** The edits in a tool call's content, with paths relative to the session folder. */
+export function toDiffs(content: acp.ToolCallContent[] | null | undefined, cwd: string): FileDiff[] | undefined {
+  const diffs = (content ?? []).flatMap((item): FileDiff[] => {
+    if (item.type !== "diff") return [];
+    const inside = isAbsolute(item.path) ? relative(cwd, item.path) : item.path;
+    const path = inside.startsWith("..") || isAbsolute(inside) ? item.path : inside.split(sep).join("/");
+    const oldText = item.oldText ?? undefined;
+    const truncated = item.newText.length > MAX_DIFF_CHARS || (oldText?.length ?? 0) > MAX_DIFF_CHARS;
+    return [{
+      path,
+      ...(oldText !== undefined ? { oldText: oldText.slice(0, MAX_DIFF_CHARS) } : {}),
+      newText: item.newText.slice(0, MAX_DIFF_CHARS),
+      ...(truncated ? { truncated: true } : {}),
+    }];
+  });
+  return diffs.length > 0 ? diffs : undefined;
+}
+
+function toEvent(update: acp.SessionUpdate, cwd: string): SessionEventBody | null {
   switch (update.sessionUpdate) {
     case "agent_message_chunk":
     case "agent_thought_chunk":
       return update.content.type === "text" ? { kind: update.sessionUpdate, text: update.content.text } : null;
-    case "tool_call":
+    case "tool_call": {
+      const diffs = toDiffs(update.content, cwd);
       return {
         kind: "tool_call",
         toolCallId: update.toolCallId,
         title: update.title,
         toolKind: update.kind ?? "other",
         status: update.status ?? "pending",
+        ...(diffs ? { diffs } : {}),
       };
-    case "tool_call_update":
+    }
+    case "tool_call_update": {
+      const diffs = toDiffs(update.content, cwd);
       return {
         kind: "tool_call_update",
         toolCallId: update.toolCallId,
         ...(update.title ? { title: update.title } : {}),
         ...(update.status ? { status: update.status } : {}),
+        ...(diffs ? { diffs } : {}),
+      };
+    }
+    case "plan":
+      return {
+        kind: "plan",
+        entries: update.entries.map(({ content, status, priority }) => ({ content, status, priority })),
+      };
+    case "available_commands_update":
+      return {
+        kind: "commands",
+        commands: update.availableCommands.map((c) => ({
+          name: c.name,
+          description: c.description,
+          ...(c.input?.hint ? { hint: c.input.hint } : {}),
+        })),
       };
     default:
       return null;

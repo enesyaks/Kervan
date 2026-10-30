@@ -15,7 +15,12 @@
 //   with --legacy, models and modes come the older way (session/new `models` and `modes`, session/set_model,
 //   session/set_mode), as Gemini CLI does, instead of config options; "modecheck" → the current mode
 //   "mcptools" → names of the tools the `kervan` MCP server offers
+//   "write <name> <text>" → writes the file in its folder, reports a plan and the edit as a diff
+//   "imagecheck" → the MIME types of the image blocks it was given
+//   right after session/new it announces two slash commands (review, explain)
 import { spawn } from "node:child_process";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
@@ -26,6 +31,7 @@ const stream = acp.ndJsonStream(
 );
 
 let current = "";
+let cwd = process.cwd();
 let authenticated = "none";
 let mcpNames: string[] = [];
 let mcpServers: acp.McpServer[] = [];
@@ -93,20 +99,35 @@ acp
   .agent({ name: "fake" })
   .onRequest("initialize", () => ({
     protocolVersion: acp.PROTOCOL_VERSION,
-    agentCapabilities: { sessionCapabilities: { resume: {} } },
+    agentCapabilities: { sessionCapabilities: { resume: {} }, promptCapabilities: { image: true } },
     authMethods: [{ id: "fake-key", name: "Fake key" }],
   }))
   .onRequest("authenticate", ({ params }) => {
     authenticated = params.methodId;
     return {};
   })
-  .onRequest("session/new", ({ params }) => {
+  .onRequest("session/new", ({ params, client }) => {
+    cwd = params.cwd;
+    // Agents announce their slash commands right after the session starts.
+    setTimeout(() => {
+      void client.notify("session/update", {
+        sessionId: current,
+        update: {
+          sessionUpdate: "available_commands_update",
+          availableCommands: [
+            { name: "review", description: "Review the changes" },
+            { name: "explain", description: "Explain code", input: { hint: "file or symbol" } },
+          ],
+        },
+      });
+    }, 20);
     mcpServers = params.mcpServers;
     mcpNames = params.mcpServers.map((server) => server.name);
     current = `fake-${process.pid}`;
     return legacy ? { sessionId: current, ...legacyState() } : { sessionId: current, configOptions: configOptions() };
   })
   .onRequest("session/resume", ({ params }) => {
+    cwd = params.cwd;
     mcpServers = params.mcpServers ?? [];
     mcpNames = mcpServers.map((server) => server.name);
     current = params.sessionId;
@@ -196,6 +217,34 @@ acp
     }
     if (text.includes("whoami")) {
       await update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: current } });
+      return { stopReason: "end_turn" };
+    }
+    if (text.startsWith("write ")) {
+      const [name, ...content] = text.slice("write ".length).split(" ");
+      const path = join(cwd, name);
+      const oldText = existsSync(path) ? readFileSync(path, "utf8") : null;
+      writeFileSync(path, content.join(" "));
+      await update({
+        sessionUpdate: "plan",
+        entries: [
+          { content: `Write ${name}`, status: "completed", priority: "high" },
+          { content: "Report back", status: "in_progress", priority: "low" },
+        ],
+      });
+      await update({
+        sessionUpdate: "tool_call",
+        toolCallId: `w-${name}`,
+        title: `Write ${name}`,
+        kind: "edit",
+        status: "completed",
+        content: [{ type: "diff", path, oldText, newText: content.join(" ") }],
+      });
+      await update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `wrote ${name}` } });
+      return { stopReason: "end_turn" };
+    }
+    if (text.includes("imagecheck")) {
+      const images = params.prompt.filter((block) => block.type === "image");
+      await update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `images: ${images.map((i) => (i as acp.ImageContent).mimeType).join(",")}` } });
       return { stopReason: "end_turn" };
     }
     if (text.includes("slow")) await new Promise((resolve) => setTimeout(resolve, 300));

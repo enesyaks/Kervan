@@ -46,6 +46,10 @@ export interface SessionInfo {
   usage?: SessionUsage;
   /** Choices the agent offers for this session (model, reasoning effort, mode), with the current value. */
   config?: ConfigOption[];
+  /** The project whose folder the session works in. */
+  projectId?: string;
+  /** Set for sessions a scheduled task started. */
+  scheduleId?: string;
   error?: string;
 }
 
@@ -111,14 +115,111 @@ export interface SearchHit {
   snippet: string;
 }
 
+/** A file edit the agent reported: the whole old and new text of the file (or of the changed part). */
+export interface FileDiff {
+  /** Relative to the session's folder when it is inside it. */
+  path: string;
+  /** Missing for a new file. */
+  oldText?: string;
+  newText: string;
+  /** The texts were cut to keep the event small. */
+  truncated?: boolean;
+}
+
+/** One step of the agent's plan (its to-do list). */
+export interface PlanEntry {
+  content: string;
+  /** pending | in_progress | completed */
+  status: string;
+  /** high | medium | low */
+  priority: string;
+}
+
+/** A slash command the agent offers, e.g. /review. */
+export interface SlashCommand {
+  name: string;
+  description: string;
+  /** What to type after the command, when it takes input. */
+  hint?: string;
+}
+
+export interface ProjectInfo {
+  id: string;
+  name: string;
+  /** Absolute path on the server. */
+  path: string;
+  /** Given to every agent in the project before its first message. */
+  instructions: string;
+  createdAt: string;
+}
+
+export type ScheduleWhen =
+  /** Every day at `time` (HH:MM, in `timeZone`) on the given ISO weekdays (1 = Monday … 7 = Sunday). */
+  | { kind: "daily"; time: string; weekdays: number[] }
+  | { kind: "interval"; minutes: number };
+
+export interface ScheduleInfo {
+  id: string;
+  title: string;
+  agent: string;
+  projectId?: string;
+  prompt: string;
+  when: ScheduleWhen;
+  /** IANA name, e.g. Europe/Istanbul: the Mac's zone, so times mean what the user meant. */
+  timeZone: string;
+  enabled: boolean;
+  createdAt: string;
+  lastRunAt?: string;
+  lastSessionId?: string;
+  lastError?: string;
+}
+
+export interface ChangedFile {
+  path: string;
+  status: "added" | "modified" | "deleted";
+  additions: number;
+  deletions: number;
+}
+
+/** What changed in a session's folder since a checkpoint. */
+export interface ChangeSet {
+  files: ChangedFile[];
+  patch: string;
+  truncated: boolean;
+  /** The user message whose checkpoint the changes are measured from; missing before the first message. */
+  sinceSeq?: number;
+  /** The folder is a git repository, so the changes can be committed there. */
+  repository: boolean;
+  branch?: string;
+}
+
+export interface UsageReport {
+  /** One row per local day and agent that spent something. */
+  days: { date: string; agent: string; costUsd: number }[];
+  /** The sessions that spent the most in the period. */
+  sessions: { sessionId: string; costUsd: number }[];
+}
+
+export interface ListeningPort {
+  port: number;
+  /** The program listening, when the server may see it. */
+  process?: string;
+}
+
 // Agent-neutral events. Runners translate their agent's own updates (ACP, PTY…) into these.
 export type SessionEventBody =
   /** `from` is the lead session when a lead agent, not the user, wrote it. */
   | { kind: "user_message"; text: string; attachments?: string[]; from?: string }
   | { kind: "agent_message_chunk"; text: string }
   | { kind: "agent_thought_chunk"; text: string }
-  | { kind: "tool_call"; toolCallId: string; title: string; toolKind: string; status: string }
-  | { kind: "tool_call_update"; toolCallId: string; title?: string; status?: string }
+  | { kind: "tool_call"; toolCallId: string; title: string; toolKind: string; status: string; diffs?: FileDiff[] }
+  | { kind: "tool_call_update"; toolCallId: string; title?: string; status?: string; diffs?: FileDiff[] }
+  /** The agent's whole plan as it stands; each one replaces the last. */
+  | { kind: "plan"; entries: PlanEntry[] }
+  /** The slash commands the agent offers now; each one replaces the last. */
+  | { kind: "commands"; commands: SlashCommand[] }
+  /** The session's files as they were just before the user message `messageSeq` (a commit in Kervan's own store). */
+  | { kind: "checkpoint"; commit: string; messageSeq: number }
   | {
       kind: "permission_request";
       requestId: string;
@@ -138,7 +239,24 @@ export type SessionEvent = SessionEventBody & { seq: number; at: string };
 export type ClientMessage =
   | { type: "hello"; protocol: number; client: PeerInfo }
   | { type: "ping"; id: string }
-  | { type: "session.create"; id: string; agent: string; skills?: string[]; mcpServers?: string[]; orchestrate?: boolean; budgetUsd?: number }
+  | { type: "session.create"; id: string; agent: string; skills?: string[]; mcpServers?: string[]; orchestrate?: boolean; budgetUsd?: number; projectId?: string }
+  /** `since` "session": everything since the first message; "turn": since the last one. */
+  | { type: "session.changes"; id: string; sessionId: string; since?: "session" | "turn" }
+  /** Puts files (all when `paths` is missing) back as they were before the user message `seq`. */
+  | { type: "session.revert"; id: string; sessionId: string; seq: number; paths?: string[] }
+  | { type: "session.commit"; id: string; sessionId: string; message: string }
+  | { type: "project.list"; id: string }
+  | { type: "project.save"; id: string; project: Record<string, unknown> }
+  | { type: "project.delete"; id: string; projectId: string }
+  | { type: "schedule.list"; id: string }
+  | { type: "schedule.save"; id: string; schedule: Record<string, unknown> }
+  | { type: "schedule.delete"; id: string; scheduleId: string }
+  | { type: "schedule.run"; id: string; scheduleId: string }
+  | { type: "usage.report"; id: string; days: number; timeZone: string }
+  | { type: "terminal.open"; id: string; sessionId: string }
+  | { type: "terminal.input"; id: string; terminalId: string; data: string }
+  | { type: "terminal.close"; id: string; terminalId: string }
+  | { type: "port.list"; id: string }
   | { type: "session.list"; id: string }
   | { type: "node.list"; id: string }
   | { type: "node.invite"; id: string; name: string }
@@ -197,7 +315,18 @@ export type ServerMessage =
   | { type: "agents.updated"; agents: string[]; agentDetails: AgentDetail[] }
   | { type: "node.list.result"; id: string; nodes: NodeInfo[]; hubAddresses: HubAddress[] }
   | { type: "node.invited"; id: string; name: string; code: string; expiresAt: string }
-  | { type: "nodes.updated"; nodes: NodeInfo[]; hubAddresses: HubAddress[] };
+  | { type: "nodes.updated"; nodes: NodeInfo[]; hubAddresses: HubAddress[] }
+  | { type: "session.changes.result"; id: string; sessionId: string; changes: ChangeSet }
+  | { type: "project.list.result"; id: string; projects: ProjectInfo[] }
+  | { type: "schedule.list.result"; id: string; schedules: ScheduleInfo[] }
+  /** Broadcast after a schedule ran or changed. */
+  | { type: "schedules.updated"; schedules: ScheduleInfo[] }
+  | { type: "usage.report.result"; id: string; report: UsageReport }
+  /** `backlog` is what the terminal printed before this client opened it. */
+  | { type: "terminal.opened"; id: string; terminalId: string; sessionId: string; backlog: string }
+  | { type: "terminal.output"; terminalId: string; data: string }
+  | { type: "terminal.exited"; terminalId: string }
+  | { type: "port.list.result"; id: string; ports: ListeningPort[] };
 
 export type ParseResult =
   | { ok: true; message: ClientMessage }
@@ -248,6 +377,21 @@ const STRING_FIELDS: Record<string, readonly string[]> = {
   "role.delete": ["id", "roleId"],
   "team.create": ["id", "title"],
   "team.list": ["id"],
+  "session.changes": ["id", "sessionId"],
+  "session.revert": ["id", "sessionId"],
+  "session.commit": ["id", "sessionId", "message"],
+  "project.list": ["id"],
+  "project.save": ["id"],
+  "project.delete": ["id", "projectId"],
+  "schedule.list": ["id"],
+  "schedule.save": ["id"],
+  "schedule.delete": ["id", "scheduleId"],
+  "schedule.run": ["id", "scheduleId"],
+  "usage.report": ["id", "timeZone"],
+  "terminal.open": ["id", "sessionId"],
+  "terminal.input": ["id", "terminalId", "data"],
+  "terminal.close": ["id", "terminalId"],
+  "port.list": ["id"],
 };
 
 const MAX_TEAM = 8;
@@ -309,7 +453,40 @@ export function parseClientMessage(raw: string): ParseResult {
       }
       (message as Record<string, unknown>).budgetUsd = data.budgetUsd;
     }
+    if (data.projectId !== undefined) {
+      if (typeof data.projectId !== "string") return fail("bad_message", "projectId must be a string");
+      (message as Record<string, unknown>).projectId = data.projectId;
+    }
   }
+  if (data.type === "session.changes" && data.since !== undefined) {
+    if (data.since !== "session" && data.since !== "turn") return fail("bad_message", "since must be 'session' or 'turn'");
+    (message as Record<string, unknown>).since = data.since;
+  }
+  if (data.type === "session.revert") {
+    if (!Number.isInteger(data.seq)) return fail("bad_message", "session.revert needs a whole number 'seq'");
+    (message as Record<string, unknown>).seq = data.seq;
+    if (data.paths !== undefined) {
+      const list = data.paths;
+      if (!Array.isArray(list) || list.length === 0 || list.length > 500 || !list.every((p) => typeof p === "string")) {
+        return fail("bad_message", "paths must be 1–500 paths");
+      }
+      (message as Record<string, unknown>).paths = list;
+    }
+  }
+  if (data.type === "session.commit" && (message.message.trim() === "" || message.message.length > 5000)) {
+    return fail("bad_message", "commit message must be 1–5000 characters");
+  }
+  for (const [type, field] of [["project.save", "project"], ["schedule.save", "schedule"]] as const) {
+    if (data.type !== type) continue;
+    if (!isRecord(data[field])) return fail("bad_message", `${type} needs a '${field}' object`);
+    (message as Record<string, unknown>)[field] = data[field];
+  }
+  if (data.type === "usage.report") {
+    const days = data.days ?? 30;
+    if (typeof days !== "number" || !Number.isInteger(days) || days < 1 || days > 366) return fail("bad_message", "days must be 1–366");
+    (message as Record<string, unknown>).days = days;
+  }
+  if (data.type === "terminal.input" && message.data.length > 64_000) return fail("bad_message", "terminal input is too long");
   if (data.type === "role.save") {
     if (!isRecord(data.role)) return fail("bad_message", "role.save needs a 'role' object");
     (message as Record<string, unknown>).role = data.role;

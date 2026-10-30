@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import type { SessionEvent, SessionInfo } from "./protocol.ts";
 
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 export interface IndexedMessage {
   /** seq of the first event of the message; matches the Mac transcript row id. */
@@ -141,9 +141,9 @@ export class EventStore {
     this.migrate();
     this.upsertSession = this.db.prepare(`
       INSERT INTO sessions (id, agent, title, status, created_at, error, agent_session_id, archived, skills, mcp_servers,
-                            team_id, role, instructions, parent_id, orchestrate, budget_usd, branch, usage, config)
+                            team_id, role, instructions, parent_id, orchestrate, budget_usd, branch, usage, config, project_id, schedule_id)
       VALUES (:id, :agent, :title, :status, :createdAt, :error, :agentSessionId, :archived, :skills, :mcpServers,
-              :teamId, :role, :instructions, :parentId, :orchestrate, :budgetUsd, :branch, :usage, :config)
+              :teamId, :role, :instructions, :parentId, :orchestrate, :budgetUsd, :branch, :usage, :config, :projectId, :scheduleId)
       ON CONFLICT (id) DO UPDATE SET
         title = excluded.title,
         status = excluded.status,
@@ -201,7 +201,22 @@ export class EventStore {
         `);
       }
       // v7: the agent's session settings (model, effort, mode) as last chosen.
-      this.db.exec("ALTER TABLE sessions ADD COLUMN config TEXT");
+      if (version < 7) this.db.exec("ALTER TABLE sessions ADD COLUMN config TEXT");
+      // v8: projects and scheduled tasks; a log of what was spent when, backfilled with each session's total.
+      if (version < 8) {
+        this.db.exec(`
+          ALTER TABLE sessions ADD COLUMN project_id TEXT;
+          ALTER TABLE sessions ADD COLUMN schedule_id TEXT;
+          CREATE TABLE usage_log (session_id TEXT NOT NULL, agent TEXT NOT NULL, at TEXT NOT NULL, cost_usd REAL NOT NULL);
+          CREATE INDEX usage_log_at ON usage_log (at);
+        `);
+        const sessions = this.db.prepare("SELECT id, agent, created_at, usage FROM sessions WHERE usage IS NOT NULL").all() as Record<string, string>[];
+        const insert = this.db.prepare("INSERT INTO usage_log (session_id, agent, at, cost_usd) VALUES (?, ?, ?, ?)");
+        for (const row of sessions) {
+          const cost = (JSON.parse(row.usage) as { costUsd?: number }).costUsd;
+          if (cost) insert.run(row.id, row.agent, row.created_at, cost);
+        }
+      }
       this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
       this.db.exec("COMMIT");
     } catch (error) {
@@ -250,7 +265,22 @@ export class EventStore {
       branch: info.branch ?? null,
       usage: info.usage ? JSON.stringify(info.usage) : null,
       config: info.config ? JSON.stringify(info.config) : null,
+      projectId: info.projectId ?? null,
+      scheduleId: info.scheduleId ?? null,
     });
+  }
+
+  /** Records money an agent just spent, for the usage view. */
+  logUsage(sessionId: string, agent: string, costUsd: number, at = new Date()): void {
+    this.db.prepare("INSERT INTO usage_log (session_id, agent, at, cost_usd) VALUES (?, ?, ?, ?)").run(sessionId, agent, at.toISOString(), costUsd);
+  }
+
+  /** Every spend since `since`, oldest first. */
+  usageSince(since: Date): { sessionId: string; agent: string; at: string; costUsd: number }[] {
+    const rows = this.db
+      .prepare("SELECT session_id, agent, at, cost_usd FROM usage_log WHERE at >= ? ORDER BY at")
+      .all(since.toISOString()) as { session_id: string; agent: string; at: string; cost_usd: number }[];
+    return rows.map((row) => ({ sessionId: row.session_id, agent: row.agent, at: row.at, costUsd: row.cost_usd }));
   }
 
   saveTeam(team: StoredTeam): void {
@@ -311,6 +341,8 @@ export class EventStore {
         ...(row.branch ? { branch: String(row.branch) } : {}),
         ...(row.usage ? { usage: JSON.parse(String(row.usage)) as SessionInfo["usage"] } : {}),
         ...(row.config ? { config: JSON.parse(String(row.config)) as SessionInfo["config"] } : {}),
+        ...(row.project_id ? { projectId: String(row.project_id) } : {}),
+        ...(row.schedule_id ? { scheduleId: String(row.schedule_id) } : {}),
         ...(row.error ? { error: String(row.error) } : {}),
       },
       ...(row.agent_session_id ? { agentSessionId: String(row.agent_session_id) } : {}),

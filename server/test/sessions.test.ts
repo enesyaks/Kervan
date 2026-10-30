@@ -72,17 +72,22 @@ describe("sessions", () => {
     await inbox.waitFor((m) => m.type === "ok" && m.id === id);
     await inbox.waitFor((m) => m.type === "session.event" && m.sessionId === sessionId && m.event.kind === "turn_end");
 
-    const events = eventsOf(inbox, sessionId);
+    // The agent's slash commands may arrive at any point; they aren't part of the turn.
+    const events = eventsOf(inbox, sessionId).filter((e) => e.kind !== "commands");
     assert.deepEqual(
-      events.map((e) => [e.kind, e.text ?? e.stopReason]),
+      events.map((e) => [e.kind, e.text ?? e.stopReason ?? e.messageSeq]),
       [
         ["user_message", "merhaba kervan"],
+        // The folder as it was before the message, for the Changes panel and rewinding.
+        ["checkpoint", events[0].seq],
         ["agent_message_chunk", "echo: "],
         ["agent_message_chunk", "merhaba kervan"],
         ["turn_end", "end_turn"],
       ],
     );
-    assert.deepEqual(events.map((e) => e.seq), [1, 2, 3, 4]);
+    const seqs = events.map((e) => e.seq);
+    assert.deepEqual(seqs, [...seqs].sort((a, b) => a - b));
+    assert.equal(events[1].messageSeq, events[0].seq);
 
     const running = await inbox.waitFor((m) => m.type === "session.updated" && m.session.id === sessionId && m.session.status === "running");
     assert.equal(running.session.title, "merhaba kervan");

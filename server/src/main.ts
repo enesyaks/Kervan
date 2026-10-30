@@ -13,6 +13,9 @@ import { probeAgent } from "./runner.ts";
 import { join, resolve } from "node:path";
 import { OrchestraHub } from "./orchestra.ts";
 import { NodeHub } from "./nodes.ts";
+import { Checkpoints } from "./checkpoints.ts";
+import { ProjectRegistry } from "./projects.ts";
+import { Scheduler } from "./schedules.ts";
 
 const config = loadConfig();
 const store = new EventStore(join(config.dataDir, "kervan.db"));
@@ -36,7 +39,10 @@ const roles = new RoleRegistry(join(config.dataDir, "roles.json"), {
   hasSkill: (name) => skills.has(name),
   hasMcp: (name) => mcp.has(name),
 });
+const projects = new ProjectRegistry(join(config.dataDir, "projects.json"), join(config.workspacesDir, "projects"));
 sessions = new SessionManager(runner, catalog.live, config.workspacesDir, store, {
+  projects,
+  checkpoints: new Checkpoints(resolve(config.dataDir, "checkpoints")),
   nodes,
   skills,
   mcp,
@@ -51,6 +57,15 @@ sessions = new SessionManager(runner, catalog.live, config.workspacesDir, store,
 const orchestra = new OrchestraHub(resolve(config.dataDir, "orchestra.sock"), sessions);
 await orchestra.listen();
 sessions.useOrchestra(orchestra);
+const scheduler = new Scheduler(join(config.dataDir, "schedules.json"), {
+  hasAgent: (id) => catalog.live.has(id),
+  hasProject: (id) => projects.get(id) !== undefined,
+});
+scheduler.onChange = (schedules) => sessions.broadcast({ type: "schedules.updated", schedules });
+sessions.scheduler = scheduler;
+scheduler.start((task) =>
+  sessions.runTask({ agent: task.agent, title: task.title, prompt: task.prompt, scheduleId: task.id, ...(task.projectId ? { projectId: task.projectId } : {}) }),
+);
 const server = createKervanServer({
   token: config.token,
   sessions,

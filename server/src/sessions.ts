@@ -4,7 +4,22 @@ import { join } from "node:path";
 import type { AgentRegistry } from "./agents.ts";
 import { isSafeRelativePath } from "./files.ts";
 import { log } from "./log.ts";
-import { KervanError, type AgentDetail, type ConfigOption, type ServerMessage, type TeamInfo, type SessionEvent, type SessionEventBody, type SessionInfo } from "./protocol.ts";
+import {
+  KervanError,
+  type AgentDetail,
+  type ChangeSet,
+  type ConfigOption,
+  type ServerMessage,
+  type TeamInfo,
+  type SessionEvent,
+  type SessionEventBody,
+  type SessionInfo,
+  type UsageReport,
+} from "./protocol.ts";
+import { commitAll, repositoryBranch, type Checkpoints } from "./checkpoints.ts";
+import type { ProjectRegistry } from "./projects.ts";
+import { localParts, type Scheduler } from "./schedules.ts";
+import { TerminalHub } from "./terminals.ts";
 import type { AgentProcess, AgentRunner, PermissionDecision, PermissionRequest } from "./runner.ts";
 import type { AgentCatalog } from "./catalog.ts";
 import type { McpRegistry } from "./mcp.ts";
@@ -70,6 +85,10 @@ interface CreateOptions {
   budgetUsd?: number;
   /** Start in a new worktree of this repository, on a branch of its own. */
   worktreeFrom?: string;
+  /** Work in this project's folder, with its instructions. */
+  projectId?: string;
+  /** Started by this scheduled task. */
+  scheduleId?: string;
 }
 
 interface PendingPermission {
@@ -98,6 +117,8 @@ interface Session {
   turnTimer?: NodeJS.Timeout;
   /** Leads: the budget ran out and everything was stopped once already. */
   budgetSpent?: boolean;
+  /** Told to the agent with the next message, e.g. that the user put files back. */
+  note?: string;
 }
 
 type Listener = (message: ServerMessage) => void;
@@ -126,6 +147,12 @@ export class SessionManager {
   private orchestra?: Orchestrator;
   readonly limits: Limits;
   readonly nodes?: NodeHub;
+  readonly projects?: ProjectRegistry;
+  private readonly checkpoints?: Checkpoints;
+  /** Set once the scheduler exists (it needs this manager to start its sessions). */
+  scheduler?: Scheduler;
+  /** The user's shells in session folders; their output goes to every client. */
+  readonly terminals = new TerminalHub((message) => this.broadcast(message));
 
   constructor(
     runner: AgentRunner,
@@ -139,8 +166,12 @@ export class SessionManager {
       roles?: RoleRegistry;
       limits?: Partial<Limits>;
       nodes?: NodeHub;
+      projects?: ProjectRegistry;
+      checkpoints?: Checkpoints;
     } = {},
   ) {
+    this.projects = extras.projects;
+    this.checkpoints = extras.checkpoints;
     this.nodes = extras.nodes;
     this.limits = { maxHelpers: MAX_HELPERS, helperTurnMinutes: HELPER_TURN_MINUTES, ...extras.limits };
     this.roles = extras.roles;
@@ -248,6 +279,10 @@ export class SessionManager {
     if (options.orchestrate && this.agents.get(agent)?.protocol === "pty") {
       throw new KervanError("bad_message", "terminal agents can't use Kervan's tools, so they can't start helpers");
     }
+    if (options.projectId) {
+      if (!this.projects?.get(options.projectId)) throw new KervanError("bad_message", `no project '${options.projectId}'`);
+      if (node !== LOCAL_NODE) throw new KervanError("bad_message", `projects live on this server; '${agent}' runs on node '${node}'`);
+    }
 
     const id = randomUUID();
     const session: Session = {
@@ -266,6 +301,8 @@ export class SessionManager {
         ...(options.orchestrate && !options.parentId ? { orchestrate: true } : {}),
         ...(options.orchestrate && !options.parentId && options.budgetUsd ? { budgetUsd: options.budgetUsd } : {}),
         ...(options.worktreeFrom ? { branch: branchName(options.title ?? agent, id) } : {}),
+        ...(options.projectId ? { projectId: options.projectId } : {}),
+        ...(options.scheduleId ? { scheduleId: options.scheduleId } : {}),
       },
       ...(options.instructions ? { instructions: options.instructions } : {}),
       events: [],
@@ -327,10 +364,14 @@ export class SessionManager {
       ...(attachments.length > 0 ? { attachments } : {}),
       ...(from ? { from } : {}),
     });
+    const messageSeq = session.events.length;
     this.setStatus(session, "running");
     this.startTurnTimer(session);
+    const note = session.note;
+    delete session.note;
 
     (async () => {
+      await this.checkpoint(session, messageSeq);
       if (!session.process) {
         await this.startAgent(session, true);
         this.record(session, {
@@ -341,7 +382,10 @@ export class SessionManager {
         });
       }
       // A terminal agent would receive the preface as typed input, so it gets none.
-      const preface = firstMessage && !this.isTerminal(session) ? await this.preface(session) : undefined;
+      const terminal = this.isTerminal(session);
+      const preface = [firstMessage && !terminal ? await this.preface(session) : undefined, terminal ? undefined : note]
+        .filter(Boolean)
+        .join("\n\n") || undefined;
       const stopReason = await session.process!.prompt(text, attachments.map((path) => join(session.cwd, path)), preface);
       this.record(session, { kind: "turn_end", stopReason });
     })()
@@ -400,6 +444,8 @@ export class SessionManager {
     // their lead's folder on this server, so they get their own.
     if (this.nodeFor(info) !== LOCAL_NODE) return info.teamId ? `team-${info.teamId}` : info.id;
     if (info.branch) return join(root, `worktree-${info.id}`);
+    const project = info.projectId ? this.projects?.get(info.projectId) : undefined;
+    if (project) return project.path;
     if (info.teamId) return join(root, `team-${info.teamId}`);
     return join(root, info.parentId ?? info.id);
   }
@@ -531,6 +577,8 @@ export class SessionManager {
   /** Records what the agent reported and, past a lead's budget, stops the lead and its helpers once. */
   private updateUsage(session: Session, usage: { used: number; size: number; costUsd?: number }): void {
     const cost = usage.costUsd === undefined ? session.info.usage?.costUsd : session.costBase + usage.costUsd;
+    const spentNow = (cost ?? 0) - (session.info.usage?.costUsd ?? 0);
+    if (spentNow > 0) this.store.logUsage(session.info.id, session.info.agent, spentNow);
     session.info.usage = {
       contextUsed: usage.used,
       contextSize: usage.size,
@@ -649,6 +697,8 @@ export class SessionManager {
   /** Shutdown: stop the agents but leave the stored status alone, so the next start recovers. */
   closeAll(): void {
     this.shuttingDown = true;
+    this.terminals.closeAll();
+    this.scheduler?.stop();
     for (const session of this.sessions.values()) {
       session.info.status = "closed";
       for (const pending of session.pending.values()) pending.resolve(null);
@@ -663,7 +713,9 @@ export class SessionManager {
    */
   private async preface(session: Session): Promise<string | undefined> {
     const lead = session.info.parentId ? this.sessions.get(session.info.parentId) : undefined;
+    const project = session.info.projectId ? this.projects?.get(session.info.projectId) : undefined;
     const parts = [
+      project?.instructions ? `[Kervan] Project "${project.name}" — instructions from the user:\n${project.instructions}` : undefined,
       lead
         ? `[Kervan] You are a helper agent named "${session.info.title}", started by the lead agent "${lead.info.title}". ` +
           "Messages come from the lead, not the user, and your final answer each turn goes back to it: " +
@@ -686,7 +738,7 @@ export class SessionManager {
       session.info.budgetUsd !== undefined
         ? `[Kervan] Budget for you and your helpers together: $${session.info.budgetUsd}. Everything stops when it is used up.`
         : undefined,
-      (session.info.teamId || session.info.parentId || session.info.orchestrate) && !session.info.branch
+      (session.info.teamId || session.info.parentId || session.info.orchestrate || project) && !session.info.branch
         ? "[Kervan] Other agents may work in this same folder; check files before overwriting them."
         : undefined,
       await this.skillPreface(session),
@@ -704,6 +756,128 @@ export class SessionManager {
       "[Kervan] Agent Skills available in this session. When a task matches one, read its SKILL.md first and follow it:",
       ...lines,
     ].join("\n");
+  }
+
+  /** Snapshots the folder before a message, so its changes can be shown and undone. Local sessions only. */
+  private async checkpoint(session: Session, messageSeq: number): Promise<void> {
+    if (!this.checkpoints || this.nodeFor(session.info) !== LOCAL_NODE) return;
+    try {
+      const commit = await this.checkpoints.snapshot(session.info.id, session.cwd, `Kervan: mesaj ${messageSeq} öncesi`);
+      this.record(session, { kind: "checkpoint", commit, messageSeq });
+    } catch (error) {
+      // Not worth stopping the turn for; the Changes panel just has less to show.
+      log("warn", "checkpoint failed", { id: session.info.id, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  private checkpointsOf(session: Session): { commit: string; messageSeq: number }[] {
+    return session.events.flatMap((e) => (e.kind === "checkpoint" ? [{ commit: e.commit, messageSeq: e.messageSeq }] : []));
+  }
+
+  private requireLocal(session: Session): Checkpoints {
+    if (!this.checkpoints) throw new KervanError("bad_message", "this server keeps no checkpoints");
+    if (this.nodeFor(session.info) !== LOCAL_NODE) {
+      throw new KervanError("bad_message", "changes can only be followed for agents on this server, not on a node");
+    }
+    return this.checkpoints;
+  }
+
+  /** What the agent changed: since the session's first message, or since the last one. */
+  async changes(sessionId: string, since: "session" | "turn" = "session"): Promise<ChangeSet> {
+    const session = this.require(sessionId);
+    const checkpoints = this.requireLocal(session);
+    const all = this.checkpointsOf(session);
+    const from = since === "turn" ? all.at(-1) : all[0];
+    const branch = await repositoryBranch(session.cwd);
+    const repository = { repository: branch !== undefined, ...(branch ? { branch } : {}) };
+    if (!from) return { files: [], patch: "", truncated: false, ...repository };
+    const found = await checkpoints.changes(session.info.id, session.cwd, from.commit).catch(gitFailure);
+    return { ...found, sinceSeq: from.messageSeq, ...repository };
+  }
+
+  /**
+   * Puts files back as they were before the user message `seq`: all of them (rewinding the session's
+   * work to that point) or just `paths`. The agent is told with the next message.
+   */
+  async revert(sessionId: string, seq: number, paths?: string[]): Promise<string[]> {
+    const session = this.require(sessionId);
+    const checkpoints = this.requireLocal(session);
+    if (paths && !paths.every(isSafeRelativePath)) throw new KervanError("bad_message", "paths must be inside the workspace");
+    if (session.info.status === "running" || session.info.status === "waiting") {
+      throw new KervanError("session_busy", "stop the agent before putting files back");
+    }
+    const point = this.checkpointsOf(session).find((c) => c.messageSeq === seq);
+    if (!point) throw new KervanError("bad_message", "there is no checkpoint for that message");
+    const restored = await checkpoints.restore(session.info.id, session.cwd, point.commit, paths).catch(gitFailure);
+    const message = session.events.find((e) => e.seq === seq);
+    const quoted = message?.kind === "user_message" ? message.text.trim().split("\n")[0].slice(0, 120) : "";
+    if (paths) {
+      this.record(session, { kind: "notice", text: `${restored.length} dosya geri alındı: ${restored.slice(0, 5).join(", ")}${restored.length > 5 ? "…" : ""}` });
+      session.note = `[Kervan] The user reverted these files to how they were before their message "${quoted}": ${restored.join(", ")}. Read them again before you change them.`;
+    } else {
+      this.record(session, { kind: "notice", text: `Dosyalar "${quoted}" mesajından önceki hâline döndürüldü (${restored.length} dosya).` });
+      session.note =
+        `[Kervan] The user rewound the folder to how it was before their message "${quoted}". ` +
+        "Everything you changed after that point is gone; work from the files as they are now.";
+    }
+    return restored;
+  }
+
+  /** Commits everything in the session's folder to its own git repository. */
+  async commit(sessionId: string, message: string): Promise<string> {
+    const session = this.require(sessionId);
+    this.requireLocal(session);
+    if ((await repositoryBranch(session.cwd)) === undefined) throw new KervanError("bad_message", "this folder is not a git repository");
+    try {
+      const summary = await commitAll(session.cwd, message.trim());
+      this.record(session, { kind: "notice", text: `Commit edildi: ${summary}` });
+      return summary;
+    } catch (error) {
+      const text = error instanceof Error && "stderr" in error ? String((error as { stderr: unknown }).stderr).trim() : String(error instanceof Error ? error.message : error);
+      throw new KervanError("bad_message", text === "nothing to commit" ? "nothing to commit" : `git commit failed: ${text}`);
+    }
+  }
+
+  /** A scheduled task: a new session that gets `prompt` as soon as its agent is up. Resolves with its id. */
+  async runTask(task: { agent: string; title: string; prompt: string; projectId?: string; scheduleId: string }): Promise<string> {
+    const info = await this.create(task.agent, [], [], {
+      title: task.title,
+      scheduleId: task.scheduleId,
+      ...(task.projectId && this.projects?.get(task.projectId) ? { projectId: task.projectId } : {}),
+    });
+    const session = this.require(info.id);
+    await session.ready;
+    if (session.info.status !== "idle") throw new Error(session.info.error ?? "the agent didn't start");
+    this.prompt(info.id, task.prompt);
+    return info.id;
+  }
+
+  /** What agents spent in the last `days` days, by local day in `timeZone`, and the sessions that spent most. */
+  usageReport(days: number, timeZone: string, now = new Date()): UsageReport {
+    try {
+      new Intl.DateTimeFormat("en", { timeZone });
+    } catch {
+      throw new KervanError("bad_message", `unknown time zone '${timeZone}'`);
+    }
+    const since = new Date(now.getTime() - days * 24 * 60 * 60_000);
+    const byDay = new Map<string, { date: string; agent: string; costUsd: number }>();
+    const bySession = new Map<string, number>();
+    for (const row of this.store.usageSince(since)) {
+      const date = localParts(new Date(row.at), timeZone).date;
+      const key = `${date}\u0000${row.agent}`;
+      const day = byDay.get(key) ?? { date, agent: row.agent, costUsd: 0 };
+      day.costUsd += row.costUsd;
+      byDay.set(key, day);
+      bySession.set(row.sessionId, (bySession.get(row.sessionId) ?? 0) + row.costUsd);
+    }
+    const round = (n: number) => Math.round(n * 10_000) / 10_000;
+    return {
+      days: [...byDay.values()].map((d) => ({ ...d, costUsd: round(d.costUsd) })).sort((a, b) => a.date.localeCompare(b.date)),
+      sessions: [...bySession]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10)
+        .map(([sessionId, costUsd]) => ({ sessionId, costUsd: round(costUsd) })),
+    };
   }
 
   /** Starts (or resumes) the session's agent. On failure the session ends up in `error`. */
@@ -871,12 +1045,19 @@ export class SessionManager {
     if (session.info.status !== "running" && session.info.status !== "waiting") this.setStatus(session, "idle");
   }
 
-  private broadcast(message: ServerMessage): void {
+  /** Sends to every connected client. */
+  broadcast(message: ServerMessage): void {
     for (const listener of this.listeners) listener(message);
   }
 }
 
 /** Everything the agent said since the last message it was given. */
+/** A git error in the checkpoint store, as an answer the client gets (instead of a dropped request). */
+function gitFailure(error: unknown): never {
+  const stderr = error instanceof Error && "stderr" in error ? String((error as { stderr: unknown }).stderr).trim() : "";
+  throw new KervanError("bad_message", `checkpoint store: ${stderr || (error instanceof Error ? error.message : String(error))}`);
+}
+
 function lastReply(events: SessionEvent[]): string {
   let text = "";
   for (const event of events) {

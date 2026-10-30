@@ -14,6 +14,9 @@ import { McpRegistry } from "../src/mcp.ts";
 import { SkillLibrary } from "../src/skills.ts";
 import { OrchestraHub } from "../src/orchestra.ts";
 import { NodeHub } from "../src/nodes.ts";
+import { Checkpoints } from "../src/checkpoints.ts";
+import { ProjectRegistry } from "../src/projects.ts";
+import { Scheduler } from "../src/schedules.ts";
 
 export const TEST_TOKEN = "test-token-0123456789";
 
@@ -41,7 +44,10 @@ export async function startServer(
     hasSkill: (name) => skills.has(name),
     hasMcp: (name) => mcp.has(name),
   });
+  const projects = new ProjectRegistry(join(dataDir, "projects.json"), join(workspaces, "projects"));
   sessions = new SessionManager(runner, catalog.live, workspaces, new EventStore(":memory:"), {
+    projects,
+    checkpoints: new Checkpoints(join(dataDir, "checkpoints")),
     nodes,
     skills,
     mcp,
@@ -52,6 +58,12 @@ export async function startServer(
   const orchestra = new OrchestraHub(join(dataDir, "orchestra.sock"), sessions!);
   await orchestra.listen();
   sessions!.useOrchestra(orchestra);
+  const scheduler = new Scheduler(join(dataDir, "schedules.json"), {
+    hasAgent: (id) => catalog.live.has(id),
+    hasProject: (id) => projects.get(id) !== undefined,
+  });
+  sessions!.scheduler = scheduler;
+  scheduler.start((task) => sessions!.runTask({ agent: task.agent, title: task.title, prompt: task.prompt, scheduleId: task.id }), 60_000);
   const server = createKervanServer({
     token: TEST_TOKEN,
     sessions,

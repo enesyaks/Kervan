@@ -7,6 +7,7 @@ import { KervanError, PROTOCOL_VERSION, parseClientMessage, type ClientMessage, 
 import { MAX_NODE_FRAME_BYTES, NODE_PATH } from "./node-agent.ts";
 import { NODE_NAME, LOCAL_NODE } from "./nodes.ts";
 import type { SessionManager } from "./sessions.ts";
+import { listeningPorts, pipeTunnel, TUNNEL_PATH } from "./tunnel.ts";
 import { VERSION } from "./version.ts";
 
 export const WS_PATH = "/v1/ws";
@@ -54,7 +55,29 @@ function requireMcp(sessions: SessionManager) {
   return sessions.mcp;
 }
 
-async function handleRequest(ws: WebSocket, message: Exclude<ClientMessage, { type: "hello" }>, sessions: SessionManager) {
+function requireProjects(sessions: SessionManager) {
+  if (!sessions.projects) throw new KervanError("bad_message", "this server has no projects");
+  return sessions.projects;
+}
+
+function requireScheduler(sessions: SessionManager) {
+  if (!sessions.scheduler) throw new KervanError("bad_message", "this server runs no scheduled tasks");
+  return sessions.scheduler;
+}
+
+/** The folder of a session on this server; terminals don't reach nodes. */
+function localFolder(sessions: SessionManager, sessionId: string): string {
+  const location = sessions.location(sessionId);
+  if (!("path" in location)) throw new KervanError("bad_message", "a terminal can only open for agents on this server, not on a node");
+  return location.path;
+}
+
+async function handleRequest(
+  ws: WebSocket,
+  message: Exclude<ClientMessage, { type: "hello" }>,
+  sessions: SessionManager,
+  ownPorts: () => number[],
+) {
   switch (message.type) {
     case "ping":
       return send(ws, { type: "pong", id: message.id });
@@ -65,8 +88,55 @@ async function handleRequest(ws: WebSocket, message: Exclude<ClientMessage, { ty
         session: await sessions.create(message.agent, message.skills, message.mcpServers, {
           orchestrate: message.orchestrate,
           ...(message.budgetUsd ? { budgetUsd: message.budgetUsd } : {}),
+          ...(message.projectId ? { projectId: message.projectId } : {}),
         }),
       });
+    case "session.changes":
+      return send(ws, {
+        type: "session.changes.result",
+        id: message.id,
+        sessionId: message.sessionId,
+        changes: await sessions.changes(message.sessionId, message.since),
+      });
+    case "session.revert":
+      await sessions.revert(message.sessionId, message.seq, message.paths);
+      return send(ws, { type: "ok", id: message.id });
+    case "session.commit":
+      await sessions.commit(message.sessionId, message.message);
+      return send(ws, { type: "ok", id: message.id });
+    case "project.list":
+      return send(ws, { type: "project.list.result", id: message.id, projects: sessions.projects?.list() ?? [] });
+    case "project.save":
+      await requireProjects(sessions).save(message.project);
+      return send(ws, { type: "project.list.result", id: message.id, projects: requireProjects(sessions).list() });
+    case "project.delete":
+      requireProjects(sessions).remove(message.projectId);
+      return send(ws, { type: "project.list.result", id: message.id, projects: requireProjects(sessions).list() });
+    case "schedule.list":
+      return send(ws, { type: "schedule.list.result", id: message.id, schedules: sessions.scheduler?.list() ?? [] });
+    case "schedule.save":
+      requireScheduler(sessions).save(message.schedule);
+      return send(ws, { type: "schedule.list.result", id: message.id, schedules: requireScheduler(sessions).list() });
+    case "schedule.delete":
+      requireScheduler(sessions).remove(message.scheduleId);
+      return send(ws, { type: "schedule.list.result", id: message.id, schedules: requireScheduler(sessions).list() });
+    case "schedule.run":
+      await requireScheduler(sessions).runNow(message.scheduleId);
+      return send(ws, { type: "schedule.list.result", id: message.id, schedules: requireScheduler(sessions).list() });
+    case "usage.report":
+      return send(ws, { type: "usage.report.result", id: message.id, report: sessions.usageReport(message.days, message.timeZone) });
+    case "terminal.open": {
+      const { terminalId, backlog } = sessions.terminals.open(message.sessionId, localFolder(sessions, message.sessionId));
+      return send(ws, { type: "terminal.opened", id: message.id, terminalId, sessionId: message.sessionId, backlog });
+    }
+    case "terminal.input":
+      sessions.terminals.input(message.terminalId, message.data);
+      return send(ws, { type: "ok", id: message.id });
+    case "terminal.close":
+      sessions.terminals.close(message.terminalId);
+      return send(ws, { type: "ok", id: message.id });
+    case "port.list":
+      return send(ws, { type: "port.list.result", id: message.id, ports: await listeningPorts(ownPorts()) });
     case "session.config":
       await sessions.setConfig(message.sessionId, message.configId, message.value);
       return send(ws, { type: "ok", id: message.id });
@@ -142,7 +212,7 @@ async function handleRequest(ws: WebSocket, message: Exclude<ClientMessage, { ty
   }
 }
 
-function handleConnection(ws: WebSocket, req: IncomingMessage, sessions: SessionManager): void {
+function handleConnection(ws: WebSocket, req: IncomingMessage, sessions: SessionManager, ownPorts: () => number[]): void {
   const remote = req.socket.remoteAddress;
   let greeted = false;
   let unsubscribe: (() => void) | undefined;
@@ -193,7 +263,7 @@ function handleConnection(ws: WebSocket, req: IncomingMessage, sessions: Session
     }
 
     try {
-      await handleRequest(ws, message, sessions);
+      await handleRequest(ws, message, sessions, ownPorts);
     } catch (error) {
       if (!(error instanceof KervanError)) {
         log("error", "request failed", { type: message.type, error: String(error) });
@@ -218,6 +288,11 @@ export function attachWebSocket(
 ): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES });
   const nodeServer = new WebSocketServer({ noServer: true, maxPayload: MAX_NODE_FRAME_BYTES });
+  const tunnels = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 * 1024 });
+  const ownPorts = () => {
+    const address = server.address();
+    return address && typeof address === "object" ? [address.port] : [];
+  };
   const alive = new WeakSet<WebSocket>();
 
   server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
@@ -246,6 +321,20 @@ export function attachWebSocket(
       });
       return;
     }
+    // A forwarded connection to a port on this machine (the app's port preview).
+    if (path === TUNNEL_PATH) {
+      const port = Number(new URL(req.url ?? "/", "http://localhost").searchParams.get("port"));
+      if (!isAuthorized(req.headers.authorization, token)) {
+        rejectUpgrade(socket, 401, "Unauthorized");
+        return;
+      }
+      if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        rejectUpgrade(socket, 400, "Bad Port");
+        return;
+      }
+      tunnels.handleUpgrade(req, socket, head, (ws) => pipeTunnel(ws, port));
+      return;
+    }
     if (path !== WS_PATH) {
       rejectUpgrade(socket, 404, "Not Found");
       return;
@@ -261,7 +350,7 @@ export function attachWebSocket(
   wss.on("connection", (ws: WebSocket, req: IncomingMessage) => {
     alive.add(ws);
     ws.on("pong", () => alive.add(ws));
-    handleConnection(ws, req, sessions);
+    handleConnection(ws, req, sessions, ownPorts);
   });
 
   // Drop clients that missed a whole heartbeat round (sleeping laptop, dead network).
