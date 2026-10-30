@@ -14,7 +14,7 @@ public struct Crew: Equatable, Sendable {
     public var title: String {
         switch kind {
         case .team(let team): team.title
-        case .lead(let id): members.first { $0.id == id }?.title ?? "Ana ajan"
+        case .lead(let id): members.first { $0.id == id }?.title ?? L("Lead agent", "Ana ajan")
         }
     }
 

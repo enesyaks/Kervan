@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   server:
-    name: Sunucu (Node 24)
+    name: Server (Node 24)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -31,7 +31,7 @@ jobs:
       - run: npm test
 
   mac:
-    name: Mac uygulaması (Swift)
+    name: Mac app (Swift)
     runs-on: macos-15
     defaults:
       run:

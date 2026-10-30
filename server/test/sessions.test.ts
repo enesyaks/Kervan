@@ -213,7 +213,7 @@ describe("sessions", () => {
 
     send(ws, { type: "session.prompt", id: nextId(), sessionId, text: "crash" });
     await inbox.waitFor(
-      (m) => m.type === "session.event" && m.sessionId === sessionId && m.event.kind === "notice" && /yeniden başlatılacak/.test(m.event.text),
+      (m) => m.type === "session.event" && m.sessionId === sessionId && m.event.kind === "notice" && /restarts where it left off/.test(m.event.text),
     );
     await inbox.waitFor((m) => m.type === "session.updated" && m.session.id === sessionId && m.session.status === "idle");
 

@@ -110,16 +110,16 @@ CODE=${shell(code)}
 NAME=${shell(name)}
 NODE_MAJOR=24
 
-if [[ $EUID -ne 0 ]]; then echo "Kervan: bu komutu sudo ile çalıştırın." >&2; exit 1; fi
-if ! command -v apt-get >/dev/null; then echo "Kervan: kurulum şimdilik yalnızca Debian ve Ubuntu (apt) destekliyor." >&2; exit 1; fi
+if [[ $EUID -ne 0 ]]; then echo "Kervan: run this command with sudo." >&2; exit 1; fi
+if ! command -v apt-get >/dev/null; then echo "Kervan: setup supports only Debian and Ubuntu (apt) for now." >&2; exit 1; fi
 
-echo "==> Kervan: hub kontrol ediliyor ($HUB_HTTP)"
+echo "==> Kervan: checking the hub ($HUB_HTTP)"
 if ! curl -fsS --max-time 10 "$HUB_HTTP/health" >/dev/null; then
-  echo "Kervan: bu makine hub'a ulaşamıyor. Önce aynı Tailscale ağına katın (sudo tailscale up)." >&2
+  echo "Kervan: this machine can't reach the hub. Join the same Tailscale network first (sudo tailscale up)." >&2
   exit 1
 fi
 
-echo "==> paketler"
+echo "==> packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 # libnss-mdns + avahi: lets the node find the hub as <host>.local even after the hub's IP changes.
@@ -131,7 +131,7 @@ if ! command -v node >/dev/null || [[ "$(node -v)" != v$NODE_MAJOR.* ]]; then
   apt-get install -y -qq nodejs >/dev/null
 fi
 
-echo "==> kullanıcı ve klasörler"
+echo "==> user and folders"
 id kervan >/dev/null 2>&1 || useradd --create-home --shell /bin/bash kervan
 install -d -o kervan -g kervan -m 750 /srv/kervan /srv/kervan/workspaces
 install -d -m 755 /opt/kervan /etc/kervan
@@ -144,12 +144,12 @@ if [[ "$OWNER" != root ]]; then
   visudo -cf /etc/sudoers.d/kervan-node >/dev/null
 fi
 
-echo "==> Kervan kodu"
+echo "==> Kervan code"
 curl -fsSL "$HUB_HTTP/v1/node/bundle.tar.gz?code=$CODE" | tar -xz -C /opt/kervan/server
 chown -R "$OWNER":kervan /opt/kervan/server
 (cd /opt/kervan/server && sudo -u "$OWNER" npm ci --omit=dev --no-audit --no-fund --loglevel=error)
 
-echo "==> hub'a '$NAME' olarak katılınıyor"
+echo "==> joining the hub as '$NAME'"
 TOKEN="$(curl -fsSL -X POST -H 'content-type: application/json' -d "{\\"code\\":\\"$CODE\\"}" "$HUB_HTTP/v1/node/join" \\
   | python3 -c 'import json, sys; print(json.load(sys.stdin)["token"])')"
 umask 077
@@ -157,7 +157,7 @@ printf 'KERVAN_HUB_URL=%s\\nKERVAN_NODE_TOKEN=%s\\nKERVAN_NODE_NAME=%s\\n' "$HUB
 chown root:kervan /etc/kervan/node.env
 chmod 640 /etc/kervan/node.env
 
-echo "==> servis"
+echo "==> service"
 cat > /etc/systemd/system/kervan-node.service <<'UNIT'
 ${NODE_UNIT}UNIT
 systemctl daemon-reload
@@ -166,10 +166,10 @@ systemctl restart kervan-node
 
 cat <<DONE
 
-Kervan: '$NAME' kuruldu ve hub'a bağlanıyor; uygulamada bağlı olarak görünecek.
-Ajanların bu makinede de giriş yapması gerekir: API anahtarlarını /etc/kervan/node.env dosyasına ekleyin
-(ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY) ve 'sudo systemctl restart kervan-node' çalıştırın,
-ya da ajanın kendi girişini kervan kullanıcısıyla yapın (sudo -iu kervan).
+Kervan: '$NAME' is installed and connecting to the hub; the app will show it as connected.
+Agents need to sign in on this machine too: add API keys to /etc/kervan/node.env
+(ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY) and run 'sudo systemctl restart kervan-node',
+or sign the agent in yourself as the kervan user (sudo -iu kervan).
 DONE
 `;
 }

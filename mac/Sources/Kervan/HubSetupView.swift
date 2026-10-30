@@ -80,7 +80,7 @@ final class HubInstaller {
             do {
                 if await LocalNetwork.check(host: host) == false {
                     self.localNetworkBlocked = true
-                    throw SetupError(message: "macOS, Kervan'ın yerel ağdaki makinelere ulaşmasına izin vermiyor. Yerel Ağ ayarlarında Kervan'ı açın, sonra yeniden deneyin.")
+                    throw SetupError(message: L("macOS isn't letting Kervan reach machines on the local network. Turn Kervan on in Local Network settings, then try again.", "macOS, Kervan'ın yerel ağdaki makinelere ulaşmasına izin vermiyor. Yerel Ağ ayarlarında Kervan'ı açın, sonra yeniden deneyin."))
                 }
                 let token = HubSetup.makeToken()
                 let payload = try Self.payload(token: token)
@@ -138,7 +138,7 @@ final class HubInstaller {
         let names = [("server", "tar.gz"), ("hub-setup", "sh"), ("kervan", "service")]
         let sources = names.compactMap { Bundle.main.url(forResource: $0.0, withExtension: $0.1) }
         guard sources.count == names.count else {
-            throw SetupError(message: "Kurulum dosyaları bu uygulamada yok. Uygulamayı scripts/bundle.sh ile oluşturulmuş hâliyle açın.")
+            throw SetupError(message: L("This copy of the app has no setup files. Open the app as built by scripts/bundle.sh.", "Kurulum dosyaları bu uygulamada yok. Uygulamayı scripts/bundle.sh ile oluşturulmuş hâliyle açın."))
         }
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("kervan-setup-\(UUID().uuidString)")
         let stage = folder.appendingPathComponent("stage")
@@ -154,7 +154,7 @@ final class HubInstaller {
         tar.environment = ["COPYFILE_DISABLE": "1"]
         try tar.run()
         tar.waitUntilExit()
-        guard tar.terminationStatus == 0 else { throw SetupError(message: "Kurulum paketi hazırlanamadı.") }
+        guard tar.terminationStatus == 0 else { throw SetupError(message: L("Couldn't prepare the setup package.", "Kurulum paketi hazırlanamadı.")) }
         return archive
     }
 
@@ -202,6 +202,6 @@ final class HubInstaller {
             if await NodeSetup.isReachable("\(host):\(ServerAddress.defaultPort)") { return }
             try await Task.sleep(for: .seconds(3))
         }
-        throw SetupError(message: "Sunucu 20 dakika içinde yanıt vermedi. Ayrıntılı çıktıya bakın ya da kurulumu yeniden deneyin.")
+        throw SetupError(message: L("The server didn't answer within 20 minutes. Check the detailed output or run setup again.", "Sunucu 20 dakika içinde yanıt vermedi. Ayrıntılı çıktıya bakın ya da kurulumu yeniden deneyin."))
     }
 }

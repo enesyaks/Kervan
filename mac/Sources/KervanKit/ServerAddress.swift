@@ -112,27 +112,27 @@ public enum NodeSetup {
     /// Why an SSH install failed, in the user's words, from what ssh, curl and the script printed.
     public static func explain(output: String) -> String {
         if output.contains("a password is required") || output.contains("a terminal is required") {
-            return "Bu makinede sudo parola istiyor. Komutu o makinede kendiniz çalıştırın; parola orada sorulur."
+            return L("sudo needs a password on this machine. Run the command there yourself; it asks for the password there.", "Bu makinede sudo parola istiyor. Komutu o makinede kendiniz çalıştırın; parola orada sorulur.")
         }
         if output.contains("Permission denied") {
-            return "SSH bağlantısı reddedildi. Mac'inizin SSH anahtarını o makineye ekleyin (ssh-copy-id) ya da komutu kendiniz çalıştırın."
+            return L("The SSH connection was refused. Add your Mac's SSH key to that machine (ssh-copy-id) or run the command yourself.", "SSH bağlantısı reddedildi. Mac'inizin SSH anahtarını o makineye ekleyin (ssh-copy-id) ya da komutu kendiniz çalıştırın.")
         }
         // macOS answers an app without Local Network permission with "No route to host", even when Terminal gets through.
         if output.contains("No route to host") {
-            return "Mac bu uygulamanın yerel ağa çıkmasına izin vermiyor olabilir. Sistem Ayarları › Gizlilik ve Güvenlik › Yerel Ağ'da Kervan'ı açın, sonra yeniden deneyin. İzin açıksa makinenin aynı ağda ve açık olduğunu kontrol edin."
+            return L("macOS may not be letting this app onto the local network. Turn Kervan on in System Settings › Privacy & Security › Local Network, then try again. If it's on, check that the machine is on and on the same network.", "Mac bu uygulamanın yerel ağa çıkmasına izin vermiyor olabilir. Sistem Ayarları › Gizlilik ve Güvenlik › Yerel Ağ'da Kervan'ı açın, sonra yeniden deneyin. İzin açıksa makinenin aynı ağda ve açık olduğunu kontrol edin.")
         }
         if output.contains("Could not resolve hostname") || output.contains("ssh: connect to host") {
-            return "Makineye ulaşılamadı. Adresi ve makinenin açık olduğunu kontrol edin."
+            return L("Couldn't reach the machine. Check the address and that the machine is on.", "Makineye ulaşılamadı. Adresi ve makinenin açık olduğunu kontrol edin.")
         }
         // curl on the new machine, fetching from the hub.
         if output.contains("Could not resolve host") {
-            return "Yeni makine hub'ı bu adla bulamadı. Ayarlar › Ajanlar › Node'lar'dan hub için yerel ağ IP'sini seçin ya da makineyi Tailscale ağına katın."
+            return L("The new machine couldn't find the hub by that name. Pick the hub's local IP in Settings › Agents › Nodes, or add the machine to your Tailscale network.", "Yeni makine hub'ı bu adla bulamadı. Ayarlar › Ajanlar › Node'lar'dan hub için yerel ağ IP'sini seçin ya da makineyi Tailscale ağına katın.")
         }
         if output.contains("Failed to connect") || output.contains("Connection timed out") || output.contains("Connection refused")
             || output.contains("can't reach the hub") || output.contains("hub'a ulaşamıyor") {
-            return "Yeni makine hub'a bağlanamadı. Yerel ağ adresi seçtiyseniz hub'ın güvenlik duvarına izin ekleyin (Ayarlar › Ajanlar › Node'lar'daki komut)."
+            return L("The new machine couldn't connect to the hub. If you chose a local address, allow it in the hub's firewall (the command in Settings › Agents › Nodes).", "Yeni makine hub'a bağlanamadı. Yerel ağ adresi seçtiyseniz hub'ın güvenlik duvarına izin ekleyin (Ayarlar › Ajanlar › Node'lar'daki komut).")
         }
-        return "Kurulum tamamlanamadı. Ayrıntılar aşağıdaki çıktıda."
+        return L("Setup didn't finish. Details are in the output below.", "Kurulum tamamlanamadı. Ayrıntılar aşağıdaki çıktıda.")
     }
 }
 

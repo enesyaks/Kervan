@@ -1,4 +1,5 @@
 import AppKit
+import KervanKit
 import SwiftUI
 
 @main
@@ -37,14 +38,14 @@ private struct NewSessionCommands: View {
 
     var body: some View {
         let agents = model.store.agents
-        Button("Yeni oturum") { model.newSession() }
+        Button(L("New session", "Yeni oturum")) { model.newSession() }
             .keyboardShortcut("n")
             .disabled(!model.canCreateSession)
-        Button("Yeni takım…") { model.showNewTeam = true }
+        Button(L("New team…", "Yeni takım…")) { model.showNewTeam = true }
             .keyboardShortcut("n", modifiers: [.command, .shift])
             .disabled(!model.canCreateSession)
         if agents.count > 1 {
-            Menu("Ajanla yeni oturum") {
+            Menu(L("New session with agent", "Ajanla yeni oturum")) {
                 ForEach(agents) { agent in
                     Button(agent.displayName) { model.newSession(agent: agent.id) }
                 }

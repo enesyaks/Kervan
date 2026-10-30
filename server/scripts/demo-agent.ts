@@ -2,10 +2,11 @@
 // theme to a small web site) with a plan, file reads, real edits with diffs, a test run and a summary,
 // paced so a screen recording shows each step. No model, no key, no cost.
 //
-//   anything      → the dark-theme job in its folder (expects styles.css and index.html there)
-//   "yayınla"     → asks permission to run ./deploy.sh, then says what the user chose
+//   anything            → the dark-theme job in its folder (expects styles.css and index.html there)
+//   "publish"/"yayınla" → asks permission to run ./deploy.sh, then says what the user chose
 //
-// Usage: point an agents.yaml entry at it (see README, "Görselleri yeniden üretmek").
+// It speaks English; DEMO_LANG=tr in its environment makes it speak Turkish.
+// Usage: point an agents.yaml entry at it (see README, "Regenerating the screenshots").
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Readable, Writable } from "node:stream";
@@ -16,16 +17,22 @@ const connection = acp.ndJsonStream(
   Readable.toWeb(process.stdin) as ReadableStream<Uint8Array>,
 );
 
+const turkish = process.env.DEMO_LANG === "tr";
+const t = (english: string, turkishText: string) => (turkish ? turkishText : english);
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 let cwd = process.cwd();
 let spent = 0;
 
 const commands: acp.AvailableCommand[] = [
-  { name: "review", description: "Bekleyen değişiklikleri gözden geçir" },
-  { name: "test", description: "Test takımını çalıştır ve kırılanları düzelt" },
-  { name: "explain", description: "Bir dosyayı ya da fonksiyonu açıkla", input: { hint: "dosya ya da sembol" } },
-  { name: "compact", description: "Konuşmayı özetleyip bağlamı boşalt" },
-  { name: "init", description: "Proje için AGENTS.md oluştur" },
+  { name: "review", description: t("Review the pending changes", "Bekleyen değişiklikleri gözden geçir") },
+  { name: "test", description: t("Run the test suite and fix what breaks", "Test takımını çalıştır ve kırılanları düzelt") },
+  {
+    name: "explain",
+    description: t("Explain a file or function", "Bir dosyayı ya da fonksiyonu açıkla"),
+    input: { hint: t("file or symbol", "dosya ya da sembol") },
+  },
+  { name: "compact", description: t("Summarize the conversation to free up context", "Konuşmayı özetleyip bağlamı boşalt") },
+  { name: "init", description: t("Create an AGENTS.md for the project", "Proje için AGENTS.md oluştur") },
 ];
 
 const DARK_CSS = `
@@ -46,17 +53,26 @@ const DARK_CSS = `
 }
 `;
 
-const TOGGLE = `    <button class="theme" aria-label="Temayı değiştir"
+const TOGGLE = `    <button class="theme" aria-label="${t("Switch theme", "Temayı değiştir")}"
       onclick="document.documentElement.dataset.theme =
         document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'">◐</button>`;
 
-const SUMMARY = `Karanlık tema hazır. Değişenler:
+const SUMMARY = t(
+  `The dark theme is ready. What changed:
+
+- **styles.css**: the colors were already variables, so I added dark values for \`prefers-color-scheme: dark\`. When the system is dark, the site opens dark.
+- **index.html**: a theme button in the header; clicking it sets \`data-theme\` and overrides the system preference.
+- Contrast: text on background is **12.4:1** in dark mode and the accent **6.8:1**; both pass WCAG AA.
+
+\`npm test\` passes (14 tests). You can review the diff in the Changes panel and commit it there.`,
+  `Karanlık tema hazır. Değişenler:
 
 - **styles.css**: renkler zaten değişkendeydi; \`prefers-color-scheme: dark\` için karanlık değerleri ekledim. Sistem karanlıktaysa site de karanlık açılıyor.
 - **index.html**: başlığa bir tema düğmesi koydum; tıklayınca \`data-theme\` değişiyor ve sistem tercihini geçersiz kılıyor.
 - Kontrast: metin/arka plan oranı karanlıkta **12.4:1**, vurgu rengi **6.8:1**; ikisi de WCAG AA'yı geçiyor.
 
-\`npm test\` temiz geçti (14 test). Değişiklikler panelinden farkı görüp commit edebilirsiniz.`;
+\`npm test\` temiz geçti (14 test). Değişiklikler panelinden farkı görüp commit edebilirsiniz.`,
+);
 
 type Update = (u: acp.SessionUpdate) => Promise<void>;
 
@@ -108,12 +124,12 @@ acp
         {
           type: "select",
           id: "effort",
-          name: "Düşünme",
+          name: t("Thinking", "Düşünme"),
           category: "thought_level",
           currentValue: "high",
           options: [
-            { value: "low", name: "Az" },
-            { value: "high", name: "Çok" },
+            { value: "low", name: t("Low", "Az") },
+            { value: "high", name: t("High", "Çok") },
           ],
         },
       ],
@@ -130,15 +146,15 @@ acp
       update({
         sessionUpdate: "plan",
         entries: [
-          "Stil dosyasını ve renk değişkenlerini incele",
-          "Karanlık tema renklerini ekle",
-          "Başlığa tema düğmesi koy",
-          "Testleri çalıştır, kontrastı ölç",
+          t("Look at the stylesheet and its color variables", "Stil dosyasını ve renk değişkenlerini incele"),
+          t("Add the dark theme colors", "Karanlık tema renklerini ekle"),
+          t("Put a theme button in the header", "Başlığa tema düğmesi koy"),
+          t("Run the tests and check contrast", "Testleri çalıştır, kontrastı ölç"),
         ].map((content, i) => ({ content, status: statuses[i], priority: "high" as const })),
       });
 
-    if (text.includes("yayınla")) {
-      await say(update, "agent_message_chunk", "Siteyi yayınlamak için deploy betiğini çalıştırmam gerekiyor.");
+    if (/publish|yayınla/i.test(text)) {
+      await say(update, "agent_message_chunk", t("Publishing the site means running the deploy script.", "Siteyi yayınlamak için deploy betiğini çalıştırmam gerekiyor."));
       const answer = await client.request("session/request_permission", {
         sessionId: params.sessionId,
         toolCall: { toolCallId: "deploy", title: "Run ./deploy.sh production", kind: "execute", rawInput: { command: "./deploy.sh production" } },
@@ -149,12 +165,20 @@ acp
         ],
       });
       const allowed = answer.outcome.outcome === "selected" && answer.outcome.optionId !== "deny";
-      await say(update, "agent_message_chunk", allowed ? " Yayında: https://site.example" : " Tamam, yayınlamadım.");
+      await say(update, "agent_message_chunk", allowed ? t(" Live at https://site.example", " Yayında: https://site.example") : t(" Okay, I didn't publish.", " Tamam, yayınlamadım."));
       return { stopReason: "end_turn" };
     }
 
     await plan(["in_progress", "pending", "pending", "pending"]);
-    await say(update, "agent_thought_chunk", "Renkler büyük ihtimalle CSS değişkenlerinde; önce styles.css'e bakayım, sonra karanlık değerleri tek yerden ekleyeyim.", 12);
+    await say(
+      update,
+      "agent_thought_chunk",
+      t(
+        "The colors are probably CSS variables; I'll check styles.css first, then add the dark values in one place.",
+        "Renkler büyük ihtimalle CSS değişkenlerinde; önce styles.css'e bakayım, sonra karanlık değerleri tek yerden ekleyeyim.",
+      ),
+      12,
+    );
     await update({ sessionUpdate: "tool_call", toolCallId: "r1", title: "Read styles.css", kind: "read", status: "in_progress" });
     await sleep(500);
     await update({ sessionUpdate: "tool_call_update", toolCallId: "r1", status: "completed" });

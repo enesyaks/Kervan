@@ -28,28 +28,28 @@ struct NewSessionSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             Form {
                 Section {
-                    Picker("Ajan", selection: $agent) {
+                    Picker(L("Agent", "Ajan"), selection: $agent) {
                         ForEach(model.store.agents) { Text($0.displayName).tag($0.id) }
                     }
                     Picker(selection: $project) {
-                        Text("Yok (oturumun kendi klasörü)").tag(String?.none)
+                        Text(L("None (the session's own folder)", "Yok (oturumun kendi klasörü)")).tag(String?.none)
                         ForEach(model.store.projects) { Text($0.name).tag(Optional($0.id)) }
                     } label: {
-                        Text("Proje")
-                        Text("Ajan projenin klasöründe, projenin talimatlarıyla çalışır.")
+                        Text(L("Project", "Proje"))
+                        Text(L("The agent works in the project's folder, with the project's instructions.", "Ajan projenin klasöründe, projenin talimatlarıyla çalışır."))
                     }
                     Toggle(isOn: $orchestrate) {
-                        Text("Yardımcı ajan başlatabilsin")
-                        Text("Alt görevleri başka ajanlara verir; yardımcılar kenar çubuğunda bu oturumun altında görünür. Klasör bir git deposuysa her yardımcı kendi dalında çalışır.")
+                        Text(L("Can start helper agents", "Yardımcı ajan başlatabilsin"))
+                        Text(L("Hands subtasks to other agents; helpers show up under this session in the sidebar. In a git repository each helper works on its own branch.", "Alt görevleri başka ajanlara verir; yardımcılar kenar çubuğunda bu oturumun altında görünür. Klasör bir git deposuysa her yardımcı kendi dalında çalışır."))
                     }
                     if orchestrate {
                         BudgetField(budget: $budget)
                     }
                 }
 
-                Section("Skill'ler") {
+                Section(L("Skills", "Skill'ler")) {
                     if let available, available.isEmpty {
-                        Text("Kütüphanede skill yok. Ayarlar'dan skill klasörü ekleyebilirsiniz.").foregroundStyle(.secondary)
+                        Text(L("No skills in the library. Add a skill folder in Settings.", "Kütüphanede skill yok. Ayarlar'dan skill klasörü ekleyebilirsiniz.")).foregroundStyle(.secondary)
                     } else if let available {
                         ForEach(available) { skill in
                             Toggle(isOn: binding(for: skill.name, in: $skills)) {
@@ -64,9 +64,9 @@ struct NewSessionSheet: View {
                     }
                 }
 
-                Section("MCP sunucuları") {
+                Section(L("MCP servers", "MCP sunucuları")) {
                     if servers.isEmpty {
-                        Text("Kayıtlı MCP sunucusu yok. Ayarlar'dan ekleyebilirsiniz.").foregroundStyle(.secondary)
+                        Text(L("No MCP servers yet. Add them in Settings.", "Kayıtlı MCP sunucusu yok. Ayarlar'dan ekleyebilirsiniz.")).foregroundStyle(.secondary)
                     }
                     ForEach(servers) { server in
                         Toggle(isOn: binding(for: server.name, in: $mcpServers)) {
@@ -82,13 +82,13 @@ struct NewSessionSheet: View {
 
             HStack {
                 SettingsLink {
-                    Text("Skill ve MCP ayarları…")
+                    Text(L("Skill and MCP settings…", "Skill ve MCP ayarları…"))
                 }
                 .buttonStyle(.link)
                 Spacer()
-                Button("Vazgeç", role: .cancel) { dismiss() }
+                Button(L("Cancel", "Vazgeç"), role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                Button("Oturumu başlat") {
+                Button(L("Start session", "Oturumu başlat")) {
                     // Drop choices that no longer exist on the server.
                     let names = Set(available?.map(\.name) ?? [])
                     model.startSession(
@@ -109,7 +109,7 @@ struct NewSessionSheet: View {
         }
         .frame(width: 460, height: 560)
         .background(Color.kervanCanvas)
-        .navigationTitle("Yeni oturum")
+        .navigationTitle(L("New session", "Yeni oturum"))
         .task { await loadSkills() }
     }
 
@@ -125,7 +125,7 @@ struct NewSessionSheet: View {
         do {
             available = try await client.listSkills()
         } catch {
-            loadError = "Skill'ler alınamadı: \(error.localizedDescription)"
+            loadError = L("Couldn't load skills: \(error.localizedDescription)", "Skill'ler alınamadı: \(error.localizedDescription)")
         }
     }
 }
@@ -137,15 +137,15 @@ struct BudgetField: View {
     var body: some View {
         LabeledContent {
             HStack(spacing: 4) {
-                TextField("Bütçe", value: $budget, format: .number.precision(.fractionLength(0...2)), prompt: Text("Sınırsız"))
+                TextField(L("Budget", "Bütçe"), value: $budget, format: .number.precision(.fractionLength(0...2)), prompt: Text(L("Unlimited", "Sınırsız")))
                     .labelsHidden()
                     .multilineTextAlignment(.trailing)
                     .frame(width: 90)
                 Text("USD").foregroundStyle(.secondary)
             }
         } label: {
-            Text("Bütçe")
-            Text("Ana ajan ve yardımcılarının toplam harcaması. Dolunca hepsi durur. Şimdilik yalnızca maliyet bildiren ajanlarda (Claude) işler.")
+            Text(L("Budget", "Bütçe"))
+            Text(L("What the lead and its helpers may spend together. When it runs out, they all stop. Works only with agents that report cost (Claude) for now.", "Ana ajan ve yardımcılarının toplam harcaması. Dolunca hepsi durur. Şimdilik yalnızca maliyet bildiren ajanlarda (Claude) işler."))
         }
     }
 }

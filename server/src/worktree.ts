@@ -31,7 +31,7 @@ export function branchName(name: string, id: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 40);
-  return `kervan/${slug || "yardimci"}-${id.slice(0, 8)}`;
+  return `kervan/${slug || "helper"}-${id.slice(0, 8)}`;
 }
 
 /** A new worktree at `path` on a new branch from the repo's current HEAD. */
@@ -51,12 +51,12 @@ async function snapshot(worktree: string, message: string): Promise<void> {
 
 /** What the branch changed since it left the repo's current branch, uncommitted work included. */
 export async function branchDiff(repo: string, worktree: string, branch: string, label: string): Promise<{ stat: string; patch: string }> {
-  await snapshot(worktree, `Kervan: ${label} (ara kayıt)`);
+  await snapshot(worktree, `Kervan: ${label} (work in progress)`);
   const stat = (await git(repo, "diff", "--stat", `HEAD...${branch}`)).trim();
   const patch = await git(repo, "diff", `HEAD...${branch}`);
   return {
-    stat: stat || "değişiklik yok",
-    patch: patch.length > MAX_PATCH_CHARS ? `${patch.slice(0, MAX_PATCH_CHARS)}\n… (kısaltıldı)` : patch,
+    stat: stat || "no changes",
+    patch: patch.length > MAX_PATCH_CHARS ? `${patch.slice(0, MAX_PATCH_CHARS)}\n… (cut short)` : patch,
   };
 }
 
@@ -70,7 +70,7 @@ export async function mergeBranch(repo: string, worktree: string, branch: string
   await snapshot(worktree, `Kervan: ${label}`);
   const before = (await git(repo, "rev-parse", "HEAD")).trim();
   try {
-    await git(repo, "merge", "--no-ff", "--no-edit", "-m", `Kervan: ${label} birleştirildi`, branch);
+    await git(repo, "merge", "--no-ff", "--no-edit", "-m", `Kervan: merge ${label}`, branch);
   } catch (error) {
     const conflicts = (await git(repo, "diff", "--name-only", "--diff-filter=U").catch(() => ""))
       .split("\n")
@@ -80,5 +80,5 @@ export async function mergeBranch(repo: string, worktree: string, branch: string
     return { merged: false, conflicts, message: message || "merge failed" };
   }
   const stat = (await git(repo, "diff", "--stat", before, "HEAD")).trim();
-  return { merged: true, stat: stat || "değişiklik yok" };
+  return { merged: true, stat: stat || "no changes" };
 }

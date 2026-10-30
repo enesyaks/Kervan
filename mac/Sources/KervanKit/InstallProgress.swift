@@ -8,26 +8,26 @@ public enum InstallStep: Int, CaseIterable, Comparable, Sendable {
 
     public var title: String {
         switch self {
-        case .connecting: "Makineye bağlanılıyor"
-        case .checkingHub: "Hub'a erişim kontrol ediliyor"
-        case .packages: "Gerekli paketler ve Node.js kuruluyor"
-        case .files: "Kervan kodu indiriliyor"
-        case .joining: "Hub'a katılınıyor"
-        case .service: "Servis başlatılıyor"
-        case .connected: "Node bağlandı"
+        case .connecting: L("Connecting to the machine", "Makineye bağlanılıyor")
+        case .checkingHub: L("Checking access to the hub", "Hub'a erişim kontrol ediliyor")
+        case .packages: L("Installing packages and Node.js", "Gerekli paketler ve Node.js kuruluyor")
+        case .files: L("Downloading Kervan", "Kervan kodu indiriliyor")
+        case .joining: L("Joining the hub", "Hub'a katılınıyor")
+        case .service: L("Starting the service", "Servis başlatılıyor")
+        case .connected: L("Node connected", "Node bağlandı")
         }
     }
 
     /// One line on what is happening, for the step in progress.
     public var detail: String {
         switch self {
-        case .connecting: "Mac'inizin SSH anahtarıyla bağlanıyor."
-        case .checkingHub: "Yeni makinenin hub'a ulaşabildiği deneniyor."
-        case .packages: "En uzun adım bu; makinenin hızına göre birkaç dakika sürebilir."
-        case .files: "Kod hub'dan alınıyor ve bağımlılıkları kuruluyor."
-        case .joining: "Davet kodu, bu makineye özel bir anahtarla takas ediliyor."
-        case .service: "kervan-node servisi kuruluyor ve açılıyor."
-        case .connected: "Node hub'a bağlandı ve ajan çalıştırmaya hazır."
+        case .connecting: L("Connecting with your Mac's SSH key.", "Mac'inizin SSH anahtarıyla bağlanıyor.")
+        case .checkingHub: L("Checking that the new machine can reach the hub.", "Yeni makinenin hub'a ulaşabildiği deneniyor.")
+        case .packages: L("The longest step; it can take a few minutes depending on the machine.", "En uzun adım bu; makinenin hızına göre birkaç dakika sürebilir.")
+        case .files: L("Getting the code from the hub and installing its dependencies.", "Kod hub'dan alınıyor ve bağımlılıkları kuruluyor.")
+        case .joining: L("Trading the invite code for a key of this machine's own.", "Davet kodu, bu makineye özel bir anahtarla takas ediliyor.")
+        case .service: L("Installing and starting the kervan-node service.", "kervan-node servisi kuruluyor ve açılıyor.")
+        case .connected: L("The node is connected to the hub and ready to run agents.", "Node hub'a bağlandı ve ajan çalıştırmaya hazır.")
         }
     }
 

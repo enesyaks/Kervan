@@ -16,13 +16,13 @@ struct NodesSection: View {
                     .padding(.bottom, 10)
             }
             HStack {
-                Text("Bağlı makineler").font(.headline)
+                Text(L("Connected machines", "Bağlı makineler")).font(.headline)
                 Spacer()
-                Button("Node ekle…") { adding = true }
+                Button(L("Add node…", "Node ekle…")) { adding = true }
                     .disabled(!model.connection.state.isConnected)
             }
             if model.store.nodeInfos.isEmpty {
-                Text("Ajanları başka makinelerde de çalıştırabilirsiniz. Node ekle'ye basın; kurulumu uygulama hazırlar.")
+                Text(L("You can run agents on other machines too. Click Add node; the app prepares the setup.", "Ajanları başka makinelerde de çalıştırabilirsiniz. Node ekle'ye basın; kurulumu uygulama hazırlar."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -38,7 +38,7 @@ struct NodesSection: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Button("Kaldır", role: .destructive) { removing = node }.buttonStyle(.borderless)
+                    Button(L("Remove", "Kaldır"), role: .destructive) { removing = node }.buttonStyle(.borderless)
                 }
                 .padding(12)
                 .softSurface(radius: Radius.chip)
@@ -49,32 +49,32 @@ struct NodesSection: View {
                 }
             }
             if !model.store.nodeInfos.isEmpty {
-                Text("Bir ajanı node'da çalıştırmak için düzenleyip Node alanından seçin.")
+                Text(L("To run an agent on a node, edit it and pick the node in the Node field.", "Bir ajanı node'da çalıştırmak için düzenleyip Node alanından seçin."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
         .sheet(isPresented: $adding) { AddNodeSheet().environment(model) }
         .confirmationDialog(
-            "\(removing?.name ?? "") node'u kaldırılsın mı?",
+            L("Remove node \(removing?.name ?? "")?", "\(removing?.name ?? "") node'u kaldırılsın mı?"),
             isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })
         ) {
-            Button("Node'u kaldır", role: .destructive) {
+            Button(L("Remove node", "Node'u kaldır"), role: .destructive) {
                 if let node = removing { Task { await model.store.removeNode(node.name) } }
             }
         } message: {
-            Text("Bağlantısı kesilir ve anahtarı geçersiz olur. O makinedeki kurulum yerinde kalır; tekrar eklemek için yeni bir davet gerekir.")
+            Text(L("It's disconnected and its key stops working. The installation on that machine stays; adding it again needs a new invite.", "Bağlantısı kesilir ve anahtarı geçersiz olur. O makinedeki kurulum yerinde kalır; tekrar eklemek için yeni bir davet gerekir."))
         }
     }
 
     /// "bağlı, v0.1.0, 2 ajan" or "bağlı değil, en son 5 dk önce".
     private static func detail(_ node: NodeInfo, agents: Int) -> String {
-        var parts = [node.connected ? "bağlı" : "bağlı değil"]
+        var parts = [node.connected ? L("connected", "bağlı") : L("not connected", "bağlı değil")]
         if !node.connected, let seen = node.lastSeen.flatMap(Self.parse) {
-            parts.append("en son " + seen.formatted(.relative(presentation: .named).locale(Locale(identifier: "tr_TR"))))
+            parts.append(L("last seen ", "en son ") + seen.formatted(.relative(presentation: .named).locale(Language.shared.locale)))
         }
         if let version = node.version { parts.append("v\(version)") }
-        parts.append(agents == 0 ? "atanmış ajan yok" : "\(agents) ajan")
+        parts.append(agents == 0 ? L("no agents assigned", "atanmış ajan yok") : L("\(agents) agents", "\(agents) ajan"))
         return parts.joined(separator: ", ")
     }
 
@@ -116,20 +116,20 @@ private struct AddNodeSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             Form {
                 Section {
-                    TextField("Node adı", text: $name, prompt: Text("gpu"))
+                    TextField(L("Node name", "Node adı"), text: $name, prompt: Text("gpu"))
                         .font(.body.monospaced())
                         .disabled(invite != nil)
                         .onChange(of: name) { name = name.lowercased() }
                 } footer: {
-                    Text("Uygulamada ajanın yanında görünür, ör. \"Claude Code (gpu)\". Küçük harf, rakam ve '-'.")
+                    Text(L("Shown next to the agent in the app, e.g. \"Claude Code (gpu)\". Lowercase letters, digits and '-'.", "Uygulamada ajanın yanında görünür, ör. \"Claude Code (gpu)\". Küçük harf, rakam ve '-'."))
                 }
 
                 if invite == nil {
-                    Section("Neler olacak") {
-                        Label("Yeni makineye Node.js, Kervan ve kervan-node servisi kurulur. Genelde 2–4 dakika sürer.", systemImage: "shippingbox")
-                        Label("Makine hub'a kendine özel bir anahtarla bağlanır; Node'lar sekmesinden istediğiniz an kaldırabilirsiniz.", systemImage: "key")
-                        Label("Hub'a \(hub) adresinden ulaşır. Makine Tailscale'de değilse Node'lar sekmesinden yerel ağ adresini seçin.", systemImage: "network")
-                        Label("Makine Ubuntu ya da Debian olmalı. Parolanız uygulamaya hiç girilmez.", systemImage: "lock")
+                    Section(L("What happens", "Neler olacak")) {
+                        Label(L("Node.js, Kervan and the kervan-node service are installed on the new machine. It usually takes 2–4 minutes.", "Yeni makineye Node.js, Kervan ve kervan-node servisi kurulur. Genelde 2–4 dakika sürer."), systemImage: "shippingbox")
+                        Label(L("The machine connects to the hub with a key of its own; you can remove it any time from the Nodes tab.", "Makine hub'a kendine özel bir anahtarla bağlanır; Node'lar sekmesinden istediğiniz an kaldırabilirsiniz."), systemImage: "key")
+                        Label(L("It reaches the hub at \(hub). If the machine isn't on Tailscale, pick the local network address in the Nodes tab.", "Hub'a \(hub) adresinden ulaşır. Makine Tailscale'de değilse Node'lar sekmesinden yerel ağ adresini seçin."), systemImage: "network")
+                        Label(L("The machine must run Ubuntu or Debian. Your password never goes into the app.", "Makine Ubuntu ya da Debian olmalı. Parolanız uygulamaya hiç girilmez."), systemImage: "lock")
                     }
                     .labelStyle(GuideLabelStyle())
                 }
@@ -137,9 +137,9 @@ private struct AddNodeSheet: View {
                 if let invite {
                     if !connected {
                         Section {
-                            Picker("Kurulum", selection: $method) {
-                                Text("Uygulama SSH ile kursun").tag(Method.ssh)
-                                Text("Komutu kendim çalıştırırım").tag(Method.command)
+                            Picker(L("Setup", "Kurulum"), selection: $method) {
+                                Text(L("Let the app install over SSH", "Uygulama SSH ile kursun")).tag(Method.ssh)
+                                Text(L("I'll run the command myself", "Komutu kendim çalıştırırım")).tag(Method.command)
                             }
                             .pickerStyle(.radioGroup)
                             .disabled(installer.isRunning)
@@ -149,49 +149,49 @@ private struct AddNodeSheet: View {
                     if method == .command && !connected {
                         Section {
                             let command = NodeSetup.command(hub: hub, code: invite.code)
-                            Label("Komutu kopyalayın.", systemImage: "1.circle")
+                            Label(L("Copy the command.", "Komutu kopyalayın."), systemImage: "1.circle")
                             Text(command)
                                 .font(.callout.monospaced())
                                 .textSelection(.enabled)
                                 .padding(8)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .background(Color.kervanWell, in: RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
-                            Button(copied ? "Kopyalandı" : "Komutu kopyala") {
+                            Button(copied ? L("Copied", "Kopyalandı") : L("Copy command", "Komutu kopyala")) {
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(command, forType: .string)
                                 copied = true
                             }
-                            Label("Yeni makinede bir terminal açıp yapıştırın; sudo parolanızı orada sorar.", systemImage: "2.circle")
-                            Label("Kurulum bitince bu sayfa kendiliğinden güncellenir.", systemImage: "3.circle")
+                            Label(L("Open a terminal on the new machine and paste it; sudo asks for your password there.", "Yeni makinede bir terminal açıp yapıştırın; sudo parolanızı orada sorar."), systemImage: "2.circle")
+                            Label(L("This page updates by itself when setup is done.", "Kurulum bitince bu sayfa kendiliğinden güncellenir."), systemImage: "3.circle")
                         } header: {
-                            Text("Yeni makinede çalıştırın")
+                            Text(L("Run on the new machine", "Yeni makinede çalıştırın"))
                         } footer: {
-                            Text("Kod tek kullanımlık ve 30 dakika geçerli.")
+                            Text(L("The code works once and expires in 30 minutes.", "Kod tek kullanımlık ve 30 dakika geçerli."))
                         }
                     }
 
                     if method == .ssh && !connected {
                         Section {
-                            TextField("Adres", text: $host, prompt: Text("ör. 192.168.1.27"))
+                            TextField(L("Address", "Adres"), text: $host, prompt: Text(L("e.g. 192.168.1.27", "ör. 192.168.1.27")))
                                 .font(.body.monospaced())
                                 .disabled(installer.isRunning)
-                            TextField("Kullanıcı", text: $user)
+                            TextField(L("User", "Kullanıcı"), text: $user)
                                 .font(.body.monospaced())
                                 .disabled(installer.isRunning)
                             if let suggestion = NodeSetup.lanHub(for: host, in: model.store.hubAddresses), suggestion.address != hub {
                                 VStack(alignment: .leading, spacing: 8) {
-                                    Label("Bu makine hub ile aynı yerel ağda. Tailscale'de değilse hub'a yerel ağ adresinden (\(suggestion.address)) bağlanmalı.", systemImage: "lightbulb")
+                                    Label(L("This machine is on the hub's local network. If it isn't on Tailscale, it should reach the hub at its local address (\(suggestion.address)).", "Bu makine hub ile aynı yerel ağda. Tailscale'de değilse hub'a yerel ağ adresinden (\(suggestion.address)) bağlanmalı."), systemImage: "lightbulb")
                                         .font(.callout)
                                         .foregroundStyle(Color.kervanSaffron)
                                         .fixedSize(horizontal: false, vertical: true)
-                                    Button("Yerel ağ adresini kullan") { storedHub = suggestion.kind == .lan ? NodeHubChoice.lan : NodeHubChoice.tailscale }
+                                    Button(L("Use the local address", "Yerel ağ adresini kullan")) { storedHub = suggestion.kind == .lan ? NodeHubChoice.lan : NodeHubChoice.tailscale }
                                 }
                             }
                             if let lan = model.store.hubAddresses.first(where: { $0.address == hub && $0.kind == .lan }) {
                                 LanCheck(hub: lan)
                             }
                             HStack {
-                                Button(installer.failure == nil ? "Kur" : "Yeniden dene") {
+                                Button(installer.failure == nil ? L("Install", "Kur") : L("Try again", "Yeniden dene")) {
                                     installer.run(NodeSetup.sshArguments(user: user, host: host, hub: hub, code: invite.code))
                                 }
                                 .buttonStyle(.borderedProminent)
@@ -199,14 +199,14 @@ private struct AddNodeSheet: View {
                                 Spacer()
                             }
                         } header: {
-                            Text("Hangi makine?")
+                            Text(L("Which machine?", "Hangi makine?"))
                         } footer: {
-                            Text("Mac'inizin SSH anahtarıyla bağlanır; parola sormaz.")
+                            Text(L("Connects with your Mac's SSH key; no password is asked.", "Mac'inizin SSH anahtarıyla bağlanır; parola sormaz."))
                         }
                     }
 
                     if installer.started || connected {
-                        Section("Kurulum") {
+                        Section(L("Setup", "Kurulum")) {
                             InstallProgressList(
                                 reached: connected ? .connected : (installer.succeeded ? .connected : InstallStep.reached(in: installer.output)),
                                 running: installer.isRunning || (installer.succeeded && !connected),
@@ -220,7 +220,7 @@ private struct AddNodeSheet: View {
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                             if !installer.output.isEmpty {
-                                DisclosureGroup("Ayrıntılı çıktı") {
+                                DisclosureGroup(L("Detailed output", "Ayrıntılı çıktı")) {
                                     ScrollView {
                                         Text(installer.output)
                                             .font(.caption.monospaced())
@@ -236,29 +236,29 @@ private struct AddNodeSheet: View {
                         Section {
                             HStack(spacing: 8) {
                                 CaravanDots()
-                                Text("Makinenin bağlanması bekleniyor…").foregroundStyle(.secondary)
+                                Text(L("Waiting for the machine to connect…", "Makinenin bağlanması bekleniyor…")).foregroundStyle(.secondary)
                             }
                         }
                     }
 
                     if connected {
-                        Section("Sıradaki adımlar") {
+                        Section(L("Next steps", "Sıradaki adımlar")) {
                             VStack(alignment: .leading, spacing: 8) {
-                                Label("Bu makinedeki ajanlar için API anahtarı ekleyin", systemImage: "1.circle")
+                                Label(L("Add API keys for the agents on this machine", "Bu makinedeki ajanlar için API anahtarı ekleyin"), systemImage: "1.circle")
                                     .font(.callout.weight(.medium))
                                 Guidance(
-                                    text: "Node'da şu dosyaya ANTHROPIC_API_KEY=…, OPENAI_API_KEY=… ya da GEMINI_API_KEY=… satırlarını ekleyip servisi yeniden başlatın:",
+                                    text: L("On the node, add ANTHROPIC_API_KEY=…, OPENAI_API_KEY=… or GEMINI_API_KEY=… lines to this file and restart the service:", "Node'da şu dosyaya ANTHROPIC_API_KEY=…, OPENAI_API_KEY=… ya da GEMINI_API_KEY=… satırlarını ekleyip servisi yeniden başlatın:"),
                                     command: "sudo nano /etc/kervan/node.env && sudo systemctl restart kervan-node"
                                 )
                             }
                             VStack(alignment: .leading, spacing: 8) {
-                                Label("Bir ajanı bu node'da çalıştırın", systemImage: "2.circle")
+                                Label(L("Run an agent on this node", "Bir ajanı bu node'da çalıştırın"), systemImage: "2.circle")
                                     .font(.callout.weight(.medium))
-                                Text("Ajanlar sekmesinde bir ajanı düzenleyip Node alanından '\(name)' seçin. Uygulamada \"Claude Code (\(name))\" gibi görünür.")
+                                Text(L("In the Agents tab, edit an agent and pick '\(name)' in the Node field. It shows up as \"Claude Code (\(name))\".", "Ajanlar sekmesinde bir ajanı düzenleyip Node alanından '\(name)' seçin. Uygulamada \"Claude Code (\(name))\" gibi görünür."))
                                     .font(.callout)
                                     .foregroundStyle(.secondary)
                                     .fixedSize(horizontal: false, vertical: true)
-                                Button("Ajanlar sekmesine git") {
+                                Button(L("Go to the Agents tab", "Ajanlar sekmesine git")) {
                                     settingsTab = SettingsTab.agents
                                     dismiss()
                                 }
@@ -272,18 +272,18 @@ private struct AddNodeSheet: View {
 
             HStack(spacing: 8) {
                 if connected {
-                    Label("'\(name)' bağlandı.", systemImage: "checkmark.circle.fill")
+                    Label(L("'\(name)' is connected.", "'\(name)' bağlandı."), systemImage: "checkmark.circle.fill")
                         .foregroundStyle(Color.kervanOasis)
                 }
                 Spacer()
                 if invite == nil {
-                    Button("Vazgeç", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
-                    Button("Devam") { Task { await model.store.inviteNode(name) } }
+                    Button(L("Cancel", "Vazgeç"), role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
+                    Button(L("Continue", "Devam")) { Task { await model.store.inviteNode(name) } }
                         .keyboardShortcut(.defaultAction)
                         .buttonStyle(.borderedProminent)
                         .disabled(!Self.isValid(name) || model.store.nodeInfos.contains { $0.name == name && $0.connected })
                 } else {
-                    Button(connected ? "Bitti" : "Kapat") { dismiss() }
+                    Button(connected ? L("Done", "Bitti") : L("Close", "Kapat")) { dismiss() }
                         .keyboardShortcut(.defaultAction)
                         .buttonStyle(.borderedProminent)
                 }
@@ -331,7 +331,7 @@ private struct InstallProgressList: View {
                             .font(.callout.weight(current ? .semibold : .regular))
                             .foregroundStyle(done || current ? .primary : .secondary)
                         if current {
-                            Text(step == .connected && running ? "Servis açıldı; makinenin hub'a bağlanması bekleniyor." : step.detail)
+                            Text(step == .connected && running ? L("The service is running; waiting for the machine to connect to the hub.", "Servis açıldı; makinenin hub'a bağlanması bekleniyor.") : step.detail)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -407,7 +407,7 @@ final class SSHInstaller {
             self.process = process
         } catch {
             isRunning = false
-            failure = "ssh başlatılamadı: \(error.localizedDescription)"
+            failure = L("Couldn't start ssh: \(error.localizedDescription)", "ssh başlatılamadı: \(error.localizedDescription)")
         }
     }
 
@@ -432,24 +432,24 @@ private struct HubConnectionCard: View {
         let known = [NodeHubChoice.lan, NodeHubChoice.tailscale, ""].contains(stored)
 
         SettingsCard(
-            title: "Node'lar hub'a nasıl bağlansın?",
-            footer: "Seçim adres türü olarak saklanır; hub'ın IP'si değişirse yeni adresi kullanılır. Kurulan node'lar hub'ın bütün adreslerini bilir ve biri değişirse diğerlerini dener."
+            title: L("How should nodes reach the hub?", "Node'lar hub'a nasıl bağlansın?"),
+            footer: L("The choice is kept as a kind of address, so a new hub IP is picked up. Installed nodes know all of the hub's addresses and try the others if one changes.", "Seçim adres türü olarak saklanır; hub'ın IP'si değişirse yeni adresi kullanılır. Kurulan node'lar hub'ın bütün adreslerini bilir ve biri değişirse diğerlerini dener.")
         ) {
-            Picker("Adres", selection: Binding(
+            Picker(L("Address", "Adres"), selection: Binding(
                 get: { custom || !known ? "custom" : stored },
                 set: { value in
                     custom = value == "custom"
                     if !custom { stored = value }
                 }
             )) {
-                Text("Tailscale adıyla: \(appHub) (önerilen)").tag("")
+                Text(L("By Tailscale name: \(appHub) (recommended)", "Tailscale adıyla: \(appHub) (önerilen)")).tag("")
                 if let tailscaleNow {
-                    Text("Tailscale IP'siyle (şu an \(tailscaleNow.address))").tag(NodeHubChoice.tailscale)
+                    Text(L("By Tailscale IP (now \(tailscaleNow.address))", "Tailscale IP'siyle (şu an \(tailscaleNow.address))")).tag(NodeHubChoice.tailscale)
                 }
                 if let lanNow {
-                    Text("Yerel ağdan (şu an \(lanNow.address))").tag(NodeHubChoice.lan)
+                    Text(L("Over the local network (now \(lanNow.address))", "Yerel ağdan (şu an \(lanNow.address))")).tag(NodeHubChoice.lan)
                 }
-                Text("Başka bir adres").tag("custom")
+                Text(L("Another address", "Başka bir adres")).tag("custom")
             }
             .pickerStyle(.radioGroup)
             .labelsHidden()
@@ -457,7 +457,7 @@ private struct HubConnectionCard: View {
             .onChange(of: addresses) { stored = NodeHubChoice.migrate(stored, addresses: addresses) }
 
             if custom || !known {
-                TextField("host:port", text: $stored, prompt: Text("ör. 192.168.1.21:7420"))
+                TextField("host:port", text: $stored, prompt: Text(L("e.g. 192.168.1.21:7420", "ör. 192.168.1.21:7420")))
                     .font(.body.monospaced())
             }
 
@@ -467,11 +467,11 @@ private struct HubConnectionCard: View {
                 LanCheck(hub: lan)
             } else if stored.isEmpty || stored == NodeHubChoice.tailscale {
                 Guidance(
-                    text: "Yeni makinenin de aynı Tailscale ağında olması gerekir. Değilse o makinede bir kez şunu çalıştırın ve açılan bağlantıdan giriş yapın:",
+                    text: L("The new machine must be on the same Tailscale network. If it isn't, run this once on it and sign in at the link it shows:", "Yeni makinenin de aynı Tailscale ağında olması gerekir. Değilse o makinede bir kez şunu çalıştırın ve açılan bağlantıdan giriş yapın:"),
                     command: NodeSetup.tailscaleCommand
                 )
             } else {
-                Text("Yeni makinenin bu adrese ulaşabildiğinden emin olun; hub'ın güvenlik duvarı da bu bağlantıya izin vermeli.")
+                Text(L("Make sure the new machine can reach this address; the hub's firewall must allow it too.", "Yeni makinenin bu adrese ulaşabildiğinden emin olun; hub'ın güvenlik duvarı da bu bağlantıya izin vermeli."))
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
@@ -498,7 +498,7 @@ struct Guidance: View {
                     .padding(8)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color.kervanWell, in: RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
-                Button(copied ? "Kopyalandı" : "Kopyala") {
+                Button(copied ? L("Copied", "Kopyalandı") : L("Copy", "Kopyala")) {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(command, forType: .string)
                     copied = true
@@ -521,21 +521,21 @@ private struct LanCheck: View {
             case nil:
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("Hub'ın yerel ağdan erişilebilir olduğu kontrol ediliyor…").font(.callout).foregroundStyle(.secondary)
+                    Text(L("Checking that the hub is reachable on the local network…", "Hub'ın yerel ağdan erişilebilir olduğu kontrol ediliyor…")).font(.callout).foregroundStyle(.secondary)
                 }
             case true?:
-                Label("Hub yerel ağdan erişilebilir.", systemImage: "checkmark.circle.fill")
+                Label(L("The hub is reachable on the local network.", "Hub yerel ağdan erişilebilir."), systemImage: "checkmark.circle.fill")
                     .font(.callout)
                     .foregroundStyle(Color.kervanOasis)
             case false?:
-                Label("Hub yerel ağdan kapalı görünüyor.", systemImage: "lock.fill")
+                Label(L("The hub looks closed to the local network.", "Hub yerel ağdan kapalı görünüyor."), systemImage: "lock.fill")
                     .font(.callout.weight(.medium))
                     .foregroundStyle(Color.kervanSaffron)
                 Guidance(
-                    text: "Hub güvenlik için 7420 portunu yalnızca Tailscale'e açıyor. Yerel ağdaki makineler bağlanabilsin diye hub'da (VM'de) bir kez şunu çalıştırın; sudo parolanızı orada sorar. Yerel ağda trafik şifrelenmez, yalnızca güvendiğiniz ağlarda kullanın.",
+                    text: L("For safety the hub opens port 7420 only to Tailscale. To let machines on the local network connect, run this once on the hub; sudo asks for your password there. Traffic on the local network isn't encrypted, so use this only on networks you trust.", "Hub güvenlik için 7420 portunu yalnızca Tailscale'e açıyor. Yerel ağdaki makineler bağlanabilsin diye hub'da (VM'de) bir kez şunu çalıştırın; sudo parolanızı orada sorar. Yerel ağda trafik şifrelenmez, yalnızca güvendiğiniz ağlarda kullanın."),
                     command: NodeSetup.firewallCommand(network: hub.network ?? "192.168.1.0/24", port: Int(hub.address.split(separator: ":").last ?? "") ?? ServerAddress.defaultPort)
                 )
-                Button("Tekrar kontrol et") { attempt += 1 }
+                Button(L("Check again", "Tekrar kontrol et")) { attempt += 1 }
             }
         }
         .task(id: "\(hub.address)-\(attempt)") {
@@ -552,12 +552,12 @@ private struct LostNodeHint: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label("Bu node hub'a \(via) adresinden bağlanıyordu; hub artık o adreste değil.", systemImage: "arrow.triangle.branch")
+            Label(L("This node was reaching the hub at \(via); the hub isn't there any more.", "Bu node hub'a \(via) adresinden bağlanıyordu; hub artık o adreste değil."), systemImage: "arrow.triangle.branch")
                 .font(.callout.weight(.medium))
                 .foregroundStyle(Color.kervanSaffron)
                 .fixedSize(horizontal: false, vertical: true)
             Guidance(
-                text: "Node, hub'ın bildiği diğer adreslerini kendisi dener. Birkaç dakika içinde bağlanmazsa node'da şunu çalıştırın:",
+                text: L("The node tries the hub's other known addresses by itself. If it doesn't connect within a few minutes, run this on the node:", "Node, hub'ın bildiği diğer adreslerini kendisi dener. Birkaç dakika içinde bağlanmazsa node'da şunu çalıştırın:"),
                 command: NodeHubChoice.repairCommand(hub: hub)
             )
         }

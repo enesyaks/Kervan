@@ -87,19 +87,19 @@ struct ChangesPanel: View {
         let busy = [.running, .waiting].contains(store.session(sessionID)?.status)
 
         VStack(alignment: .leading, spacing: 0) {
-            PanelHeader(title: "Değişiklikler") {
+            PanelHeader(title: L("Changes", "Değişiklikler")) {
                 Button {
                     Task { await load() }
                 } label: {
-                    Label("Yenile", systemImage: "arrow.clockwise")
+                    Label(L("Refresh", "Yenile"), systemImage: "arrow.clockwise")
                 }
                 .labelStyle(.iconOnly)
                 .buttonStyle(.borderless)
-                .help("Yenile")
+                .help(L("Refresh", "Yenile"))
             }
-            Picker("Kapsam", selection: $sinceTurn) {
-                Text("Tüm oturum").tag(false)
-                Text("Son mesaj").tag(true)
+            Picker(L("Scope", "Kapsam"), selection: $sinceTurn) {
+                Text(L("Whole session", "Tüm oturum")).tag(false)
+                Text(L("Last message", "Son mesaj")).tag(true)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -114,8 +114,8 @@ struct ChangesPanel: View {
             if let changes {
                 if changes.files.isEmpty {
                     PanelMessage(text: changes.sinceSeq == nil
-                        ? "İlk mesajınızdan sonra ajanın değiştirdiği dosyalar burada görünür."
-                        : "Bu aralıkta değişen dosya yok.")
+                        ? L("Files the agent changes after your first message show up here.", "İlk mesajınızdan sonra ajanın değiştirdiği dosyalar burada görünür.")
+                        : L("No files changed in this range.", "Bu aralıkta değişen dosya yok."))
                 } else {
                     summary(changes)
                     ScrollView {
@@ -125,7 +125,7 @@ struct ChangesPanel: View {
                                 fileRow(file, patch: patches[file.path], since: changes.sinceSeq, busy: busy)
                             }
                             if changes.truncated {
-                                Text("Fark çok uzun; ilk kısmı gösteriliyor.").font(.caption).foregroundStyle(.secondary)
+                                Text(L("The diff is very long; showing the first part.", "Fark çok uzun; ilk kısmı gösteriliyor.")).font(.caption).foregroundStyle(.secondary)
                             }
                         }
                         .padding(12)
@@ -140,12 +140,12 @@ struct ChangesPanel: View {
         }
         .frame(maxHeight: .infinity, alignment: .top)
         .task(id: "\(sessionID)-\(sinceTurn)-\(store.session(sessionID)?.status.rawValue ?? "")") { await load() }
-        .confirmationDialog("Bütün değişiklikler geri alınsın mı?", isPresented: $confirmRevertAll) {
-            Button("Hepsini geri al", role: .destructive) {
+        .confirmationDialog(L("Revert all changes?", "Bütün değişiklikler geri alınsın mı?"), isPresented: $confirmRevertAll) {
+            Button(L("Revert all", "Hepsini geri al"), role: .destructive) {
                 if let seq = changes?.sinceSeq { Task { await revert(seq: seq, paths: []) } }
             }
         } message: {
-            Text("Dosyalar \(sinceTurn ? "son mesajınızdan" : "ilk mesajınızdan") önceki hâline döner; ajanın sonradan oluşturduğu dosyalar silinir. Ajana bir sonraki mesajınızda söylenir.")
+            Text(L("Files go back to how they were before your \(sinceTurn ? "last" : "first") message; files the agent created since are deleted. The agent is told with your next message.", "Dosyalar \(sinceTurn ? "son mesajınızdan" : "ilk mesajınızdan") önceki hâline döner; ajanın sonradan oluşturduğu dosyalar silinir. Ajana bir sonraki mesajınızda söylenir."))
         }
     }
 
@@ -153,15 +153,15 @@ struct ChangesPanel: View {
         let added = changes.files.reduce(0) { $0 + $1.additions }
         let removed = changes.files.reduce(0) { $0 + $1.deletions }
         return HStack(spacing: 8) {
-            Text("\(changes.files.count) dosya").font(.callout.weight(.medium))
+            Text(L("\(changes.files.count) files", "\(changes.files.count) dosya")).font(.callout.weight(.medium))
             LineCounts(added: added, removed: removed)
             Spacer()
             if changes.sinceSeq != nil {
-                Button("Hepsini geri al") { confirmRevertAll = true }
+                Button(L("Revert all", "Hepsini geri al")) { confirmRevertAll = true }
                     .buttonStyle(.borderless)
                     .foregroundStyle(Color.kervanCoral)
                     .disabled(working || [.running, .waiting].contains(model.store.session(sessionID)?.status))
-                    .help("Ajan çalışırken geri alınamaz")
+                    .help(L("Can't revert while the agent is working", "Ajan çalışırken geri alınamaz"))
             }
         }
         .padding(.horizontal, 12)
@@ -203,15 +203,15 @@ struct ChangesPanel: View {
                     }
                     .buttonStyle(.borderless)
                     .disabled(working || busy)
-                    .help("Bu dosyayı geri al")
-                    .accessibilityLabel("\(file.path) dosyasını geri al")
+                    .help(L("Revert this file", "Bu dosyayı geri al"))
+                    .accessibilityLabel(L("Revert \(file.path)", "\(file.path) dosyasını geri al"))
                 }
             }
             if isOpen {
                 if let patch, !DiffLine.parse(patch: patch).isEmpty {
                     DiffLinesView(lines: DiffLine.parse(patch: patch), limit: 200)
                 } else {
-                    Text("İkili dosya ya da fark gösterilemiyor.").font(.caption).foregroundStyle(.secondary)
+                    Text(L("Binary file, or the diff can't be shown.", "İkili dosya ya da fark gösterilemiyor.")).font(.caption).foregroundStyle(.secondary)
                 }
             }
         }
@@ -224,11 +224,11 @@ struct ChangesPanel: View {
                 Image(systemName: "arrow.triangle.branch").foregroundStyle(.secondary)
                 Text(changes.branch ?? "git").font(.caption.monospaced()).foregroundStyle(.secondary)
             }
-            TextField("Commit mesajı", text: $commitMessage, axis: .vertical)
+            TextField(L("Commit message", "Commit mesajı"), text: $commitMessage, axis: .vertical)
                 .lineLimit(1...4)
                 .textFieldStyle(.roundedBorder)
             HStack {
-                Text("Klasördeki bütün değişiklikler commit edilir.").font(.caption).foregroundStyle(.secondary)
+                Text(L("Commits every change in the folder.", "Klasördeki bütün değişiklikler commit edilir.")).font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button("Commit") { Task { await commit() } }
                     .buttonStyle(.borderedProminent)
@@ -255,7 +255,7 @@ struct ChangesPanel: View {
         defer { working = false }
         let message = commitMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         if let failure = await model.store.commit(sessionID, message: message) {
-            error = failure == "nothing to commit" ? "Commit edilecek değişiklik yok." : failure
+            error = failure == "nothing to commit" ? L("Nothing to commit.", "Commit edilecek değişiklik yok.") : failure
         } else {
             commitMessage = ""
             error = nil
@@ -273,9 +273,9 @@ struct ChangesPanel: View {
 
     private static func statusName(_ status: ChangedFile.Status) -> String {
         switch status {
-        case .added: "eklendi"
-        case .modified: "değişti"
-        case .deleted: "silindi"
+        case .added: L("added", "eklendi")
+        case .modified: L("changed", "değişti")
+        case .deleted: L("deleted", "silindi")
         }
     }
 
@@ -307,16 +307,16 @@ struct TerminalPanel: View {
                 Button("Ctrl-C") { Task { await model.store.typeInTerminal(sessionID, "\u{3}") } }
                     .buttonStyle(.borderless)
                     .font(.caption.monospaced())
-                    .help("Çalışan komutu durdur")
+                    .help(L("Stop the running command", "Çalışan komutu durdur"))
                     .disabled(terminal == nil || terminal?.exited == true)
                 Button {
                     model.store.clearTerminal(sessionID)
                 } label: {
-                    Label("Temizle", systemImage: "eraser")
+                    Label(L("Clear", "Temizle"), systemImage: "eraser")
                 }
                 .labelStyle(.iconOnly)
                 .buttonStyle(.borderless)
-                .help("Ekranı temizle")
+                .help(L("Clear the screen", "Ekranı temizle"))
             }
             Divider()
             if let error {
@@ -337,14 +337,14 @@ struct TerminalPanel: View {
             }
             if terminal?.exited == true {
                 HStack {
-                    Text("Kabuk kapandı.").font(.callout).foregroundStyle(.secondary)
-                    Button("Yeniden aç") { Task { await open() } }.buttonStyle(.link)
+                    Text(L("The shell exited.", "Kabuk kapandı.")).font(.callout).foregroundStyle(.secondary)
+                    Button(L("Reopen", "Yeniden aç")) { Task { await open() } }.buttonStyle(.link)
                 }
                 .padding(10)
             } else {
                 HStack(spacing: 6) {
                     Text("$").font(.callout.monospaced()).foregroundStyle(.secondary)
-                    TextField("Komut", text: $line)
+                    TextField(L("Command", "Komut"), text: $line)
                         .textFieldStyle(.plain)
                         .font(.callout.monospaced())
                         .focused($focused)
@@ -394,18 +394,18 @@ struct PreviewPanel: View {
         let ports = model.store.ports
         let forwards = model.forwarder.forwards
         VStack(alignment: .leading, spacing: 0) {
-            PanelHeader(title: "Önizleme") {
+            PanelHeader(title: L("Preview", "Önizleme")) {
                 Button {
                     Task { await model.store.loadPorts() }
                 } label: {
-                    Label("Yenile", systemImage: "arrow.clockwise")
+                    Label(L("Refresh", "Yenile"), systemImage: "arrow.clockwise")
                 }
                 .labelStyle(.iconOnly)
                 .buttonStyle(.borderless)
-                .help("Portları yeniden tara")
+                .help(L("Scan ports again", "Portları yeniden tara"))
             }
             Divider()
-            Text("Ajanın sunucuda başlattığı geliştirme sunucularını bu Mac'te localhost olarak açar.")
+            Text(L("Opens dev servers the agent started on the server as localhost on this Mac.", "Ajanın sunucuda başlattığı geliştirme sunucularını bu Mac'te localhost olarak açar."))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .padding(12)
@@ -415,7 +415,7 @@ struct PreviewPanel: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     if let ports, ports.isEmpty {
-                        Text("Sunucuda dinleyen port yok. Ajandan geliştirme sunucusunu başlatmasını isteyin.")
+                        Text(L("Nothing is listening on the server. Ask the agent to start a dev server.", "Sunucuda dinleyen port yok. Ajandan geliştirme sunucusunu başlatmasını isteyin."))
                             .font(.callout)
                             .foregroundStyle(.secondary)
                     } else if ports == nil {
@@ -428,10 +428,10 @@ struct PreviewPanel: View {
                         portRow(forward.remote, process: nil, forward: forward)
                     }
                     HStack(spacing: 6) {
-                        TextField("Port", text: $custom, prompt: Text("Başka bir port, ör. 8000"))
+                        TextField("Port", text: $custom, prompt: Text(L("Another port, e.g. 8000", "Başka bir port, ör. 8000")))
                             .textFieldStyle(.roundedBorder)
                             .onSubmit { if let port = Int(custom) { open(port) } }
-                        Button("Aç") { if let port = Int(custom) { open(port) } }
+                        Button(L("Open", "Aç")) { if let port = Int(custom) { open(port) } }
                             .disabled(Int(custom).map { !(1...65535).contains($0) } ?? true)
                     }
                     .padding(.top, 6)
@@ -448,23 +448,23 @@ struct PreviewPanel: View {
             StatusDot(color: forward == nil ? .secondary.opacity(0.5) : .kervanOasis)
             VStack(alignment: .leading, spacing: 2) {
                 Text(verbatim: ":\(port)").font(.callout.monospaced().weight(.medium))
-                Text(forward.map { "localhost:\($0.local) üzerinden açık" } ?? process ?? "dinliyor")
+                Text(forward.map { L("open at localhost:\($0.local)", "localhost:\($0.local) üzerinden açık") } ?? process ?? "dinliyor")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer()
             if let forward {
-                Button("Aç") { NSWorkspace.shared.open(forward.url) }
+                Button(L("Open", "Aç")) { NSWorkspace.shared.open(forward.url) }
                 Button {
                     model.forwarder.stop(port)
                 } label: {
                     Image(systemName: "stop.circle")
                 }
                 .buttonStyle(.borderless)
-                .help("Yönlendirmeyi durdur")
-                .accessibilityLabel("Port \(port) yönlendirmesini durdur")
+                .help(L("Stop forwarding", "Yönlendirmeyi durdur"))
+                .accessibilityLabel(L("Stop forwarding port \(port)", "Port \(port) yönlendirmesini durdur"))
             } else {
-                Button("Tarayıcıda aç") { open(port) }
+                Button(L("Open in browser", "Tarayıcıda aç")) { open(port) }
                     .buttonStyle(.borderedProminent)
                     .tint(.kervanLapis)
             }
@@ -484,7 +484,7 @@ struct PreviewPanel: View {
                 NSWorkspace.shared.open(forward.url)
                 custom = ""
             } catch {
-                self.error = "Port \(port) açılamadı: \(error.localizedDescription)"
+                self.error = L("Couldn't open port \(port): \(error.localizedDescription)", "Port \(port) açılamadı: \(error.localizedDescription)")
             }
         }
     }

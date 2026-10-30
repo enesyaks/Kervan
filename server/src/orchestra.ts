@@ -37,7 +37,7 @@ export const TOOLS: Tool[] = [
     inputSchema: {
       type: "object",
       properties: {
-        name: text("Short name shown to the user, e.g. 'Test yazarı'."),
+        name: text("Short name shown to the user, e.g. 'Test writer'."),
         task: text("Everything the helper needs to know; it can't see your conversation."),
         agent: text("Agent id from list_agents. Give this or role."),
         role: text("Role id from list_agents; uses the role's agent and instructions."),

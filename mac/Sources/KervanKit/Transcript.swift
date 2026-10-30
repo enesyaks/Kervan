@@ -52,7 +52,7 @@ public enum TranscriptItem: Equatable, Sendable, Identifiable {
 
 public enum Transcript {
     /// What "Devam et" sends: the agent resumes its conversation, so a short nudge is enough.
-    public static let resumePrompt = "Devam et: sunucu yeniden başladığı için önceki turun yarıda kaldı. Kaldığın yerden sürdür."
+    public static let resumePrompt = "Continue: your previous turn was cut off because the server restarted. Pick up where you left off."
 
     /// The row that offers "Devam et": the last one, when it is a turn cut off by a server restart.
     public static func resumable(_ items: [TranscriptItem]) -> Int? {

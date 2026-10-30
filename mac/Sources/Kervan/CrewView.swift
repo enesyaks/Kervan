@@ -42,7 +42,7 @@ struct CrewView: View {
         .navigationTitle(crew.title)
         .navigationSubtitle(
             [
-                working == 0 ? "\(members.count) ajan, hepsi boşta" : "\(members.count) ajan, \(working) çalışıyor",
+                working == 0 ? L("\(members.count) agents, all idle", "\(members.count) ajan, hepsi boşta") : L("\(members.count) agents, \(working) working", "\(members.count) ajan, \(working) çalışıyor"),
                 members.first(where: { $0.orchestrate }).flatMap(store.costSummary),
             ]
             .compactMap { $0 }
@@ -53,16 +53,16 @@ struct CrewView: View {
                 Button {
                     model.showCrew = false
                 } label: {
-                    Label("Tek oturum", systemImage: "rectangle")
+                    Label(L("Single session", "Tek oturum"), systemImage: "rectangle")
                 }
-                .help("Seçili oturuma dön (⌥⌘T)")
+                .help(L("Back to the selected session (⌥⌘T)", "Seçili oturuma dön (⌥⌘T)"))
                 .keyboardShortcut("t", modifiers: [.command, .option])
             }
         }
     }
 
     private func name(_ sessionID: String) -> String {
-        guard let session = model.store.session(sessionID) else { return "Ajan" }
+        guard let session = model.store.session(sessionID) else { return L("Agent", "Ajan") }
         return session.role ?? session.title
     }
 }
@@ -76,7 +76,7 @@ private struct FlowStrip: View {
     var body: some View {
         Group {
             if items.isEmpty {
-                Text("Henüz görev alışverişi yok. Ana ajan yardımcıya iş verdiğinde burada görünür.")
+                Text(L("No hand-offs yet. They show up here when the lead gives a helper work.", "Henüz görev alışverişi yok. Ana ajan yardımcıya iş verdiğinde burada görünür."))
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
@@ -94,7 +94,7 @@ private struct FlowStrip: View {
                                     FlowStop(item: item, name: name)
                                 }
                                 .buttonStyle(.plain)
-                                .help("Bu mesajı aç")
+                                .help(L("Open this message", "Bu mesajı aç"))
                                 .id(item.id)
                             }
                         }
@@ -118,7 +118,7 @@ private struct FlowStrip: View {
         }
         .background(Color.kervanCanvas)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Akış şeridi")
+        .accessibilityLabel(L("Activity strip", "Akış şeridi"))
     }
 }
 
@@ -154,10 +154,10 @@ private struct FlowStop: View {
         let who = name(item.sessionID)
         return switch item.kind {
         case .assigned(let from): "\(name(from)) → \(who)"
-        case .userWrote: "Siz → \(who)"
-        case .replied: "\(who) yanıtladı"
-        case .waiting: "\(who) onay bekliyor"
-        case .failed: "\(who): hata"
+        case .userWrote: L("You → \(who)", "Siz → \(who)")
+        case .replied: L("\(who) answered", "\(who) yanıtladı")
+        case .waiting: L("\(who) is waiting for approval", "\(who) onay bekliyor")
+        case .failed: L("\(who): error", "\(who): hata")
         }
     }
 
@@ -200,7 +200,7 @@ private struct MemberPanel: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
                         if items.isEmpty {
-                            Text(session.status == .starting ? "\(agentName) başlatılıyor…" : "Henüz mesaj yok.")
+                            Text(session.status == .starting ? L("Starting \(agentName)…", "\(agentName) başlatılıyor…") : L("No messages yet.", "Henüz mesaj yok."))
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                         }
@@ -222,7 +222,7 @@ private struct MemberPanel: View {
                         if session.status == .running {
                             HStack(spacing: 6) {
                                 CaravanDots()
-                                Text("çalışıyor…").font(.callout).foregroundStyle(.secondary)
+                                Text(L("working…", "çalışıyor…")).font(.callout).foregroundStyle(.secondary)
                             }
                         }
                         Color.clear.frame(height: 1).id("bottom")
@@ -275,11 +275,11 @@ private struct MemberPanel: View {
                 model.selectedSessionID = session.id
                 model.showCrew = false
             } label: {
-                Label("Aç", systemImage: "arrow.up.left.and.arrow.down.right")
+                Label(L("Open", "Aç"), systemImage: "arrow.up.left.and.arrow.down.right")
                     .labelStyle(.iconOnly)
             }
             .buttonStyle(.borderless)
-            .help("Bu oturumu tek başına aç")
+            .help(L("Open this session on its own", "Bu oturumu tek başına aç"))
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)

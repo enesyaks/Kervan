@@ -55,7 +55,7 @@ struct AttachmentChip: View {
                 Image(systemName: "xmark")
             }
             .buttonStyle(.borderless)
-            .accessibilityLabel("\(attachment.name) ekini kaldır")
+            .accessibilityLabel(L("Remove attachment \(attachment.name)", "\(attachment.name) ekini kaldır"))
         }
         .font(.callout)
         .padding(.vertical, 4)
@@ -66,9 +66,9 @@ struct AttachmentChip: View {
 
     private static func help(_ attachment: Attachment) -> String {
         switch attachment.state {
-        case .uploading: "Yükleniyor: \(attachment.remotePath)"
-        case .ready: "Yüklendi: \(attachment.remotePath)"
-        case .failed(let reason): "Yüklenemedi: \(reason)"
+        case .uploading: L("Uploading: \(attachment.remotePath)", "Yükleniyor: \(attachment.remotePath)")
+        case .ready: L("Uploaded: \(attachment.remotePath)", "Yüklendi: \(attachment.remotePath)")
+        case .failed(let reason): L("Upload failed: \(reason)", "Yüklenemedi: \(reason)")
         }
     }
 }
@@ -97,7 +97,7 @@ struct DropHint: View {
             .strokeBorder(Color.kervanLapis, style: StrokeStyle(lineWidth: 2, dash: [6, 5]))
             .background(Color.kervanLapis.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
             .overlay {
-                Label("Bırakın; dosyalar oturumun uploads klasörüne yüklenip mesaja eklenecek.", systemImage: "arrow.down.doc")
+                Label(L("Drop to upload files to the session's uploads folder and attach them to your message.", "Bırakın; dosyalar oturumun uploads klasörüne yüklenip mesaja eklenecek."), systemImage: "arrow.down.doc")
                     .font(.headline)
                     .foregroundStyle(Color.kervanLapis)
             }
@@ -117,16 +117,16 @@ struct FilesPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("Çalışma klasörü").font(.headline)
+                Text(L("Working folder", "Çalışma klasörü")).font(.headline)
                 Spacer()
                 Button {
                     Task { await load() }
                 } label: {
-                    Label("Yenile", systemImage: "arrow.clockwise")
+                    Label(L("Refresh", "Yenile"), systemImage: "arrow.clockwise")
                 }
                 .labelStyle(.iconOnly)
                 .buttonStyle(.borderless)
-                .help("Listeyi yenile")
+                .help(L("Refresh the list", "Listeyi yenile"))
             }
             .padding(12)
 
@@ -138,7 +138,7 @@ struct FilesPanel: View {
                     .foregroundStyle(.kervanCoral)
                     .padding(12)
             } else if let listing, listing.entries.isEmpty {
-                Text("Klasör boş. Sohbete dosya sürükleyin ya da ajandan bir şey üretmesini isteyin.")
+                Text(L("The folder is empty. Drop files on the chat or ask the agent to make something.", "Klasör boş. Sohbete dosya sürükleyin ya da ajandan bir şey üretmesini isteyin."))
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .padding(12)
@@ -148,7 +148,7 @@ struct FilesPanel: View {
                 }
                 .listStyle(.plain)
                 if listing.truncated {
-                    Text("Liste kısaltıldı; ilk 5000 öğe gösteriliyor.")
+                    Text(L("The list is cut short; showing the first 5000 items.", "Liste kısaltıldı; ilk 5000 öğe gösteriliyor."))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .padding(8)
@@ -188,8 +188,8 @@ struct FilesPanel: View {
                         Image(systemName: "arrow.down.circle")
                     }
                     .buttonStyle(.borderless)
-                    .help("İndirilenler klasörüne indir")
-                    .accessibilityLabel("\(entry.name) dosyasını indir")
+                    .help(L("Download to the Downloads folder", "İndirilenler klasörüne indir"))
+                    .accessibilityLabel(L("Download \(entry.name)", "\(entry.name) dosyasını indir"))
                 }
             }
         }
@@ -203,7 +203,7 @@ struct FilesPanel: View {
             listing = try await client.list(sessionID: sessionID)
             error = nil
         } catch {
-            self.error = "Dosyalar alınamadı: \(error.localizedDescription)"
+            self.error = L("Couldn't load files: \(error.localizedDescription)", "Dosyalar alınamadı: \(error.localizedDescription)")
         }
     }
 
@@ -216,7 +216,7 @@ struct FilesPanel: View {
             let saved = try await client.download(sessionID: sessionID, path: entry.path, into: folder)
             NSWorkspace.shared.activateFileViewerSelecting([saved])
         } catch {
-            self.error = "İndirilemedi: \(error.localizedDescription)"
+            self.error = L("Download failed: \(error.localizedDescription)", "İndirilemedi: \(error.localizedDescription)")
         }
     }
 }

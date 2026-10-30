@@ -28,7 +28,7 @@ struct DiffLinesView: View {
                 .background(Self.tint(line.kind).opacity(line.kind == .added || line.kind == .removed ? 0.10 : 0))
             }
             if lines.count > limit && !expanded {
-                Button("Tümünü göster (\(lines.count) satır)") { expanded = true }
+                Button(L("Show all (\(lines.count) lines)", "Tümünü göster (\(lines.count) satır)")) { expanded = true }
                     .buttonStyle(.link)
                     .font(.caption)
                     .padding(8)
@@ -67,7 +67,7 @@ struct LineCounts: View {
             if removed > 0 { Text("−\(removed)").foregroundStyle(Color.kervanCoral) }
         }
         .font(.caption.monospacedDigit())
-        .accessibilityLabel("\(added) satır eklendi, \(removed) satır silindi")
+        .accessibilityLabel(L("\(added) lines added, \(removed) lines removed", "\(added) satır eklendi, \(removed) satır silindi"))
     }
 }
 
@@ -100,8 +100,8 @@ struct PlanCard: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Plan, \(entries.count) adımdan \(done) tamam")
-            .accessibilityHint(open ? "Daraltır" : "Açar")
+            .accessibilityLabel(L("Plan, \(done) of \(entries.count) steps done", "Plan, \(entries.count) adımdan \(done) tamam"))
+            .accessibilityHint(open ? L("Collapses", "Daraltır") : L("Expands", "Açar"))
 
             if open {
                 VStack(alignment: .leading, spacing: 5) {
@@ -208,7 +208,7 @@ struct SuggestionList: View {
         }
         .softSurface(radius: Radius.card)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Öneriler")
+        .accessibilityLabel(L("Suggestions", "Öneriler"))
     }
 }
 
@@ -226,7 +226,7 @@ enum PastedImage {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("kervan-paste-\(UUID().uuidString)")
-        let file = folder.appendingPathComponent("ekran-goruntusu \(formatter.string(from: .now)).png")
+        let file = folder.appendingPathComponent(L("screenshot \(formatter.string(from: .now)).png", "ekran-goruntusu \(formatter.string(from: .now)).png"))
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             try png.write(to: file)

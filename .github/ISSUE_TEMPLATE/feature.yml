@@ -1,21 +1,21 @@
-name: Öneri
-description: Kervan'da olmasını istediğiniz bir şey.
-labels: [öneri]
+name: Feature request
+description: Something you'd like Kervan to do.
+labels: [enhancement]
 body:
   - type: textarea
     id: problem
     attributes:
-      label: Hangi sorunu çözüyor?
-      description: Şu an neyi yapamıyorsunuz ya da ne zor geliyor?
+      label: What problem does it solve?
+      description: What can't you do today, or what feels harder than it should?
     validations:
       required: true
   - type: textarea
     id: idea
     attributes:
-      label: Nasıl olsun?
-      description: Aklınızdaki çözüm; varsa taslak ya da ekran görüntüsü.
+      label: How should it work?
+      description: The solution you have in mind; a sketch or screenshot helps.
   - type: textarea
     id: alternatives
     attributes:
-      label: Başka yollar
-      description: Şimdilik nasıl idare ediyorsunuz, başka hangi çözümleri düşündünüz?
+      label: Alternatives
+      description: How do you manage today, and what else did you consider?

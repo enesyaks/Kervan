@@ -28,13 +28,13 @@ public struct SessionAlert: Equatable, Sendable {
         case .waiting:
             let request = events.last { if case .permissionRequest = $0.body { true } else { false } }
             guard case .permissionRequest(_, let title, _, _, _)? = request?.body else { return nil }
-            return SessionAlert(sessionID: session.id, kind: .waiting, title: "Onayınızı bekliyor: \(session.title)", body: "\(agentName) şunu yapmak istiyor: \(title)")
+            return SessionAlert(sessionID: session.id, kind: .waiting, title: L("Waiting for your approval: \(session.title)", "Onayınızı bekliyor: \(session.title)"), body: L("\(agentName) wants to: \(title)", "\(agentName) şunu yapmak istiyor: \(title)"))
         case .idle where previous == .running || previous == .waiting:
             // A helper answers its lead, who reads the reply; the user hears from the lead.
             guard session.parentId == nil else { return nil }
-            return SessionAlert(sessionID: session.id, kind: .answered, title: "Yanıt hazır: \(session.title)", body: lastReply(events) ?? "\(agentName) turunu bitirdi.")
+            return SessionAlert(sessionID: session.id, kind: .answered, title: L("Answer ready: \(session.title)", "Yanıt hazır: \(session.title)"), body: lastReply(events) ?? L("\(agentName) finished its turn.", "\(agentName) turunu bitirdi."))
         case .error:
-            return SessionAlert(sessionID: session.id, kind: .failed, title: "Oturum durdu: \(session.title)", body: session.error ?? "Ajan bir hata verdi.")
+            return SessionAlert(sessionID: session.id, kind: .failed, title: L("Session stopped: \(session.title)", "Oturum durdu: \(session.title)"), body: session.error ?? L("The agent hit an error.", "Ajan bir hata verdi."))
         default:
             return nil
         }

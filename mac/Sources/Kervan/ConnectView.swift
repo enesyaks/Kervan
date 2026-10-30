@@ -17,28 +17,28 @@ struct ConnectView: View {
                     .frame(maxWidth: 460)
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Sunucunuza bağlanalım")
+                    Text(L("Connect to your server", "Sunucunuza bağlanalım"))
                         .font(.system(size: 28, weight: .semibold, design: .rounded))
-                    Text("Kayıtlı sunucuya şu an ulaşılamıyor ya da bilgiler eksik. Adresi ve anahtarı kontrol edip yeniden bağlanın.")
+                    Text(L("The saved server can't be reached right now, or details are missing. Check the address and key, then connect again.", "Kayıtlı sunucuya şu an ulaşılamıyor ya da bilgiler eksik. Adresi ve anahtarı kontrol edip yeniden bağlanın."))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
                 Form {
-                    LabeledContent("Sunucu") {
+                    LabeledContent(L("Server", "Sunucu")) {
                         VStack(alignment: .leading, spacing: 4) {
-                            TextField("Sunucu", text: $model.serverInput, prompt: Text("ör. 192.168.1.21 ya da kervan"))
+                            TextField(L("Server", "Sunucu"), text: $model.serverInput, prompt: Text(L("e.g. 192.168.1.21 or kervan", "ör. 192.168.1.21 ya da kervan")))
                                 .labelsHidden()
                                 .font(.body.monospaced())
                                 .textContentType(.URL)
-                            Text("Tailscale adı ya da IP adresi. Port yazılmazsa 7420 kullanılır.")
+                            Text(L("Tailscale name or IP address. Port 7420 is used if you leave it out.", "Tailscale adı ya da IP adresi. Port yazılmazsa 7420 kullanılır."))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
                     }
-                    LabeledContent("Erişim anahtarı") {
+                    LabeledContent(L("Access key", "Erişim anahtarı")) {
                         VStack(alignment: .leading, spacing: 4) {
-                            SecureField("Erişim anahtarı", text: $model.tokenInput)
+                            SecureField(L("Access key", "Erişim anahtarı"), text: $model.tokenInput)
                                 .labelsHidden()
                                 .font(.body.monospaced())
                             TokenHint(command: Self.tokenCommand)
@@ -50,19 +50,19 @@ struct ConnectView: View {
                 .softSurface()
                 .disabled(state.isBusy)
                 VStack(alignment: .leading, spacing: 12) {
-                    ConnectStatus(state: state, host: model.address?.host ?? "sunucu")
+                    ConnectStatus(state: state, host: model.address?.host ?? L("the server", "sunucu"))
                         .fixedSize(horizontal: false, vertical: true)
                     HStack {
                         if state.isBusy {
-                            Button("Vazgeç") { model.disconnect() }
+                            Button(L("Cancel", "Vazgeç")) { model.disconnect() }
                                 .keyboardShortcut(.cancelAction)
                         } else {
-                            Button("Yeni sunucu kur…") {
+                            Button(L("Set up a new server…", "Yeni sunucu kur…")) {
                                 withAnimation(Motion.smooth) { model.showOnboarding = true }
                             }
                             .buttonStyle(.link)
                             Spacer()
-                            Button("Bağlan") { model.connect() }
+                            Button(L("Connect", "Bağlan")) { model.connect() }
                                 .buttonStyle(.borderedProminent)
                                 .tint(.kervanLapis)
                                 .controlSize(.large)
@@ -87,11 +87,11 @@ private struct TokenHint: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Text("Sunucuda görmek için:")
+            Text(L("To see it on the server:", "Sunucuda görmek için:"))
             Text(command)
                 .font(.caption.monospaced())
                 .textSelection(.enabled)
-            Button(copied ? "Kopyalandı" : "Kopyala") {
+            Button(copied ? L("Copied", "Kopyalandı") : L("Copy", "Kopyala")) {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(command, forType: .string)
                 copied = true

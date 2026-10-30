@@ -30,10 +30,12 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             return
         }
         // Asked once, the first time there is something to say; the system remembers the answer.
+        // The async form: the callback form answers on a background queue, which a main-actor closure can't run on.
         asked = true
         let center = center
-        center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
-            if granted { center.add(request) }
+        Task {
+            guard (try? await center.requestAuthorization(options: [.alert, .sound])) == true else { return }
+            try? await center.add(request)
         }
     }
 

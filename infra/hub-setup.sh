@@ -11,14 +11,14 @@ PORT=7420
 NODE_MAJOR=24
 OWNER="${SUDO_USER:-root}"
 
-if [[ $EUID -ne 0 ]]; then echo "Kervan: bu betik sudo ile çalışmalı." >&2; exit 1; fi
-if ! command -v apt-get >/dev/null; then echo "Kervan: kurulum şimdilik yalnızca Debian ve Ubuntu (apt) destekliyor." >&2; exit 1; fi
-if [[ ! -s "$HERE/server.tar.gz" || ! -s "$HERE/token" ]]; then echo "Kervan: kurulum dosyaları eksik; uygulamadan yeniden başlatın." >&2; exit 1; fi
+if [[ $EUID -ne 0 ]]; then echo "Kervan: run this script with sudo." >&2; exit 1; fi
+if ! command -v apt-get >/dev/null; then echo "Kervan: setup supports only Debian and Ubuntu (apt) for now." >&2; exit 1; fi
+if [[ ! -s "$HERE/server.tar.gz" || ! -s "$HERE/token" ]]; then echo "Kervan: setup files are missing; start again from the app." >&2; exit 1; fi
 # The token must not stay in /tmp, whether the setup works or not.
 TOKEN="$(tr -d '[:space:]' < "$HERE/token")"
 trap 'rm -f "$HERE/token"' EXIT
 
-echo "==> paketler"
+echo "==> packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq ca-certificates curl gnupg git sqlite3 ufw python3 tar avahi-daemon >/dev/null
@@ -29,7 +29,7 @@ if ! command -v node >/dev/null || [[ "$(node -v)" != v$NODE_MAJOR.* ]]; then
   apt-get install -y -qq nodejs >/dev/null
 fi
 
-echo "==> kullanıcı ve klasörler"
+echo "==> user and folders"
 id kervan >/dev/null 2>&1 || useradd --create-home --shell /bin/bash kervan
 install -d -o kervan -g kervan -m 750 /var/lib/kervan /srv/kervan /srv/kervan/workspaces
 install -d -m 755 /opt/kervan /etc/kervan
@@ -41,12 +41,12 @@ if [[ "$OWNER" != root ]]; then
   visudo -cf /etc/sudoers.d/kervan-deploy >/dev/null
 fi
 
-echo "==> Kervan kodu"
+echo "==> Kervan code"
 tar -xzf "$HERE/server.tar.gz" -C /opt/kervan/server
 chown -R "$OWNER":kervan /opt/kervan/server
 (cd /opt/kervan/server && sudo -u "$OWNER" npm ci --omit=dev --no-audit --no-fund --loglevel=error)
 
-echo "==> ayarlar"
+echo "==> settings"
 umask 077
 {
   echo "KERVAN_HOST=0.0.0.0"
@@ -68,7 +68,7 @@ if [[ "$ACCESS" != lan ]]; then
   command -v tailscale >/dev/null || curl -fsSL https://tailscale.com/install.sh | sh >/dev/null
 fi
 
-echo "==> güvenlik duvarı"
+echo "==> firewall"
 ufw default deny incoming >/dev/null
 ufw default allow outgoing >/dev/null
 ufw allow OpenSSH >/dev/null
@@ -78,11 +78,11 @@ if [[ "$ACCESS" != tailscale ]]; then
   CIDR="$(ip -4 -o addr show dev "$DEV" | awk '{print $4; exit}')"
   NET="$(python3 -c 'import ipaddress, sys; print(ipaddress.ip_interface(sys.argv[1]).network)' "$CIDR")"
   ufw allow from "$NET" to any port "$PORT" proto tcp >/dev/null
-  echo "Kervan: $NET ağındaki cihazlar $PORT portuna bağlanabilir."
+  echo "Kervan: devices on $NET can connect to port $PORT."
 fi
 ufw --force enable >/dev/null
 
-echo "==> servis"
+echo "==> service"
 install -m 644 "$HERE/kervan.service" /etc/systemd/system/kervan.service
 systemctl daemon-reload
 systemctl enable kervan >/dev/null
@@ -91,13 +91,13 @@ for _ in $(seq 1 30); do
   curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null 2>&1 && break
   sleep 1
 done
-curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null || { echo "Kervan: servis başlamadı; journalctl -u kervan ile bakın." >&2; exit 1; }
+curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null || { echo "Kervan: the service didn't start; see journalctl -u kervan." >&2; exit 1; }
 
 if [[ "$ACCESS" != lan ]] && ! tailscale status >/dev/null 2>&1; then
-  echo "==> Tailscale girişi"
-  echo "Kervan: aşağıdaki bağlantıdan Tailscale hesabınızla giriş yapın."
+  echo "==> Tailscale sign-in"
+  echo "Kervan: sign in with your Tailscale account at the link below."
   tailscale up
 fi
 
-echo "==> hazır"
-echo "Kervan: hub kuruldu ve çalışıyor (port $PORT)."
+echo "==> ready"
+echo "Kervan: the hub is installed and running (port $PORT)."

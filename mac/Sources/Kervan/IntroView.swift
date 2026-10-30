@@ -1,3 +1,4 @@
+import KervanKit
 import SwiftUI
 
 /// The opening, about two seconds: the icon's route is drawn across a night sky, three dots travel it
@@ -38,7 +39,7 @@ struct IntroView: View {
                     Text("Kervan")
                         .font(.system(size: 42, weight: .semibold, design: .rounded))
                         .foregroundStyle(.white)
-                    Text("Ajanlarınız yola çıkıyor")
+                    Text(L("Your agents are setting out", "Ajanlarınız yola çıkıyor"))
                         .font(.system(.title3, design: .rounded))
                         .foregroundStyle(.white.opacity(0.7))
                 }
@@ -50,9 +51,9 @@ struct IntroView: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: finish)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Kervan açılıyor")
+        .accessibilityLabel(L("Kervan is starting", "Kervan açılıyor"))
         .accessibilityAddTraits(.isButton)
-        .accessibilityHint("Geçmek için tıklayın")
+        .accessibilityHint(L("Click to skip", "Geçmek için tıklayın"))
         .task { await play() }
     }
 

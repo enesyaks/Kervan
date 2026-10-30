@@ -128,7 +128,7 @@ export class LocalAcpRunner implements AgentRunner {
       })
       .onRequest("session/request_permission", async ({ params }) => {
         const optionId = await onPermission({
-          title: params.toolCall.title ?? "Araç çağrısı",
+          title: params.toolCall.title ?? "Tool call",
           toolKind: params.toolCall.kind ?? "other",
           detail: describe(params.toolCall),
           options: params.options.map(({ optionId, name, kind }) => ({ optionId, name, kind })),

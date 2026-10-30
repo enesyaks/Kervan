@@ -1,43 +1,43 @@
-name: Hata bildirimi
-description: Bir şey beklediğiniz gibi çalışmıyor.
-labels: [hata]
+name: Bug report
+description: Something doesn't work the way you expect.
+labels: [bug]
 body:
   - type: textarea
     id: what
     attributes:
-      label: Ne oldu?
-      description: Ne yaptınız, ne bekliyordunuz, ne oldu?
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
     validations:
       required: true
   - type: textarea
     id: steps
     attributes:
-      label: Nasıl tekrarlanır?
+      label: Steps to reproduce
       placeholder: |
-        1. Yeni oturum açın…
+        1. Start a new session…
         2. …
     validations:
       required: true
   - type: dropdown
     id: part
     attributes:
-      label: Nerede?
+      label: Where?
       options:
-        - Mac uygulaması
-        - Sunucu
-        - Kurulum (ilk açılış, hub-setup.sh)
+        - Mac app
+        - Server
+        - Setup (first launch, hub-setup.sh)
         - Node (kervan-node)
-        - Bilmiyorum
+        - Not sure
     validations:
       required: true
   - type: input
     id: versions
     attributes:
-      label: Sürümler
-      placeholder: "macOS 15.5, sunucu 0.1.0 (Ubuntu 24.04), ajan: Claude Code"
+      label: Versions
+      placeholder: "macOS 15.5, server 0.1.0 (Ubuntu 24.04), agent: Claude Code"
   - type: textarea
     id: logs
     attributes:
-      label: Loglar
-      description: "Sunucuda `journalctl -u kervan -n 100`. Token ve API anahtarlarını silmeyi unutmayın."
+      label: Logs
+      description: "On the server: `journalctl -u kervan -n 100`. Remove tokens and API keys first."
       render: text

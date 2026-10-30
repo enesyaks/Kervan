@@ -48,7 +48,7 @@ import Testing
             Issue.record("not a schedules update")
             return
         }
-        #expect(list.first?.when.label == "Hafta içi 09:00")
+        #expect(list.first?.when.label == "Weekdays 09:00")
 
         #expect(try ServerMessage.decode(#"{"type":"ok","id":"q"}"#).requestID == "q")
         #expect(try ServerMessage.decode(#"{"type":"error","code":"bad_message","message":"m","id":"e"}"#).requestID == "e")
@@ -68,10 +68,10 @@ import Testing
     }
 
     @Test func labelsSchedules() {
-        #expect(ScheduleWhen.interval(minutes: 120).label == "2 saatte bir")
-        #expect(ScheduleWhen.interval(minutes: 15).label == "15 dakikada bir")
-        #expect(ScheduleWhen.daily(time: "07:30", weekdays: Array(1...7)).label == "Her gün 07:30")
-        #expect(ScheduleWhen.daily(time: "10:00", weekdays: [1, 3]).label == "Pzt, Çar 10:00")
+        #expect(ScheduleWhen.interval(minutes: 120).label == "Every 2 h")
+        #expect(ScheduleWhen.interval(minutes: 15).label == "Every 15 min")
+        #expect(ScheduleWhen.daily(time: "07:30", weekdays: Array(1...7)).label == "Every day 07:30")
+        #expect(ScheduleWhen.daily(time: "10:00", weekdays: [1, 3]).label == "Mon, Wed 10:00")
     }
 }
 
@@ -154,5 +154,15 @@ import Testing
         #expect(store.terminals["s"]?.output == "$ hi\n")
         store.handle(.terminalExited(terminalId: "t"))
         #expect(store.terminals["s"]?.exited == true)
+    }
+}
+
+@Suite struct SetupOutputTests {
+    @Test func followsTheEnglishSetupScript() {
+        let output = "==> packages\n==> Node.js 24\n==> user and folders\n==> Kervan code\n==> settings\n==> Tailscale\n==> firewall\n"
+        #expect(HubSetupStep.reached(in: output) == .firewall)
+        #expect(HubSetupStep.reached(in: output + "==> service\n==> Tailscale sign-in\n") == .tailscaleLogin)
+        #expect(HubSetupStep.reached(in: output + "==> service\n==> ready\n") == .ready)
+        #expect(InstallStep.reached(in: "==> Kervan: checking the hub (http://x)\n==> packages\n==> joining the hub as 'gpu'\n") == .joining)
     }
 }

@@ -57,27 +57,27 @@ public enum HubSetupStep: Int, CaseIterable, Comparable, Sendable {
 
     public var title: String {
         switch self {
-        case .uploading: "Kurulum dosyaları makineye gönderiliyor"
-        case .packages: "Gerekli paketler ve Node.js kuruluyor"
-        case .files: "Kervan kuruluyor"
-        case .settings: "Ayarlar ve erişim anahtarı yazılıyor"
-        case .firewall: "Güvenlik duvarı ayarlanıyor"
-        case .service: "Kervan servisi başlatılıyor"
-        case .tailscaleLogin: "Tailscale girişi"
-        case .ready: "Sunucu hazır"
+        case .uploading: L("Sending the setup files", "Kurulum dosyaları makineye gönderiliyor")
+        case .packages: L("Installing packages and Node.js", "Gerekli paketler ve Node.js kuruluyor")
+        case .files: L("Installing Kervan", "Kervan kuruluyor")
+        case .settings: L("Writing settings and the access key", "Ayarlar ve erişim anahtarı yazılıyor")
+        case .firewall: L("Setting up the firewall", "Güvenlik duvarı ayarlanıyor")
+        case .service: L("Starting the Kervan service", "Kervan servisi başlatılıyor")
+        case .tailscaleLogin: L("Tailscale sign-in", "Tailscale girişi")
+        case .ready: L("Server ready", "Sunucu hazır")
         }
     }
 
     public var detail: String {
         switch self {
-        case .uploading: "Mac'inizin SSH anahtarıyla bağlanıp Kervan'ı makineye kopyalıyor."
-        case .packages: "En uzun adım bu; makinenin hızına göre birkaç dakika sürebilir."
-        case .files: "Kervan kullanıcısı, klasörler ve bağımlılıklar hazırlanıyor."
-        case .settings: "Uygulamanın ürettiği anahtar sunucuya yazılıyor; Mac'inizde Keychain'de duruyor."
-        case .firewall: "Yalnızca SSH ve Kervan'ın portu açılıyor."
-        case .service: "Sunucu açılıyor ve yanıt vermesi bekleniyor."
-        case .tailscaleLogin: "Açılan bağlantıdan Tailscale hesabınızla giriş yapın."
-        case .ready: "Uygulama sunucuya bağlanıyor."
+        case .uploading: L("Connects with your Mac's SSH key and copies Kervan to the machine.", "Mac'inizin SSH anahtarıyla bağlanıp Kervan'ı makineye kopyalıyor.")
+        case .packages: L("The longest step; it can take a few minutes depending on the machine.", "En uzun adım bu; makinenin hızına göre birkaç dakika sürebilir.")
+        case .files: L("Preparing the kervan user, folders and dependencies.", "Kervan kullanıcısı, klasörler ve bağımlılıklar hazırlanıyor.")
+        case .settings: L("The key the app made is written to the server; on your Mac it's in the Keychain.", "Uygulamanın ürettiği anahtar sunucuya yazılıyor; Mac'inizde Keychain'de duruyor.")
+        case .firewall: L("Only SSH and Kervan's port are opened.", "Yalnızca SSH ve Kervan'ın portu açılıyor.")
+        case .service: L("The server is starting; waiting for it to answer.", "Sunucu açılıyor ve yanıt vermesi bekleniyor.")
+        case .tailscaleLogin: L("Sign in with your Tailscale account at the link that opens.", "Açılan bağlantıdan Tailscale hesabınızla giriş yapın.")
+        case .ready: L("The app is connecting to the server.", "Uygulama sunucuya bağlanıyor.")
         }
     }
 
@@ -85,14 +85,16 @@ public enum HubSetupStep: Int, CaseIterable, Comparable, Sendable {
         var step = HubSetupStep.uploading
         for line in output.split(whereSeparator: \.isNewline) where line.hasPrefix("==>") {
             let text = line.lowercased()
+            // English since 0.2; the Turkish markers are what older setup scripts print.
+            let signIn = text.contains("sign-in") || text.contains("giriş")
             let found: HubSetupStep? =
-                text.contains("paketler") || text.contains("node.js") ? .packages
-                : text.contains("kullanıcı") || text.contains("kervan kodu") ? .files
-                : text.contains("ayarlar") || text.contains("==> tailscale") && !text.contains("giriş") ? .settings
-                : text.contains("güvenlik") ? .firewall
-                : text.contains("servis") ? .service
-                : text.contains("giriş") ? .tailscaleLogin
-                : text.contains("hazır") ? .ready
+                text.contains("packages") || text.contains("paketler") || text.contains("node.js") ? .packages
+                : text.contains("user and") || text.contains("kervan code") || text.contains("kullanıcı") || text.contains("kervan kodu") ? .files
+                : text.contains("settings") || text.contains("ayarlar") || text.contains("==> tailscale") && !signIn ? .settings
+                : text.contains("firewall") || text.contains("güvenlik") ? .firewall
+                : text.contains("service") || text.contains("servis") ? .service
+                : signIn ? .tailscaleLogin
+                : text.contains("ready") || text.contains("hazır") ? .ready
                 : nil
             if let found, found > step { step = found }
         }

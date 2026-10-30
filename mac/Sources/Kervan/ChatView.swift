@@ -23,14 +23,14 @@ struct ChatView: View {
 
         VStack(spacing: 0) {
             if !model.connection.state.isConnected {
-                Banner(text: "Bağlantı bir anlığına koptu; arka planda yeniden bağlanıyoruz. İşleriniz sunucuda sürüyor.", systemImage: "wifi.exclamationmark", tint: .kervanSaffron)
+                Banner(text: L("The connection dropped for a moment; reconnecting in the background. Your work keeps going on the server.", "Bağlantı bir anlığına koptu; arka planda yeniden bağlanıyoruz. İşleriniz sunucuda sürüyor."), systemImage: "wifi.exclamationmark", tint: .kervanSaffron)
             }
 
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 18) {
                         if let leadID = session?.parentId {
-                            LeadLink(leadTitle: model.store.session(leadID)?.title ?? "Ana ajan", branch: session?.branch) {
+                            LeadLink(leadTitle: model.store.session(leadID)?.title ?? L("Lead agent", "Ana ajan"), branch: session?.branch) {
                                 model.selectedSessionID = leadID
                             }
                         }
@@ -44,11 +44,11 @@ struct ChatView: View {
                         if status == .running {
                             HStack(spacing: 8) {
                                 CaravanDots()
-                                Text("\(agentName) üzerinde çalışıyor…").foregroundStyle(.secondary)
+                                Text(L("\(agentName) is working…", "\(agentName) üzerinde çalışıyor…")).foregroundStyle(.secondary)
                             }
                         }
                         if status == .error {
-                            Banner(text: "Bu oturumun ajanı durdu. Yeni bir oturum açarak kaldığınız yerden devam edebilirsiniz.", systemImage: "pause.circle", tint: .kervanCoral)
+                            Banner(text: L("This session's agent stopped. Start a new session to carry on.", "Bu oturumun ajanı durdu. Yeni bir oturum açarak kaldığınız yerden devam edebilirsiniz."), systemImage: "pause.circle", tint: .kervanCoral)
                         }
                         Color.clear.frame(height: 1).id(Self.bottom)
                     }
@@ -124,7 +124,7 @@ struct ChatView: View {
             attach(urls)
             return true
         } isTargeted: { dropTargeted = $0 }
-        .navigationTitle(session?.title ?? "Oturum")
+        .navigationTitle(session?.title ?? L("Session", "Oturum"))
         .navigationSubtitle(
             ["\(agentName), \(status.label.lowercased())", session.flatMap(model.store.costSummary)]
                 .compactMap { $0 }
@@ -136,14 +136,14 @@ struct ChatView: View {
         }
         .toolbar { tools }
         .alert(
-            "Dosyalar geri sarılsın mı?",
+            L("Rewind the files?", "Dosyalar geri sarılsın mı?"),
             isPresented: Binding(get: { rewinding != nil }, set: { if !$0 { rewinding = nil } }),
             presenting: rewinding
         ) { pending in
-            Button(pending.thenEdit ? "Geri sar ve düzenle" : "Geri sar", role: .destructive) { rewind(pending) }
-            Button("Vazgeç", role: .cancel) {}
+            Button(pending.thenEdit ? L("Rewind and edit", "Geri sar ve düzenle") : L("Rewind", "Geri sar"), role: .destructive) { rewind(pending) }
+            Button(L("Cancel", "Vazgeç"), role: .cancel) {}
         } message: { _ in
-            Text("Klasördeki dosyalar bu mesajdan önceki hâline döner; ajanın sonradan oluşturduğu dosyalar silinir. Konuşma silinmez; ajana bir sonraki mesajınızda söylenir.")
+            Text(L("The folder goes back to how it was before this message; files the agent created since are deleted. The conversation stays, and the agent is told with your next message.", "Klasördeki dosyalar bu mesajdan önceki hâline döner; ajanın sonradan oluşturduğu dosyalar silinir. Konuşma silinmez; ajana bir sonraki mesajınızda söylenir."))
         }
     }
 
@@ -174,9 +174,9 @@ struct ChatView: View {
                     Button {
                         model.showCrew = true
                     } label: {
-                        Label("Takım görünümü", systemImage: "rectangle.split.3x1")
+                        Label(L("Team view", "Takım görünümü"), systemImage: "rectangle.split.3x1")
                     }
-                    .help("Takımdaki bütün ajanları yan yana göster (⌥⌘T)")
+                    .help(L("Show the whole team side by side (⌥⌘T)", "Takımdaki bütün ajanları yan yana göster (⌥⌘T)"))
                     .keyboardShortcut("t", modifiers: [.command, .option])
                 }
             }
@@ -184,9 +184,9 @@ struct ChatView: View {
                 Button {
                     model.showPanel(.changes)
                 } label: {
-                    Label("Değişiklikler", systemImage: "plusminus")
+                    Label(L("Changes", "Değişiklikler"), systemImage: "plusminus")
                 }
-                .help("Ajanın değiştirdiği dosyalar (⌥⌘D)")
+                .help(L("Files the agent changed (⌥⌘D)", "Ajanın değiştirdiği dosyalar (⌥⌘D)"))
                 .keyboardShortcut("d", modifiers: [.command, .option])
             }
             ToolbarItem {
@@ -195,7 +195,7 @@ struct ChatView: View {
                 } label: {
                     Label("Panel", systemImage: "sidebar.right")
                 }
-                .help("Dosyalar, değişiklikler, terminal ve önizleme (⌥⌘0)")
+                .help(L("Files, changes, terminal and preview (⌥⌘0)", "Dosyalar, değişiklikler, terminal ve önizleme (⌥⌘0)"))
                 .keyboardShortcut("0", modifiers: [.command, .option])
             }
     }
@@ -277,7 +277,7 @@ struct ChatView: View {
 
     /// Who wrote a message the user didn't: the lead agent's session title.
     private func senderName(_ sessionID: String) -> String {
-        model.store.session(sessionID)?.title ?? "Ana ajan"
+        model.store.session(sessionID)?.title ?? L("Lead agent", "Ana ajan")
     }
 
     /// Changes whenever the transcript grows, including chunks appended to the last message.
@@ -305,7 +305,7 @@ struct ChatView: View {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
-        panel.prompt = "Ekle"
+        panel.prompt = L("Add", "Ekle")
         if panel.runModal() == .OK { attach(panel.urls) }
     }
 
@@ -314,7 +314,7 @@ struct ChatView: View {
         guard let client = model.fileClient else { return }
         for url in urls where url.isFileURL {
             if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
-                model.store.lastError = "Klasörler henüz eklenemiyor: \(url.lastPathComponent)"
+                model.store.lastError = L("Folders can't be attached yet: \(url.lastPathComponent)", "Klasörler henüz eklenemiyor: \(url.lastPathComponent)")
                 continue
             }
             let attachment = Attachment(name: url.lastPathComponent, taken: Set(attachments.map(\.remotePath)))
@@ -346,10 +346,10 @@ private struct EmptySession: View {
         case .starting:
             HStack(spacing: 8) {
                 CaravanDots()
-                Text("\(agentName) hazırlanıyor…").foregroundStyle(.secondary)
+                Text(L("Starting \(agentName)…", "\(agentName) hazırlanıyor…")).foregroundStyle(.secondary)
             }
         case .idle:
-            Text("\(agentName) hazır. Aklınızdakini yazın; birlikte başlayalım.")
+            Text(L("\(agentName) is ready. Tell it what you have in mind.", "\(agentName) hazır. Aklınızdakini yazın; birlikte başlayalım."))
                 .foregroundStyle(.secondary)
         default:
             EmptyView()
@@ -367,12 +367,12 @@ private struct LeadLink: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 Image(systemName: "arrow.turn.down.right").foregroundStyle(Color.kervanSaffron)
-                Text("Bu yardımcıyı \(leadTitle) başlattı.").foregroundStyle(.secondary)
-                Button("Ana ajana git", action: open).buttonStyle(.link)
+                Text(L("\(leadTitle) started this helper.", "Bu yardımcıyı \(leadTitle) başlattı.")).foregroundStyle(.secondary)
+                Button(L("Go to the lead", "Ana ajana git"), action: open).buttonStyle(.link)
             }
             if let branch {
                 BranchLabel(branch: branch)
-                    .help("Yardımcı kendi worktree'sinde bu dalda çalışıyor; ana ajan birleştirene kadar değişiklikleri orada kalır.")
+                    .help(L("The helper works on this branch in its own worktree; its changes stay there until the lead merges them.", "Yardımcı kendi worktree'sinde bu dalda çalışıyor; ana ajan birleştirene kadar değişiklikleri orada kalır."))
             }
         }
         .font(.callout)
@@ -388,7 +388,7 @@ struct BranchLabel: View {
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .truncationMode(.middle)
-            .accessibilityLabel("Dal: \(branch)")
+            .accessibilityLabel(L("Branch: \(branch)", "Dal: \(branch)"))
     }
 }
 
@@ -435,12 +435,12 @@ struct TranscriptRow: View {
     @ViewBuilder
     private func menu(_ text: String) -> some View {
         if canRewind {
-            Button("Düzenle ve yeniden gönder") { act?(.edit) }
-            Button("Dosyaları bu mesajdan önceye geri sar") { act?(.rewind) }
+            Button(L("Edit and resend", "Düzenle ve yeniden gönder")) { act?(.edit) }
+            Button(L("Rewind files to before this message", "Dosyaları bu mesajdan önceye geri sar")) { act?(.rewind) }
         }
-        Button("Aynı mesajı yeniden gönder") { act?(.resend) }
+        Button(L("Send this message again", "Aynı mesajı yeniden gönder")) { act?(.resend) }
         Divider()
-        Button("Kopyala") {
+        Button(L("Copy", "Kopyala")) {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
         }
@@ -450,11 +450,11 @@ struct TranscriptRow: View {
     private func actions(_ text: String) -> some View {
         HStack(spacing: 2) {
             if canRewind {
-                iconButton("pencil", "Düzenle ve yeniden gönder: dosyalar bu mesajdan önceki hâline döner") { act?(.edit) }
-                iconButton("arrow.uturn.backward", "Dosyaları bu mesajdan önceye geri sar") { act?(.rewind) }
+                iconButton("pencil", L("Edit and resend: files go back to how they were before this message", "Düzenle ve yeniden gönder: dosyalar bu mesajdan önceki hâline döner")) { act?(.edit) }
+                iconButton("arrow.uturn.backward", L("Rewind files to before this message", "Dosyaları bu mesajdan önceye geri sar")) { act?(.rewind) }
             }
-            iconButton("arrow.clockwise", "Aynı mesajı yeniden gönder") { act?(.resend) }
-            iconButton("doc.on.doc", "Kopyala") {
+            iconButton("arrow.clockwise", L("Send this message again", "Aynı mesajı yeniden gönder")) { act?(.resend) }
+            iconButton("doc.on.doc", L("Copy", "Kopyala")) {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(text, forType: .string)
             }
@@ -501,14 +501,14 @@ struct TranscriptRow: View {
             .background(accent.opacity(0.16), in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(from.map { "Ana ajan \(senderName($0)): \(text)" } ?? "Siz: \(text)")
+        .accessibilityLabel(from.map { L("Lead \(senderName($0)): \(text)", "Ana ajan \(senderName($0)): \(text)") } ?? L("You: \(text)", "Siz: \(text)"))
         .accessibilityActions {
             if act != nil && from == nil {
                 if canRewind {
-                    Button("Düzenle ve yeniden gönder") { act?(.edit) }
-                    Button("Dosyaları bu mesajdan önceye geri sar") { act?(.rewind) }
+                    Button(L("Edit and resend", "Düzenle ve yeniden gönder")) { act?(.edit) }
+                    Button(L("Rewind files to before this message", "Dosyaları bu mesajdan önceye geri sar")) { act?(.rewind) }
                 }
-                Button("Aynı mesajı yeniden gönder") { act?(.resend) }
+                Button(L("Send this message again", "Aynı mesajı yeniden gönder")) { act?(.resend) }
             }
         }
     }
@@ -536,7 +536,7 @@ struct TranscriptRow: View {
                 .fixedSize(horizontal: false, vertical: true)
 
         case .thought(_, let text):
-            DisclosureGroup("Düşünme") {
+            DisclosureGroup(L("Thinking", "Düşünme")) {
                 Text(text)
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -556,10 +556,10 @@ struct TranscriptRow: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
                 if let resume {
-                    Button("Devam et", action: resume)
+                    Button(L("Continue", "Devam et"), action: resume)
                         .buttonStyle(.bordered)
                         .controlSize(.small)
-                        .help("Ajana kaldığı yerden sürdürmesini söyler")
+                        .help(L("Tells the agent to carry on where it stopped", "Ajana kaldığı yerden sürdürmesini söyler"))
                 }
             }
 
@@ -582,12 +582,12 @@ struct TranscriptRow: View {
 
     private static func stopText(_ reason: String) -> String {
         switch reason {
-        case "cancelled": "Durduruldu."
-        case "max_tokens": "Yanıt uzunluk sınırına ulaştı."
-        case "max_turn_requests": "Adım sınırına ulaşıldı."
-        case "refusal": "Ajan bu isteği yanıtlamadı."
-        case "interrupted": "Sunucu yeniden başladığı için yarıda kaldı."
-        default: "Tur bitti: \(reason)"
+        case "cancelled": L("Stopped.", "Durduruldu.")
+        case "max_tokens": L("The answer hit its length limit.", "Yanıt uzunluk sınırına ulaştı.")
+        case "max_turn_requests": L("The step limit was reached.", "Adım sınırına ulaşıldı.")
+        case "refusal": L("The agent declined this request.", "Ajan bu isteği yanıtlamadı.")
+        case "interrupted": L("Cut off because the server restarted.", "Sunucu yeniden başladığı için yarıda kaldı.")
+        default: L("Turn ended: \(reason)", "Tur bitti: \(reason)")
         }
     }
 }
@@ -634,7 +634,7 @@ private struct ToolRow: View {
             .buttonStyle(.plain)
             .disabled(diffs.isEmpty)
             .accessibilityElement(children: .combine)
-            .accessibilityHint(diffs.isEmpty ? "" : open ? "Farkı gizler" : "Değişen satırları gösterir")
+            .accessibilityHint(diffs.isEmpty ? "" : open ? L("Hides the diff", "Farkı gizler") : L("Shows the changed lines", "Değişen satırları gösterir"))
 
             if open {
                 ForEach(Array(lines.enumerated()), id: \.offset) { _, diff in
@@ -643,12 +643,12 @@ private struct ToolRow: View {
                             Text(diff.path).font(.caption.monospaced()).foregroundStyle(.secondary)
                         }
                         if diff.lines.isEmpty {
-                            Text("İçerik aynı kaldı.").font(.caption).foregroundStyle(.secondary)
+                            Text(L("The content didn't change.", "İçerik aynı kaldı.")).font(.caption).foregroundStyle(.secondary)
                         } else {
                             DiffLinesView(lines: diff.lines)
                         }
                         if diff.truncated {
-                            Text("Dosya uzun; farkın tamamı Değişiklikler panelinde.").font(.caption).foregroundStyle(.secondary)
+                            Text(L("The file is long; the full diff is in the Changes panel.", "Dosya uzun; farkın tamamı Değişiklikler panelinde.")).font(.caption).foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -664,10 +664,10 @@ private struct ToolRow: View {
 
     private static func statusLabel(_ status: String) -> String {
         switch status {
-        case "pending": "Bekliyor"
-        case "in_progress": "Çalışıyor"
-        case "completed": "Tamam"
-        case "failed": "Başarısız"
+        case "pending": L("Pending", "Bekliyor")
+        case "in_progress": L("Running", "Çalışıyor")
+        case "completed": L("Done", "Tamam")
+        case "failed": L("Failed", "Başarısız")
         default: status
         }
     }
@@ -712,7 +712,7 @@ private struct PermissionCard: View {
 
     private var openCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("\(agentName) onayınızı bekliyor", systemImage: "hand.raised.fill")
+            Label(L("\(agentName) is waiting for your approval", "\(agentName) onayınızı bekliyor"), systemImage: "hand.raised.fill")
                 .font(.headline)
                 .foregroundStyle(Color.kervanSaffron)
 
@@ -750,17 +750,17 @@ private struct PermissionCard: View {
                 .strokeBorder(Color.kervanSaffron.opacity(0.35), lineWidth: 1)
         )
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(agentName) onayınızı bekliyor: \(prompt.title)")
+        .accessibilityLabel(L("\(agentName) is waiting for your approval: \(prompt.title)", "\(agentName) onayınızı bekliyor: \(prompt.title)"))
     }
 
     private func resolvedLine(_ resolution: PermissionPrompt.Resolution) -> some View {
         let (text, symbol, tint): (String, String, Color) = switch resolution {
         case .chose(let option) where option.allows:
-            (option.kind == "allow_always" ? "Her zaman izin verildi" : "İzin verildi", "checkmark.shield", .kervanOasis)
+            (option.kind == "allow_always" ? L("Always allowed", "Her zaman izin verildi") : L("Allowed", "İzin verildi"), "checkmark.shield", .kervanOasis)
         case .chose:
-            ("Reddedildi", "xmark.shield", .secondary)
+            (L("Rejected", "Reddedildi"), "xmark.shield", .secondary)
         case .cancelled:
-            ("İptal edildi", "xmark.shield", .secondary)
+            (L("Cancelled", "İptal edildi"), "xmark.shield", .secondary)
         }
         return Label {
             Text("\(text): ") + Text(prompt.title).font(.callout.monospaced())
@@ -779,10 +779,10 @@ private struct PermissionCard: View {
 
     private static func label(_ option: PermissionChoice) -> String {
         switch option.kind {
-        case "allow_once": "İzin ver"
-        case "allow_always": "Her zaman izin ver"
-        case "reject_once": "Reddet"
-        case "reject_always": "Her zaman reddet"
+        case "allow_once": L("Allow", "İzin ver")
+        case "allow_always": L("Always allow", "Her zaman izin ver")
+        case "reject_once": L("Reject", "Reddet")
+        case "reject_always": L("Always reject", "Her zaman reddet")
         default: option.name
         }
     }
@@ -839,10 +839,10 @@ private struct Composer: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(SoftPressStyle())
-                .help("Dosya ekle; sohbete sürükleyip bırakabilirsiniz de")
-                .accessibilityLabel("Dosya ekle")
+                .help(L("Attach files; you can also drop them on the chat", "Dosya ekle; sohbete sürükleyip bırakabilirsiniz de"))
+                .accessibilityLabel(L("Attach files", "Dosya ekle"))
 
-                TextField("Ne yapmak istersiniz?", text: $draft, axis: .vertical)
+                TextField(L("What would you like to do?", "Ne yapmak istersiniz?"), text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(.system(size: 14, design: .rounded))
                     .lineLimit(1...8)
@@ -871,8 +871,8 @@ private struct Composer: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(SoftPressStyle())
-                .help("Sesle yazın (macOS dikte)")
-                .accessibilityLabel("Dikte")
+                .help(L("Dictate (macOS dictation)", "Sesle yazın (macOS dikte)"))
+                .accessibilityLabel(L("Dictation", "Dikte"))
 
                 let busy = status == .running || status == .waiting
                 let empty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -888,8 +888,8 @@ private struct Composer: View {
                 .buttonStyle(SoftPressStyle())
                 .keyboardShortcut(busy ? KeyboardShortcut(".", modifiers: .command) : KeyboardShortcut(.return, modifiers: .command))
                 .disabled(!busy && !ready)
-                .help(busy ? "Durdur (⌘.)" : "Gönder (↩)")
-                .accessibilityLabel(busy ? "Durdur" : "Gönder")
+                .help(busy ? L("Stop (⌘.)", "Durdur (⌘.)") : L("Send (↩)", "Gönder (↩)"))
+                .accessibilityLabel(busy ? L("Stop", "Durdur") : L("Send", "Gönder"))
             }
             .padding(.leading, 6)
             .padding(.trailing, 8)
@@ -905,7 +905,7 @@ private struct Composer: View {
                     SettingMenu(option: option) { choose(option, $0) }
                 }
                 Spacer()
-                Text("/ komut, @ dosya. ↩ gönderir, ⌥↩ yeni satır.")
+                Text(L("/ commands, @ files. ↩ sends, ⌥↩ new line.", "/ komut, @ dosya. ↩ gönderir, ⌥↩ yeni satır."))
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
@@ -1012,7 +1012,7 @@ struct Banner: View {
                 .fixedSize(horizontal: false, vertical: true)
             Spacer()
             if let dismiss {
-                Button("Kapat", action: dismiss).buttonStyle(.link)
+                Button(L("Close", "Kapat"), action: dismiss).buttonStyle(.link)
             }
         }
         .font(.callout)

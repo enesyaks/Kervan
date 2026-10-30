@@ -1,26 +1,26 @@
-# Güvenlik
+# Security
 
-## Açık bildirmek
+## Reporting a vulnerability
 
-Bir güvenlik açığı bulduysanız lütfen **herkese açık bir issue açmayın.** GitHub'ın
-[özel güvenlik bildirimi](https://github.com/enesyaks/Kervan/security/advisories/new) üzerinden yazın.
-Bildirimi birkaç gün içinde yanıtlamaya, düzeltmeyi yayımlayana kadar ayrıntıları gizli tutmaya çalışırım.
+If you find a security issue, please **don't open a public issue.** Report it privately through GitHub's
+[security advisories](https://github.com/enesyaks/Kervan/security/advisories/new). I'll try to answer within a
+few days and keep the details private until a fix is out.
 
-Faydalı olur:
+Helpful to include:
 
-- Etkilenen bileşen (sunucu, Mac uygulaması, kurulum betikleri) ve sürüm ya da commit,
-- Açığı yeniden üretmek için adımlar,
-- Olası etki.
+- The affected part (server, Mac app, setup scripts) and the version or commit,
+- Steps to reproduce,
+- The possible impact.
 
-## Kapsam ve tasarım varsayımları
+## Scope and design assumptions
 
-Kervan **kendi ağınızda** çalışmak üzere tasarlandı:
+Kervan is designed to run **on your own network**:
 
-- Sunucu yerel ağda ya da Tailscale içinde çalışır; doğrudan internete açılması desteklenmez.
-- Erişim tek bir paylaşılan token iledir (`/etc/kervan/env`). Token'a sahip olan, ajanları ve terminali kullanabilir;
-  yani sunucuda `kervan` kullanıcısı yetkisiyle komut çalıştırabilir.
-- Ajanlar bu kullanıcıyla çalışır; systemd servisi `ProtectSystem=strict` ile yazma alanını sınırlar.
-- API anahtarları ve MCP sırları sunucuda `0600` izinli dosyalarda durur ve istemciye gönderilmez.
+- The server runs on your local network or inside Tailscale; exposing it directly to the internet isn't supported.
+- Access is a single shared token (`/etc/kervan/env`). Whoever has the token can use the agents and the terminal,
+  which means running commands on the server as the `kervan` user.
+- Agents run as that user; the systemd service limits where it can write with `ProtectSystem=strict`.
+- API keys and MCP secrets are kept on the server in `0600` files and are never sent to clients.
 
-Bu varsayımların dışına çıkan her şey (token olmadan erişim, anahtarların istemciye sızması, yazma alanının dışına
-çıkabilmek, node token'ıyla uygulama API'sine erişmek) güvenlik açığı sayılır.
+Anything that breaks these assumptions counts as a vulnerability: access without the token, keys leaking to a
+client, writing outside the allowed paths, or using a node token against the app's API.

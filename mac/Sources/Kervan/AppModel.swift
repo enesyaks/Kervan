@@ -195,10 +195,10 @@ enum SessionPanel: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .files: "Dosyalar"
-        case .changes: "Değişiklikler"
+        case .files: L("Files", "Dosyalar")
+        case .changes: L("Changes", "Değişiklikler")
         case .terminal: "Terminal"
-        case .preview: "Önizleme"
+        case .preview: L("Preview", "Önizleme")
         }
     }
 

@@ -208,19 +208,19 @@ public enum ScheduleWhen: Codable, Equatable, Sendable {
     public var label: String {
         switch self {
         case .interval(let minutes):
-            return minutes % 60 == 0 ? "\(minutes / 60) saatte bir" : "\(minutes) dakikada bir"
+            return minutes % 60 == 0 ? L("Every \(minutes / 60) h", "\(minutes / 60) saatte bir") : L("Every \(minutes) min", "\(minutes) dakikada bir")
         case .daily(let time, let weekdays):
             let days: String = switch Set(weekdays) {
-            case Set(1...7): "Her gün"
-            case Set(1...5): "Hafta içi"
-            case Set([6, 7]): "Hafta sonu"
+            case Set(1...7): L("Every day", "Her gün")
+            case Set(1...5): L("Weekdays", "Hafta içi")
+            case Set([6, 7]): L("Weekends", "Hafta sonu")
             default: weekdays.sorted().map { Self.dayNames[$0 - 1] }.joined(separator: ", ")
             }
             return "\(days) \(time)"
         }
     }
 
-    public static let dayNames = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"]
+    public static let dayNames = [L("Mon", "Pzt"), L("Tue", "Sal"), L("Wed", "Çar"), L("Thu", "Per"), L("Fri", "Cum"), L("Sat", "Cmt"), L("Sun", "Paz")]
 }
 
 public struct ScheduleInfo: Codable, Equatable, Sendable, Identifiable {

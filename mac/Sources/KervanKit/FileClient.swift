@@ -45,12 +45,12 @@ public enum FileClientError: Error, Equatable, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .http(401): "Sunucu erişim anahtarını kabul etmedi."
-        case .http(404): "Dosya ya da oturum sunucuda bulunamadı."
-        case .http(413): "Dosya sunucunun kabul ettiği boyuttan büyük."
-        case .http(400): "Bu dosya yolu kabul edilmedi."
-        case .http(let status): "Sunucu isteği tamamlayamadı (HTTP \(status))."
-        case .notASkill: "Seçilen klasörde SKILL.md yok; bir skill klasörü seçin."
+        case .http(401): L("The server didn't accept the access key.", "Sunucu erişim anahtarını kabul etmedi.")
+        case .http(404): L("The file or session wasn't found on the server.", "Dosya ya da oturum sunucuda bulunamadı.")
+        case .http(413): L("The file is larger than the server accepts.", "Dosya sunucunun kabul ettiği boyuttan büyük.")
+        case .http(400): L("This file path wasn't accepted.", "Bu dosya yolu kabul edilmedi.")
+        case .http(let status): L("The server couldn't complete the request (HTTP \(status)).", "Sunucu isteği tamamlayamadı (HTTP \(status)).")
+        case .notASkill: L("The folder has no SKILL.md; choose a skill folder.", "Seçilen klasörde SKILL.md yok; bir skill klasörü seçin.")
         }
     }
 }
@@ -91,7 +91,7 @@ public struct FileClient: Sendable {
     public func download(sessionID: String, path: String, into folder: URL) async throws -> URL {
         let (temporary, response) = try await session.download(for: request(url(sessionID: sessionID, path: path)))
         try Self.check(response)
-        let name = path.split(separator: "/").last.map(String.init) ?? "dosya"
+        let name = path.split(separator: "/").last.map(String.init) ?? "file"
         let destination = Self.freeName(for: folder.appendingPathComponent(name))
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try FileManager.default.moveItem(at: temporary, to: destination)

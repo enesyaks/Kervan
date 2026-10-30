@@ -206,7 +206,7 @@ import Testing
     @Test func surfacesRequestErrors() {
         let (store, _) = makeStore()
         store.handle(.error(code: "session_busy", message: "the agent is still answering", id: "r9"))
-        #expect(store.lastError == "Ajan hâlâ önceki mesajınız üzerinde çalışıyor; bitince yazabilirsiniz.")
+        #expect(store.lastError == "The agent is still working on your last message; you can write when it's done.")
     }
 }
 
@@ -319,7 +319,7 @@ import Testing
         ]
         let sessions = ["today", "yesterday", "week", "old", "today2"].map { session($0) } + [session("gone", archived: true)]
         let (active, archived) = SessionGroups.group(sessions, lastActivity: { activity[$0.id]! }, now: now, calendar: calendar)
-        #expect(active.map(\.title) == ["Bugün", "Dün", "Son 7 gün", "Daha eski"])
+        #expect(active.map(\.title) == ["Today", "Yesterday", "Last 7 days", "Older"])
         #expect(active[0].sessions.map(\.id) == ["today2", "today"])
         #expect(archived.map(\.id) == ["gone"])
     }
@@ -574,7 +574,7 @@ import Testing
 
     @Test func asksForApprovalsAndEndedTurnsAndErrors() {
         let waiting = SessionAlert.on(info(.waiting), from: .running, events: [ask], agentName: "Claude Code")
-        #expect(waiting == SessionAlert(sessionID: "s", kind: .waiting, title: "Onayınızı bekliyor: Sürüm", body: "Claude Code şunu yapmak istiyor: Run npm test"))
+        #expect(waiting == SessionAlert(sessionID: "s", kind: .waiting, title: "Waiting for your approval: Sürüm", body: "Claude Code wants to: Run npm test"))
         #expect(SessionAlert.on(info(.idle), from: .running, events: reply, agentName: "Claude Code")?.body == "Bitti, testler geçti.")
         #expect(SessionAlert.on(info(.error, error: "agent exited"), from: .running, events: [], agentName: "x")?.kind == .failed)
     }
@@ -634,7 +634,7 @@ import Testing
         store.handle(message)
         #expect(store.nodeInfos == [NodeInfo(name: "gpu", connected: false, version: "0.1.0", lastSeen: "t")])
         store.handle(.error(code: "node_offline", message: "node 'gpu' is offline", id: "x"))
-        #expect(store.lastError?.hasPrefix("Ajanın çalıştığı makine (node) şu an bağlı değil") == true)
+        #expect(store.lastError?.hasPrefix("The machine (node) this agent runs on isn't connected") == true)
     }
 }
 
@@ -668,12 +668,12 @@ import Testing
     }
 
     @Test func explainsCommonSSHFailures() {
-        #expect(NodeSetup.explain(output: "sudo: a password is required").contains("sudo parola istiyor"))
+        #expect(NodeSetup.explain(output: "sudo: a password is required").contains("sudo needs a password"))
         #expect(NodeSetup.explain(output: "ubuntu@gpu: Permission denied (publickey).").contains("ssh-copy-id"))
-        #expect(NodeSetup.explain(output: "ssh: Could not resolve hostname gpu").contains("Makineye ulaşılamadı"))
-        #expect(NodeSetup.explain(output: "ssh: connect to host 192.168.1.28 port 22: No route to host").contains("Yerel Ağ"))
-        #expect(NodeSetup.explain(output: "curl: (6) Could not resolve host: kervan").contains("yerel ağ IP'sini seçin"))
-        #expect(NodeSetup.explain(output: "curl: (7) Failed to connect to 192.168.1.21 port 7420").contains("güvenlik duvarına"))
+        #expect(NodeSetup.explain(output: "ssh: Could not resolve hostname gpu").contains("Couldn't reach the machine"))
+        #expect(NodeSetup.explain(output: "ssh: connect to host 192.168.1.28 port 22: No route to host").contains("Local Network"))
+        #expect(NodeSetup.explain(output: "curl: (6) Could not resolve host: kervan").contains("local IP"))
+        #expect(NodeSetup.explain(output: "curl: (7) Failed to connect to 192.168.1.21 port 7420").contains("firewall"))
     }
 
     @Test func keepsOnlyTheInviteItAskedFor() async {

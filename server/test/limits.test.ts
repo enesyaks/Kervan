@@ -60,7 +60,7 @@ describe("budgets, limits and helper worktrees", () => {
 
   it("names branches readably", () => {
     assert.equal(branchName("Test yazarı İşçi", "abcdef1234"), "kervan/test-yazari-isci-abcdef12");
-    assert.equal(branchName("!!!", "abcdef1234"), "kervan/yardimci-abcdef12");
+    assert.equal(branchName("!!!", "abcdef1234"), "kervan/helper-abcdef12");
   });
 
   it("keeps the usage an agent reports", async () => {
@@ -79,7 +79,7 @@ describe("budgets, limits and helper worktrees", () => {
     await prompt(lead.id, "usage 0.2");
     assert.equal(sessions.crewCost(lead.id), 0.5);
     const notice = sessions.history(lead.id).find((e) => e.kind === "notice");
-    assert.match(notice && notice.kind === "notice" ? notice.text : "", /Bütçe doldu: \$0\.50 \/ \$0\.5/);
+    assert.match(notice && notice.kind === "notice" ? notice.text : "", /Budget used up: \$0\.50 of \$0\.5/);
     await assert.rejects(sessions.startHelper(lead.id, { name: "Fazla", task: "x", agent: "fake" }), /budget of \$0\.5/);
     assert.throws(() => sessions.messageHelper(lead.id, helper.helperId, "devam"), /budget/);
   });
@@ -94,7 +94,7 @@ describe("budgets, limits and helper worktrees", () => {
     const helper = await sessions.startHelper(lead.id, { name: "Yavaş", task: "slow", agent: "fake" });
     await sessions.waitForHelper(lead.id, helper.helperId, 5000);
     const notice = sessions.history(helper.helperId).find((e) => e.kind === "notice");
-    assert.match(notice && notice.kind === "notice" ? notice.text : "", /süresi sınırı/);
+    assert.match(notice && notice.kind === "notice" ? notice.text : "", /turn time limit/);
   });
 
   it("uses the configured helper limit", async () => {
@@ -131,7 +131,7 @@ describe("budgets, limits and helper worktrees", () => {
     const result = await sessions.mergeHelper(lead.id, helper.helperId);
     assert.equal(result.merged, true);
     assert.equal(readFileSync(join(dir, "test.py"), "utf8"), "assert True\n");
-    assert.match(git(dir, "log", "-1", "--format=%s"), /Test yazarı birleştirildi/);
+    assert.match(git(dir, "log", "-1", "--format=%s"), /Kervan: merge Test yazarı/);
   });
 
   it("reports conflicts and leaves the lead's folder as it was", async () => {

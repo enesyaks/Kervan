@@ -15,25 +15,25 @@ struct SettingsView: View {
     var body: some View {
         TabView(selection: $tab) {
             GeneralSettings()
-                .tabItem { Label("Genel", systemImage: "gearshape") }
+                .tabItem { Label(L("General", "Genel"), systemImage: "gearshape") }
                 .tag(SettingsTab.general)
             SkillsSettings()
-                .tabItem { Label("Skill'ler", systemImage: "book.closed") }
+                .tabItem { Label(L("Skills", "Skill'ler"), systemImage: "book.closed") }
                 .tag(SettingsTab.skills)
             McpSettings()
-                .tabItem { Label("MCP sunucuları", systemImage: "point.3.connected.trianglepath.dotted") }
+                .tabItem { Label(L("MCP servers", "MCP sunucuları"), systemImage: "point.3.connected.trianglepath.dotted") }
                 .tag(SettingsTab.mcp)
             AgentsSettings()
-                .tabItem { Label("Ajanlar", systemImage: "person.2") }
+                .tabItem { Label(L("Agents", "Ajanlar"), systemImage: "person.2") }
                 .tag(SettingsTab.agents)
             RolesSettings()
-                .tabItem { Label("Roller", systemImage: "theatermasks") }
+                .tabItem { Label(L("Roles", "Roller"), systemImage: "theatermasks") }
                 .tag(SettingsTab.roles)
             ScrollView {
                 NodesSection().padding(20)
             }
             .settingsPage()
-            .tabItem { Label("Node'lar", systemImage: "server.rack") }
+            .tabItem { Label(L("Nodes", "Node'lar"), systemImage: "server.rack") }
                 .tag(SettingsTab.nodes)
         }
         .frame(width: 620, height: 480)
@@ -50,27 +50,43 @@ private struct GeneralSettings: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                SettingsCard(title: "Görünüm", footer: "Açık görünüm varsayılandır. Sistem, macOS'un ayarını izler.") {
-                    Picker("Görünüm", selection: $appearance) {
+                SettingsCard(
+                    title: L("Language", "Dil"),
+                    footer: L(
+                        "System uses Turkish when macOS prefers it, English otherwise. Menus follow after a restart.",
+                        "Sistem, macOS Türkçe'yi tercih ediyorsa Türkçe, değilse İngilizce kullanır. Menüler yeniden açılınca değişir."
+                    )
+                ) {
+                    Picker(L("Language", "Dil"), selection: Bindable(Language.shared).choice) {
+                        Text(L("System", "Sistem")).tag(Language.Choice.system)
+                        Text(verbatim: "English").tag(Language.Choice.english)
+                        Text(verbatim: "Türkçe").tag(Language.Choice.turkish)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                }
+
+                SettingsCard(title: L("Appearance", "Görünüm"), footer: L("Light is the default. System follows macOS.", "Açık görünüm varsayılandır. Sistem, macOS'un ayarını izler.")) {
+                    Picker(L("Appearance", "Görünüm"), selection: $appearance) {
                         ForEach(Appearance.allCases) { Text($0.label).tag($0.rawValue) }
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
                 }
 
-                SettingsCard(title: "Açılış", footer: "Uygulama açılırken kervanın vahaya yürüdüğü kısa animasyon. Tıklayınca geçilir.") {
-                    Toggle("Açılışta introyu göster", isOn: $showIntro)
-                    Button("Introyu şimdi oynat") { model.showIntro = true }
+                SettingsCard(title: L("Launch", "Açılış"), footer: L("The short animation of the caravan walking to the oasis when the app opens. A click skips it.", "Uygulama açılırken kervanın vahaya yürüdüğü kısa animasyon. Tıklayınca geçilir.")) {
+                    Toggle(L("Show the intro at launch", "Açılışta introyu göster"), isOn: $showIntro)
+                    Button(L("Play the intro now", "Introyu şimdi oynat")) { model.showIntro = true }
                         .buttonStyle(.link)
                 }
 
-                SettingsCard(title: "Sunucu") {
-                    LabeledContent("Adres") {
+                SettingsCard(title: L("Server", "Sunucu")) {
+                    LabeledContent(L("Address", "Adres")) {
                         Text(model.activeAddress?.host ?? model.serverInput)
                             .font(.body.monospaced())
                             .textSelection(.enabled)
                     }
-                    LabeledContent("Durum") {
+                    LabeledContent(L("Status", "Durum")) {
                         HStack(spacing: 6) {
                             StatusDot(color: model.connection.state.tint, size: 7)
                             Text(model.connection.state.shortLabel)
@@ -116,7 +132,7 @@ private struct SkillsSettings: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Skill'ler, ajanın belirli bir işi nasıl yapacağını anlatan klasörlerdir (içinde SKILL.md). Yeni oturum açarken hangilerinin kullanılacağını seçersiniz.")
+            Text(L("Skills are folders (with a SKILL.md) that tell an agent how to do a particular job. You pick which ones to use when you start a session.", "Skill'ler, ajanın belirli bir işi nasıl yapacağını anlatan klasörlerdir (içinde SKILL.md). Yeni oturum açarken hangilerinin kullanılacağını seçersiniz."))
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -126,13 +142,13 @@ private struct SkillsSettings: View {
                     HStack(alignment: .firstTextBaseline) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(skill.name).font(.body.monospaced())
-                            Text(skill.description.isEmpty ? "Açıklama yok" : skill.description)
+                            Text(skill.description.isEmpty ? L("No description", "Açıklama yok") : skill.description)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Text("\(skill.files) dosya").font(.caption).foregroundStyle(.secondary)
-                        Button("Sil", role: .destructive) { removing = skill }
+                        Text(L("\(skill.files) files", "\(skill.files) dosya")).font(.caption).foregroundStyle(.secondary)
+                        Button(L("Delete", "Sil"), role: .destructive) { removing = skill }
                             .buttonStyle(.borderless)
                     }
                 }
@@ -140,7 +156,7 @@ private struct SkillsSettings: View {
             .softList()
             .overlay {
                 if skills.isEmpty {
-                    EmptyCard(symbol: "book.closed", title: "Henüz skill yok", text: "İçinde SKILL.md olan bir klasör ekleyin; yeni oturum açarken seçebilirsiniz.")
+                    EmptyCard(symbol: "book.closed", title: L("No skills yet", "Henüz skill yok"), text: L("Add a folder with a SKILL.md in it; you can pick it when you start a session.", "İçinde SKILL.md olan bir klasör ekleyin; yeni oturum açarken seçebilirsiniz."))
                 }
             }
 
@@ -150,7 +166,7 @@ private struct SkillsSettings: View {
                 }
                 Spacer()
                 if busy { ProgressView().controlSize(.small) }
-                Button("Skill klasörü ekle…", action: addSkill)
+                Button(L("Add skill folder…", "Skill klasörü ekle…"), action: addSkill)
                     .buttonStyle(.borderedProminent)
                     .disabled(busy || model.fileClient == nil)
             }
@@ -159,14 +175,14 @@ private struct SkillsSettings: View {
         .settingsPage()
         .task { await reload() }
         .confirmationDialog(
-            "\(removing?.name ?? "") skill'i silinsin mi?",
+            L("Delete the skill \(removing?.name ?? "")?", "\(removing?.name ?? "") skill'i silinsin mi?"),
             isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })
         ) {
-            Button("Skill'i sil", role: .destructive) {
+            Button(L("Delete skill", "Skill'i sil"), role: .destructive) {
                 if let skill = removing { Task { await remove(skill) } }
             }
         } message: {
-            Text("Kütüphaneden kalkar. Bu skill ile açılmış oturumlardaki kopyalar etkilenmez.")
+            Text(L("It's removed from the library. Copies in sessions started with it stay.", "Kütüphaneden kalkar. Bu skill ile açılmış oturumlardaki kopyalar etkilenmez."))
         }
     }
 
@@ -175,8 +191,8 @@ private struct SkillsSettings: View {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = true
-        panel.prompt = "Ekle"
-        panel.message = "İçinde SKILL.md olan bir ya da daha fazla klasör seçin."
+        panel.prompt = L("Add", "Ekle")
+        panel.message = L("Choose one or more folders with a SKILL.md in them.", "İçinde SKILL.md olan bir ya da daha fazla klasör seçin.")
         guard panel.runModal() == .OK, let client = model.fileClient else { return }
         let folders = panel.urls
         Task {
@@ -203,13 +219,13 @@ private struct SkillsSettings: View {
 
     private func reload() async {
         guard let client = model.fileClient else {
-            error = "Önce sunucuya bağlanın."
+            error = L("Connect to a server first.", "Önce sunucuya bağlanın.")
             return
         }
         do {
             skills = try await client.listSkills()
         } catch {
-            self.error = "Skill'ler alınamadı: \(error.localizedDescription)"
+            self.error = L("Couldn't load skills: \(error.localizedDescription)", "Skill'ler alınamadı: \(error.localizedDescription)")
         }
     }
 }
@@ -221,7 +237,7 @@ private struct McpSettings: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("MCP sunucuları ajanlara yeni araçlar verir (GitHub, veritabanı, tarayıcı…). Gizli değerler yalnızca sunucuda tutulur; burada sadece adları görünür.")
+            Text(L("MCP servers give agents new tools (GitHub, databases, a browser…). Secret values stay on the server; only their names show here.", "MCP sunucuları ajanlara yeni araçlar verir (GitHub, veritabanı, tarayıcı…). Gizli değerler yalnızca sunucuda tutulur; burada sadece adları görünür."))
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -234,21 +250,21 @@ private struct McpSettings: View {
                             Text(summary(server)).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1)
                         }
                         Spacer()
-                        Button("Düzenle") { editing = McpDraft(server) }.buttonStyle(.borderless)
-                        Button("Sil", role: .destructive) { removing = server }.buttonStyle(.borderless)
+                        Button(L("Edit", "Düzenle")) { editing = McpDraft(server) }.buttonStyle(.borderless)
+                        Button(L("Delete", "Sil"), role: .destructive) { removing = server }.buttonStyle(.borderless)
                     }
                 }
             }
             .softList()
             .overlay {
                 if model.store.mcpServers.isEmpty {
-                    EmptyCard(symbol: "point.3.connected.trianglepath.dotted", title: "Henüz MCP sunucusu yok", text: "GitHub, veritabanı ya da tarayıcı gibi araçları ajanlara buradan verirsiniz.")
+                    EmptyCard(symbol: "point.3.connected.trianglepath.dotted", title: L("No MCP servers yet", "Henüz MCP sunucusu yok"), text: L("Give agents tools like GitHub, a database or a browser here.", "GitHub, veritabanı ya da tarayıcı gibi araçları ajanlara buradan verirsiniz."))
                 }
             }
 
             HStack {
                 Spacer()
-                Button("MCP sunucusu ekle…") { editing = McpDraft() }
+                Button(L("Add MCP server…", "MCP sunucusu ekle…")) { editing = McpDraft() }
                     .buttonStyle(.borderedProminent)
                     .disabled(!model.connection.state.isConnected)
             }
@@ -261,14 +277,14 @@ private struct McpSettings: View {
             }
         }
         .confirmationDialog(
-            "\(removing?.name ?? "") silinsin mi?",
+            L("Delete \(removing?.name ?? "")?", "\(removing?.name ?? "") silinsin mi?"),
             isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })
         ) {
-            Button("Sunucuyu sil", role: .destructive) {
+            Button(L("Delete server", "Sunucuyu sil"), role: .destructive) {
                 if let server = removing { Task { await model.store.deleteMcp(server.name) } }
             }
         } message: {
-            Text("Kayıtlı gizli değerleri de silinir. Açık oturumlar bir sonraki yeniden başlatmada bu sunucuyu kullanamaz.")
+            Text(L("Its saved secrets are deleted too. Open sessions lose it the next time they restart.", "Kayıtlı gizli değerleri de silinir. Açık oturumlar bir sonraki yeniden başlatmada bu sunucuyu kullanamaz."))
         }
     }
 
@@ -336,42 +352,42 @@ private struct McpEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Form {
-                TextField("Ad", text: $draft.name, prompt: Text("github"))
+                TextField(L("Name", "Ad"), text: $draft.name, prompt: Text("github"))
                     .disabled(!draft.isNew)
-                Picker("Bağlantı", selection: $draft.transport) {
-                    Text("Komut (stdio)").tag(McpServerSummary.Transport.stdio)
+                Picker(L("Connection", "Bağlantı"), selection: $draft.transport) {
+                    Text(L("Command (stdio)", "Komut (stdio)")).tag(McpServerSummary.Transport.stdio)
                     Text("HTTP").tag(McpServerSummary.Transport.http)
                 }
                 .pickerStyle(.segmented)
                 .disabled(!draft.isNew)
 
                 if draft.transport == .stdio {
-                    TextField("Komut", text: $draft.command, prompt: Text("npx"))
+                    TextField(L("Command", "Komut"), text: $draft.command, prompt: Text("npx"))
                         .font(.body.monospaced())
-                    TextField("Argümanlar", text: $draft.args, prompt: Text("-y @modelcontextprotocol/server-github"))
+                    TextField(L("Arguments", "Argümanlar"), text: $draft.args, prompt: Text("-y @modelcontextprotocol/server-github"))
                         .font(.body.monospaced())
                 } else {
-                    TextField("Adres", text: $draft.url, prompt: Text("https://mcp.example.com/mcp"))
+                    TextField(L("Address", "Adres"), text: $draft.url, prompt: Text("https://mcp.example.com/mcp"))
                         .font(.body.monospaced())
                 }
 
-                Section(draft.transport == .stdio ? "Ortam değişkenleri" : "HTTP başlıkları") {
+                Section(draft.transport == .stdio ? L("Environment variables", "Ortam değişkenleri") : L("HTTP headers", "HTTP başlıkları")) {
                     ForEach($draft.secrets) { $secret in
                         HStack {
-                            TextField("Ad", text: $secret.key)
+                            TextField(L("Name", "Ad"), text: $secret.key)
                                 .font(.body.monospaced())
                                 .disabled(secret.stored)
-                            SecureField(secret.stored ? "kayıtlı — değiştirmek için yazın" : "Değer", text: $secret.value)
+                            SecureField(secret.stored ? L("saved — type to change", "kayıtlı — değiştirmek için yazın") : L("Value", "Değer"), text: $secret.value)
                             Button {
                                 draft.secrets.removeAll { $0.id == secret.id }
                             } label: {
                                 Image(systemName: "minus.circle")
                             }
                             .buttonStyle(.borderless)
-                            .accessibilityLabel("\(secret.key) satırını kaldır")
+                            .accessibilityLabel(L("Remove \(secret.key)", "\(secret.key) satırını kaldır"))
                         }
                     }
-                    Button("Ekle") { draft.secrets.append(.init(key: "", value: "", stored: false)) }
+                    Button(L("Add", "Ekle")) { draft.secrets.append(.init(key: "", value: "", stored: false)) }
                         .buttonStyle(.link)
                 }
             }
@@ -380,9 +396,9 @@ private struct McpEditor: View {
 
             HStack {
                 Spacer()
-                Button("Vazgeç", role: .cancel) { dismiss() }
+                Button(L("Cancel", "Vazgeç"), role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                Button(draft.isNew ? "Ekle" : "Kaydet") {
+                Button(draft.isNew ? L("Add", "Ekle") : L("Save", "Kaydet")) {
                     save(draft.input)
                     dismiss()
                 }
@@ -404,7 +420,7 @@ private struct AgentsSettings: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Sunucunun çalıştırabildiği ajanlar. Eklediğiniz ajan, kaydedilmeden önce sunucuda bir kez denenir; çalışmazsa eklenmez.")
+            Text(L("The agents the server can run. An agent you add is tried once on the server before it's saved; if it doesn't work, it isn't added.", "Sunucunun çalıştırabildiği ajanlar. Eklediğiniz ajan, kaydedilmeden önce sunucuda bir kez denenir; çalışmazsa eklenmez."))
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -416,10 +432,10 @@ private struct AgentsSettings: View {
                             HStack(spacing: 6) {
                                 Text(agent.name)
                                 if agent.source == .builtin {
-                                    Text("yerleşik").font(.caption2).foregroundStyle(.secondary)
+                                    Text(L("built in", "yerleşik")).font(.caption2).foregroundStyle(.secondary)
                                 }
                                 if !agent.available {
-                                    Text("çalışmıyor").font(.caption2).foregroundStyle(.kervanCoral)
+                                    Text(L("not working", "çalışmıyor")).font(.caption2).foregroundStyle(.kervanCoral)
                                 }
                             }
                             Text(([agent.command] + agent.args).joined(separator: " "))
@@ -429,9 +445,9 @@ private struct AgentsSettings: View {
                                 .truncationMode(.middle)
                         }
                         Spacer()
-                        Button("Düzenle") { editing = AgentDraft(agent) }.buttonStyle(.borderless)
+                        Button(L("Edit", "Düzenle")) { editing = AgentDraft(agent) }.buttonStyle(.borderless)
                         if agent.source == .app {
-                            Button("Sil", role: .destructive) { removing = agent }.buttonStyle(.borderless)
+                            Button(L("Delete", "Sil"), role: .destructive) { removing = agent }.buttonStyle(.borderless)
                         }
                     }
                 }
@@ -441,7 +457,7 @@ private struct AgentsSettings: View {
 
             HStack {
                 Spacer()
-                Button("Ajan ekle…") { editing = AgentDraft() }
+                Button(L("Add agent…", "Ajan ekle…")) { editing = AgentDraft() }
                     .buttonStyle(.borderedProminent)
                     .disabled(!model.connection.state.isConnected)
             }
@@ -453,14 +469,14 @@ private struct AgentsSettings: View {
             AgentEditor(draft: draft, nodes: model.store.nodes)
         }
         .confirmationDialog(
-            "\(removing?.name ?? "") silinsin mi?",
+            L("Delete \(removing?.name ?? "")?", "\(removing?.name ?? "") silinsin mi?"),
             isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })
         ) {
-            Button("Ajanı sil", role: .destructive) {
+            Button(L("Delete agent", "Ajanı sil"), role: .destructive) {
                 if let agent = removing { Task { await model.store.deleteAgent(agent.id) } }
             }
         } message: {
-            Text("Bu ajanla açılmış oturumlar geçmişleriyle kalır ama yeniden başlatılamaz.")
+            Text(L("Sessions with this agent keep their history but can't be restarted.", "Bu ajanla açılmış oturumlar geçmişleriyle kalır ama yeniden başlatılamaz."))
         }
     }
 }
@@ -536,43 +552,43 @@ private struct AgentEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Form {
-                TextField("Kimlik", text: $draft.agentID, prompt: Text("opencode"))
+                TextField(L("ID", "Kimlik"), text: $draft.agentID, prompt: Text("opencode"))
                     .font(.body.monospaced())
                     .disabled(!draft.isNew)
-                TextField("Ad", text: $draft.name, prompt: Text("OpenCode"))
+                TextField(L("Name", "Ad"), text: $draft.name, prompt: Text("OpenCode"))
                 Picker("Node", selection: $draft.node) {
                     ForEach(nodes, id: \.self) { node in
-                        Text(node == "local" ? "Bu sunucu" : node).tag(node)
+                        Text(node == "local" ? L("This server", "Bu sunucu") : node).tag(node)
                     }
                 }
-                .help("Ajanın çalışacağı makine. Bu sunucu ya da ona bağlanmış bir kervan-node.")
+                .help(L("Where the agent runs: this server or a kervan-node connected to it.", "Ajanın çalışacağı makine. Bu sunucu ya da ona bağlanmış bir kervan-node."))
 
-                Picker("Kaynak", selection: $draft.kind) {
-                    Text("Komut").tag(AgentDraft.Kind.command)
-                    Text("Yerleşik adaptör").tag(AgentDraft.Kind.builtin)
+                Picker(L("Source", "Kaynak"), selection: $draft.kind) {
+                    Text(L("Command", "Komut")).tag(AgentDraft.Kind.command)
+                    Text(L("Built-in adapter", "Yerleşik adaptör")).tag(AgentDraft.Kind.builtin)
                 }
                 .pickerStyle(.segmented)
 
                 if draft.kind == .command {
-                    TextField("Komut", text: $draft.command, prompt: Text("opencode"))
+                    TextField(L("Command", "Komut"), text: $draft.command, prompt: Text("opencode"))
                         .font(.body.monospaced())
-                    TextField("Argümanlar", text: $draft.args, prompt: Text("acp"))
+                    TextField(L("Arguments", "Argümanlar"), text: $draft.args, prompt: Text("acp"))
                         .font(.body.monospaced())
                 } else {
-                    Text("Sunucuyla gelen adaptör kullanılır; kimlik claude, codex ya da gemini olmalı.")
+                    Text(L("Uses the adapter that comes with the server; the ID must be claude, codex or gemini.", "Sunucuyla gelen adaptör kullanılır; kimlik claude, codex ya da gemini olmalı."))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
                 if draft.kind == .command {
                     Toggle(isOn: $draft.terminal) {
-                        Text("Terminal üzerinden çalıştır")
-                        Text("ACP desteklemeyen, satır satır çalışan araçlar için. Mesajlar terminale yazılır; ajan sustuğunda yanıt bitmiş sayılır. Onay kartı ve kaldığı yerden devam yoktur.")
+                        Text(L("Run in a terminal", "Terminal üzerinden çalıştır"))
+                        Text(L("For line-based tools without ACP. Messages are typed into a terminal and the answer ends when the agent goes quiet. No approval cards and no resuming.", "ACP desteklemeyen, satır satır çalışan araçlar için. Mesajlar terminale yazılır; ajan sustuğunda yanıt bitmiş sayılır. Onay kartı ve kaldığı yerden devam yoktur."))
                     }
                     if draft.terminal {
-                        LabeledContent("Sessizlik süresi") {
+                        LabeledContent(L("Quiet time", "Sessizlik süresi")) {
                             HStack(spacing: 4) {
-                                TextField("Sessizlik süresi", value: $draft.quietMs, format: .number, prompt: Text("2000"))
+                                TextField(L("Quiet time", "Sessizlik süresi"), value: $draft.quietMs, format: .number, prompt: Text("2000"))
                                     .labelsHidden()
                                     .multilineTextAlignment(.trailing)
                                     .frame(width: 80)
@@ -582,28 +598,28 @@ private struct AgentEditor: View {
                     }
                 }
 
-                TextField("Kimlik doğrulama yöntemi", text: $draft.authMethod, prompt: Text("isteğe bağlı, ör. gemini-api-key"))
+                TextField(L("Auth method", "Kimlik doğrulama yöntemi"), text: $draft.authMethod, prompt: Text(L("optional, e.g. gemini-api-key", "isteğe bağlı, ör. gemini-api-key")))
                     .font(.body.monospaced())
-                TextField("Skill klasörü", text: $draft.skillsDir, prompt: Text("isteğe bağlı, ör. .claude/skills"))
+                TextField(L("Skills folder", "Skill klasörü"), text: $draft.skillsDir, prompt: Text(L("optional, e.g. .claude/skills", "isteğe bağlı, ör. .claude/skills")))
                     .font(.body.monospaced())
 
-                Section("Ortam değişkenleri") {
+                Section(L("Environment variables", "Ortam değişkenleri")) {
                     ForEach($draft.secrets) { $secret in
                         HStack {
-                            TextField("Ad", text: $secret.key)
+                            TextField(L("Name", "Ad"), text: $secret.key)
                                 .font(.body.monospaced())
                                 .disabled(secret.stored)
-                            SecureField(secret.stored ? "kayıtlı — değiştirmek için yazın" : "Değer", text: $secret.value)
+                            SecureField(secret.stored ? L("saved — type to change", "kayıtlı — değiştirmek için yazın") : L("Value", "Değer"), text: $secret.value)
                             Button {
                                 draft.secrets.removeAll { $0.id == secret.id }
                             } label: {
                                 Image(systemName: "minus.circle")
                             }
                             .buttonStyle(.borderless)
-                            .accessibilityLabel("\(secret.key) satırını kaldır")
+                            .accessibilityLabel(L("Remove \(secret.key)", "\(secret.key) satırını kaldır"))
                         }
                     }
-                    Button("Ekle") { draft.secrets.append(.init(key: "", value: "", stored: false)) }
+                    Button(L("Add", "Ekle")) { draft.secrets.append(.init(key: "", value: "", stored: false)) }
                         .buttonStyle(.link)
                 }
             }
@@ -614,7 +630,7 @@ private struct AgentEditor: View {
             HStack {
                 if saving {
                     ProgressView().controlSize(.small)
-                    Text("Ajan sunucuda deneniyor…").foregroundStyle(.secondary)
+                    Text(L("Trying the agent on the server…", "Ajan sunucuda deneniyor…")).foregroundStyle(.secondary)
                 } else if let error = model.store.agentSaveError {
                     Label(error, systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.kervanCoral)
@@ -622,9 +638,9 @@ private struct AgentEditor: View {
                         .font(.callout)
                 }
                 Spacer()
-                Button("Vazgeç", role: .cancel) { dismiss() }
+                Button(L("Cancel", "Vazgeç"), role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                Button(draft.isNew ? "Dene ve ekle" : "Dene ve kaydet") {
+                Button(draft.isNew ? L("Try and add", "Dene ve ekle") : L("Try and save", "Dene ve kaydet")) {
                     Task {
                         saving = true
                         await model.store.saveAgent(draft.input)

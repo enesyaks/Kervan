@@ -106,7 +106,7 @@ describe("changes, projects, schedules, terminals, ports, usage", () => {
     const folder = sessions.workspace(sessionId);
     assert.equal(readFileSync(join(folder, "a.txt"), "utf8"), "one");
     assert.equal(existsSync(join(folder, "b.txt")), false);
-    assert.ok(events(inbox, sessionId, "notice").some((n) => /önceki hâline/.test(n.text)));
+    assert.ok(events(inbox, sessionId, "notice").some((n) => /Files rewound to before/.test(n.text)));
     // The agent hears about it with the next message.
     assert.match(await turn(ws, inbox, sessionId, "prefacecheck"), /rewound the folder/);
   });

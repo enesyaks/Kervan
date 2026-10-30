@@ -11,6 +11,8 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/Kervan" "$APP/Contents/MacOS/Kervan"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+# English and Turkish: system prompts (InfoPlist.strings) and the language macOS picks for the app.
+cp -R Resources/en.lproj Resources/tr.lproj "$APP/Contents/Resources/"
 
 # App icon: every size macOS asks for, from the one 1024 px master (see scripts/icon-from-render.swift).
 ICONSET="$(mktemp -d)/AppIcon.iconset"

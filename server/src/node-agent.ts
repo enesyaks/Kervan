@@ -155,7 +155,7 @@ export class NodeAgent {
             if (skipped.length > 0) {
               rpc.notify("event", {
                 processId,
-                event: { kind: "notice", text: `Bu ajan HTTP MCP desteklemiyor, atlandı: ${skipped.map((s) => s.name).join(", ")}` },
+                event: { kind: "notice", text: `This agent doesn't support HTTP MCP servers; skipped: ${skipped.map((s) => s.name).join(", ")}` },
               });
             }
             return params.mcpServers.filter((s) => !skipped.includes(s));

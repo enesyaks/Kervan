@@ -7,12 +7,12 @@ struct TeamsSection: View {
 
     var body: some View {
         let store = model.store
-        Section("Takımlar") {
+        Section(L("Teams", "Takımlar")) {
             if store.teams.isEmpty {
-                Button("Takım kur…") { model.showNewTeam = true }
+                Button(L("New team…", "Takım kur…")) { model.showNewTeam = true }
                     .buttonStyle(.link)
                     .disabled(store.roles.isEmpty || !model.canCreateSession)
-                    .help(store.roles.isEmpty ? "Önce Ayarlar › Roller'den rol tanımlayın." : "Rollerden bir takım kur")
+                    .help(store.roles.isEmpty ? L("Define roles in Settings › Roles first.", "Önce Ayarlar › Roller'den rol tanımlayın.") : L("Build a team from roles", "Rollerden bir takım kur"))
             }
             ForEach(store.teams) { team in
                 DisclosureGroup {
@@ -45,8 +45,8 @@ private struct MemberRow: View {
                         Image(systemName: "flag.fill")
                             .font(.caption2)
                             .foregroundStyle(Color.kervanSaffron)
-                            .help("Ana ajan: yardımcı başlatabilir")
-                            .accessibilityLabel("ana ajan")
+                            .help(L("Lead: can start helpers", "Ana ajan: yardımcı başlatabilir"))
+                            .accessibilityLabel(L("lead", "ana ajan"))
                     }
                 }
                 Text("\(model.store.agentName(session.agent)), \(session.status.label.lowercased())")
@@ -79,7 +79,7 @@ struct HelperRow: View {
         }
         .padding(.leading, 12)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Yardımcı \(session.title), \(model.store.agentName(session.agent)), \(session.status.label.lowercased())")
+        .accessibilityLabel(L("Helper \(session.title), \(model.store.agentName(session.agent)), \(session.status.label.lowercased())", "Yardımcı \(session.title), \(model.store.agentName(session.agent)), \(session.status.label.lowercased())"))
     }
 }
 
@@ -95,10 +95,10 @@ struct NewTeamSheet: View {
 
         VStack(alignment: .leading, spacing: 0) {
             Form {
-                TextField("Takım adı", text: $title, prompt: Text("Web sitesi yenileme"))
+                TextField(L("Team name", "Takım adı"), text: $title, prompt: Text(L("Website refresh", "Web sitesi yenileme")))
                 Section {
                     if roles.isEmpty {
-                        Text("Henüz rol yok. Ayarlar › Roller'den ekleyin.").foregroundStyle(.secondary)
+                        Text(L("No roles yet. Add them in Settings › Roles.", "Henüz rol yok. Ayarlar › Roller'den ekleyin.")).foregroundStyle(.secondary)
                     }
                     ForEach(roles) { role in
                         Toggle(isOn: Binding(
@@ -111,19 +111,19 @@ struct NewTeamSheet: View {
                         }
                     }
                 } header: {
-                    Text("Üyeler")
+                    Text(L("Members", "Üyeler"))
                 } footer: {
-                    Text("Her rol ayrı bir oturum olur; hepsi aynı çalışma klasörünü paylaşır.")
+                    Text(L("Each role becomes a session of its own; they all share one working folder.", "Her rol ayrı bir oturum olur; hepsi aynı çalışma klasörünü paylaşır."))
                 }
             }
             .formStyle(.grouped)
             .scrollContentBackground(.hidden)
 
             HStack {
-                SettingsLink { Text("Rolleri düzenle…") }.buttonStyle(.link)
+                SettingsLink { Text(L("Edit roles…", "Rolleri düzenle…")) }.buttonStyle(.link)
                 Spacer()
-                Button("Vazgeç", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Takımı kur") {
+                Button(L("Cancel", "Vazgeç"), role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
+                Button(L("Create team", "Takımı kur")) {
                     let name = title.trimmingCharacters(in: .whitespaces)
                     Task { await model.store.createTeam(title: name, roles: picked) }
                     dismiss()
@@ -148,7 +148,7 @@ struct RolesSettings: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Rol, bir takımdaki görevi tanımlar: hangi ajan, ona baştan ne söylenecek, hangi skill ve MCP sunucularını kullanacak.")
+            Text(L("A role is a job in a team: which agent, what it's told up front, which skills and MCP servers it uses.", "Rol, bir takımdaki görevi tanımlar: hangi ajan, ona baştan ne söylenecek, hangi skill ve MCP sunucularını kullanacak."))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -160,25 +160,25 @@ struct RolesSettings: View {
                             Text(model.store.agentName(role.agent)).font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Button("Düzenle") {
+                        Button(L("Edit", "Düzenle")) {
                             isNew = false
                             editing = role
                         }
                         .buttonStyle(.borderless)
-                        Button("Sil", role: .destructive) { removing = role }.buttonStyle(.borderless)
+                        Button(L("Delete", "Sil"), role: .destructive) { removing = role }.buttonStyle(.borderless)
                     }
                 }
             }
             .softList()
             .overlay {
                 if model.store.roles.isEmpty {
-                    EmptyCard(symbol: "theatermasks", title: "Henüz rol yok", text: "Bir rol, takımdaki görevi anlatır: hangi ajan, ne talimatla, hangi araçlarla.")
+                    EmptyCard(symbol: "theatermasks", title: L("No roles yet", "Henüz rol yok"), text: L("A role describes a job in a team: which agent, with which instructions and tools.", "Bir rol, takımdaki görevi anlatır: hangi ajan, ne talimatla, hangi araçlarla."))
                 }
             }
 
             HStack {
                 Spacer()
-                Button("Rol ekle…") {
+                Button(L("Add role…", "Rol ekle…")) {
                     isNew = true
                     editing = Role(id: "", name: "", agent: model.store.agents.first?.id ?? "")
                 }
@@ -192,14 +192,14 @@ struct RolesSettings: View {
             RoleEditor(role: role, isNew: isNew)
         }
         .confirmationDialog(
-            "\(removing?.name ?? "") rolü silinsin mi?",
+            L("Delete the role \(removing?.name ?? "")?", "\(removing?.name ?? "") rolü silinsin mi?"),
             isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })
         ) {
-            Button("Rolü sil", role: .destructive) {
+            Button(L("Delete role", "Rolü sil"), role: .destructive) {
                 if let role = removing { Task { await model.store.deleteRole(role.id) } }
             }
         } message: {
-            Text("Bu rolle kurulmuş takımlar ve oturumları olduğu gibi kalır.")
+            Text(L("Teams built with this role and their sessions stay as they are.", "Bu rolle kurulmuş takımlar ve oturumları olduğu gibi kalır."))
         }
     }
 }
@@ -214,35 +214,35 @@ private struct RoleEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Form {
-                TextField("Kimlik", text: $role.id, prompt: Text("inceleyici"))
+                TextField(L("ID", "Kimlik"), text: $role.id, prompt: Text("inceleyici"))
                     .font(.body.monospaced())
                     .disabled(!isNew)
-                TextField("Ad", text: $role.name, prompt: Text("Kod inceleyici"))
-                Picker("Ajan", selection: $role.agent) {
+                TextField(L("Name", "Ad"), text: $role.name, prompt: Text(L("Code reviewer", "Kod inceleyici")))
+                Picker(L("Agent", "Ajan"), selection: $role.agent) {
                     ForEach(model.store.agents) { Text($0.displayName).tag($0.id) }
                 }
                 Toggle(isOn: $role.lead) {
-                    Text("Ana ajan")
-                    Text("Takımda yardımcı ajan başlatıp onlara görev verebilir.")
+                    Text(L("Lead agent", "Ana ajan"))
+                    Text(L("Can start helper agents in the team and give them tasks.", "Takımda yardımcı ajan başlatıp onlara görev verebilir."))
                 }
                 if role.lead {
                     BudgetField(budget: $role.budgetUsd)
                 }
-                Section("Talimat") {
+                Section(L("Instructions", "Talimat")) {
                     TextEditor(text: $role.instructions)
                         .font(.body)
                         .frame(minHeight: 90)
-                        .accessibilityLabel("Rol talimatı")
+                        .accessibilityLabel(L("Role instructions", "Rol talimatı"))
                 }
                 if !skills.isEmpty {
-                    Section("Varsayılan skill'ler") {
+                    Section(L("Default skills", "Varsayılan skill'ler")) {
                         ForEach(skills) { skill in
                             Toggle(skill.name, isOn: membership(skill.name, in: $role.skills))
                         }
                     }
                 }
                 if !model.store.mcpServers.isEmpty {
-                    Section("Varsayılan MCP sunucuları") {
+                    Section(L("Default MCP servers", "Varsayılan MCP sunucuları")) {
                         ForEach(model.store.mcpServers) { server in
                             Toggle(server.name, isOn: membership(server.name, in: $role.mcpServers))
                         }
@@ -254,8 +254,8 @@ private struct RoleEditor: View {
 
             HStack {
                 Spacer()
-                Button("Vazgeç", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
-                Button(isNew ? "Ekle" : "Kaydet") {
+                Button(L("Cancel", "Vazgeç"), role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
+                Button(isNew ? L("Add", "Ekle") : L("Save", "Kaydet")) {
                     Task { await model.store.saveRole(role) }
                     dismiss()
                 }

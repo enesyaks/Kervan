@@ -38,7 +38,9 @@ const fail = (message: string): never => {
 /** Where a skill lands in a workspace when the agent has no skills folder of its own. */
 const FALLBACK_SKILLS_DIR = ".kervan/skills";
 
-const DEFAULT_TITLE = "Yeni oturum";
+const DEFAULT_TITLE = "New session";
+/** The default title before the app went English; such sessions still take their first message as title. */
+const OLD_DEFAULT_TITLE = "Yeni oturum";
 const TITLE_CHARS = 60;
 /** Per lead, unless configured otherwise; a runaway lead can't fill the server with agents. */
 export const MAX_HELPERS = 6;
@@ -353,7 +355,7 @@ export class SessionManager {
       throw new KervanError("session_unavailable", `session is ${session.info.status}`);
     }
 
-    if (session.info.title === DEFAULT_TITLE) {
+    if (session.info.title === DEFAULT_TITLE || session.info.title === OLD_DEFAULT_TITLE) {
       const line = text.trim().split("\n")[0].replace(/[*_`#>~]/g, "").trim();
       session.info.title = line.length > TITLE_CHARS ? `${line.slice(0, TITLE_CHARS - 1)}…` : line;
     }
@@ -377,8 +379,8 @@ export class SessionManager {
         this.record(session, {
           kind: "notice",
           text: this.isTerminal(session)
-            ? "Terminal ajanı yeniden başlatıldı; önceki konuşmayı hatırlamaz."
-            : "Ajan yeniden başlatıldı; konuşma kaldığı yerden devam ediyor.",
+            ? "The terminal agent restarted; it doesn't remember the earlier conversation."
+            : "The agent restarted; the conversation continues where it left off.",
         });
       }
       // A terminal agent would receive the preface as typed input, so it gets none.
@@ -404,7 +406,7 @@ export class SessionManager {
     if (!session.info.parentId || minutes <= 0) return;
     session.turnTimer = setTimeout(() => {
       if (session.info.status !== "running" && session.info.status !== "waiting") return;
-      this.record(session, { kind: "notice", text: `Tur süresi sınırı (${minutes} dk) doldu; yardımcı durduruldu.` });
+      this.record(session, { kind: "notice", text: `The turn time limit (${minutes} min) ran out; the helper was stopped.` });
       void this.cancel(session.info.id);
     }, minutes * 60_000);
   }
@@ -516,8 +518,8 @@ export class SessionManager {
     this.record(
       helper,
       result.merged
-        ? { kind: "notice", text: `${lead.info.title} bu yardımcının dalını (${helper.info.branch}) birleştirdi.` }
-        : { kind: "notice", text: `Birleştirme çakıştı: ${result.conflicts.join(", ") || result.message}` },
+        ? { kind: "notice", text: `${lead.info.title} merged this helper's branch (${helper.info.branch}).` }
+        : { kind: "notice", text: `The merge conflicted: ${result.conflicts.join(", ") || result.message}` },
     );
     return result;
   }
@@ -595,7 +597,7 @@ export class SessionManager {
     lead.budgetSpent = true;
     this.record(lead, {
       kind: "notice",
-      text: `Bütçe doldu: $${spent.toFixed(2)} / $${budget}. Ana ajan ve yardımcıları durduruldu; yeni yardımcı başlatılamaz.`,
+      text: `Budget used up: $${spent.toFixed(2)} of $${budget}. The lead and its helpers were stopped; no new helpers can start.`,
     });
     for (const member of [lead, ...this.helperSessions(lead.info.id)]) void this.cancel(member.info.id);
   }
@@ -762,7 +764,7 @@ export class SessionManager {
   private async checkpoint(session: Session, messageSeq: number): Promise<void> {
     if (!this.checkpoints || this.nodeFor(session.info) !== LOCAL_NODE) return;
     try {
-      const commit = await this.checkpoints.snapshot(session.info.id, session.cwd, `Kervan: mesaj ${messageSeq} öncesi`);
+      const commit = await this.checkpoints.snapshot(session.info.id, session.cwd, `Kervan: before message ${messageSeq}`);
       this.record(session, { kind: "checkpoint", commit, messageSeq });
     } catch (error) {
       // Not worth stopping the turn for; the Changes panel just has less to show.
@@ -812,10 +814,10 @@ export class SessionManager {
     const message = session.events.find((e) => e.seq === seq);
     const quoted = message?.kind === "user_message" ? message.text.trim().split("\n")[0].slice(0, 120) : "";
     if (paths) {
-      this.record(session, { kind: "notice", text: `${restored.length} dosya geri alındı: ${restored.slice(0, 5).join(", ")}${restored.length > 5 ? "…" : ""}` });
+      this.record(session, { kind: "notice", text: `${restored.length} files reverted: ${restored.slice(0, 5).join(", ")}${restored.length > 5 ? "…" : ""}` });
       session.note = `[Kervan] The user reverted these files to how they were before their message "${quoted}": ${restored.join(", ")}. Read them again before you change them.`;
     } else {
-      this.record(session, { kind: "notice", text: `Dosyalar "${quoted}" mesajından önceki hâline döndürüldü (${restored.length} dosya).` });
+      this.record(session, { kind: "notice", text: `Files rewound to before the message "${quoted}" (${restored.length} files).` });
       session.note =
         `[Kervan] The user rewound the folder to how it was before their message "${quoted}". ` +
         "Everything you changed after that point is gone; work from the files as they are now.";
@@ -830,7 +832,7 @@ export class SessionManager {
     if ((await repositoryBranch(session.cwd)) === undefined) throw new KervanError("bad_message", "this folder is not a git repository");
     try {
       const summary = await commitAll(session.cwd, message.trim());
-      this.record(session, { kind: "notice", text: `Commit edildi: ${summary}` });
+      this.record(session, { kind: "notice", text: `Committed: ${summary}` });
       return summary;
     } catch (error) {
       const text = error instanceof Error && "stderr" in error ? String((error as { stderr: unknown }).stderr).trim() : String(error instanceof Error ? error.message : error);
@@ -896,7 +898,7 @@ export class SessionManager {
         mcpServers: (supportsHttp) => {
           const { servers, skipped } = this.mcp?.toAcp(session.info.mcpServers, supportsHttp) ?? { servers: [], skipped: [] };
           if (skipped.length > 0) {
-            this.record(session, { kind: "notice", text: `Bu ajan HTTP MCP desteklemiyor, atlandı: ${skipped.join(", ")}` });
+            this.record(session, { kind: "notice", text: `This agent doesn't support HTTP MCP servers; skipped: ${skipped.join(", ")}` });
           }
           if (session.info.orchestrate && this.orchestra) servers.push(this.orchestra.mcpServer(session.info.id));
           return servers;
@@ -916,7 +918,7 @@ export class SessionManager {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       log("error", "agent failed to start", { id: session.info.id, resume, error: message });
-      this.record(session, { kind: "error", message: `Ajan başlatılamadı: ${message}` });
+      this.record(session, { kind: "error", message: `The agent couldn't start: ${message}` });
       this.setStatus(session, "error", message);
       throw error;
     }
@@ -1031,15 +1033,15 @@ export class SessionManager {
     session.pending.clear();
     log("warn", "agent process exited", { id: session.info.id });
     if (!session.agentSessionId) {
-      this.record(session, { kind: "error", message: "Ajan süreci beklenmedik şekilde kapandı." });
+      this.record(session, { kind: "error", message: "The agent process exited unexpectedly." });
       this.setStatus(session, "error", "agent process exited");
       return;
     }
     this.record(session, {
       kind: "notice",
       text: this.isTerminal(session)
-        ? "Terminal ajanı kapandı. Bir sonraki mesajınızda yeniden başlatılacak; önceki konuşmayı hatırlamaz."
-        : "Ajan süreci beklenmedik şekilde kapandı. Bir sonraki mesajınızda kaldığı yerden yeniden başlatılacak.",
+        ? "The terminal agent exited. It restarts with your next message but won't remember the earlier conversation."
+        : "The agent process exited unexpectedly. It restarts where it left off with your next message.",
     });
     // A turn in progress settles in prompt(), which then marks the session idle.
     if (session.info.status !== "running" && session.info.status !== "waiting") this.setStatus(session, "idle");

@@ -23,7 +23,7 @@ public enum SessionGroups {
         let yesterday = calendar.date(byAdding: .day, value: -1, to: today)!
         let weekAgo = calendar.date(byAdding: .day, value: -7, to: today)!
 
-        var buckets: [(String, [SessionInfo])] = [("Bugün", []), ("Dün", []), ("Son 7 gün", []), ("Daha eski", [])]
+        var buckets: [(String, [SessionInfo])] = [(L("Today", "Bugün"), []), (L("Yesterday", "Dün"), []), (L("Last 7 days", "Son 7 gün"), []), (L("Older", "Daha eski"), [])]
         var archived: [SessionInfo] = []
         for (session, date) in dated {
             if session.archived {

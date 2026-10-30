@@ -21,10 +21,10 @@ struct OverviewView: View {
                         .accessibilityHidden(true)
                     Text(Self.greeting())
                         .font(.system(size: 28, weight: .semibold, design: .rounded))
-                    Text(state.isConnected ? "\(host) sunucusuna bağlısınız" : "\(host) sunucusuna yeniden bağlanıyoruz…")
+                    Text(state.isConnected ? L("Connected to \(host)", "\(host) sunucusuna bağlısınız") : L("Reconnecting to \(host)…", "\(host) sunucusuna yeniden bağlanıyoruz…"))
                         .font(.title3)
                         .foregroundStyle(.secondary)
-                    Text("Ajanlarınız sunucuda çalışır. Mac uyusa da kapansa da işleriniz sürer; döndüğünüzde kaldığınız yerden devam edersiniz.")
+                    Text(L("Your agents run on the server. Your work goes on when the Mac sleeps or shuts down; you pick up where you left off.", "Ajanlarınız sunucuda çalışır. Mac uyusa da kapansa da işleriniz sürer; döndüğünüzde kaldığınız yerden devam edersiniz."))
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
@@ -41,8 +41,8 @@ struct OverviewView: View {
                         .controlSize(.large)
                         .fixedSize()
                     Text(model.store.sessions.isEmpty
-                         ? "Henüz oturum yok. İlk oturumu başlattığınızda soldaki listede görünecek."
-                         : "Devam etmek için soldaki listeden bir oturum seçin.")
+                         ? L("No sessions yet. Your first one will show up in the list on the left.", "Henüz oturum yok. İlk oturumu başlattığınızda soldaki listede görünecek.")
+                         : L("Pick a session on the left to continue.", "Devam etmek için soldaki listeden bir oturum seçin."))
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -50,21 +50,21 @@ struct OverviewView: View {
 
                 VStack(alignment: .leading, spacing: 0) {
                     if case .connected(let server) = state {
-                        InfoRow(label: "Sunucu sürümü", value: server.version)
+                        InfoRow(label: L("Server version", "Sunucu sürümü"), value: server.version)
                         Divider().opacity(0.5)
                     }
-                    InfoRow(label: "Gecikme", value: latencyText)
+                    InfoRow(label: L("Latency", "Gecikme"), value: latencyText)
                     Divider().opacity(0.5)
-                    InfoRow(label: "Ajanlar", value: model.store.agents.map(\.displayName).joined(separator: ", "))
+                    InfoRow(label: L("Agents", "Ajanlar"), value: model.store.agents.map(\.displayName).joined(separator: ", "))
                     Divider().opacity(0.5)
-                    InfoRow(label: "Adres", value: model.activeAddress?.url.absoluteString ?? "", monospaced: true)
+                    InfoRow(label: L("Address", "Adres"), value: model.activeAddress?.url.absoluteString ?? "", monospaced: true)
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, 6)
                 .softSurface()
                 .frame(maxWidth: 480)
 
-                Button("Bağlantıyı kes") { model.disconnect() }
+                Button(L("Disconnect", "Bağlantıyı kes")) { model.disconnect() }
                     .buttonStyle(.borderless)
                     .foregroundStyle(.secondary)
             }
@@ -78,15 +78,15 @@ struct OverviewView: View {
     /// A small human touch: the greeting follows the time of day.
     static func greeting(at date: Date = Date()) -> String {
         switch Calendar.current.component(.hour, from: date) {
-        case 5..<12: "Günaydın"
-        case 12..<18: "İyi günler"
-        case 18..<23: "İyi akşamlar"
-        default: "İyi geceler"
+        case 5..<12: L("Good morning", "Günaydın")
+        case 12..<18: L("Good afternoon", "İyi günler")
+        case 18..<23: L("Good evening", "İyi akşamlar")
+        default: L("Good night", "İyi geceler")
         }
     }
 
     private var latencyText: String {
-        guard let latency = model.connection.latency else { return "ölçülüyor…" }
+        guard let latency = model.connection.latency else { return L("measuring…", "ölçülüyor…") }
         let ms = Double(latency.components.attoseconds) / 1e15 + Double(latency.components.seconds) * 1000
         return ms < 1 ? "<1 ms" : "\(Int(ms.rounded())) ms"
     }

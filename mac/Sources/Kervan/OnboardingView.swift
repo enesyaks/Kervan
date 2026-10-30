@@ -75,7 +75,7 @@ struct OnboardingView: View {
     }
 
     private var stops: [String] {
-        ["Hoş geldiniz", "Yolunuzu seçin", path == .setup ? "Sunucuyu kurun" : "Sunucuya bağlanın", "Ajanlar", "Hazır"]
+        [L("Welcome", "Hoş geldiniz"), L("Choose your path", "Yolunuzu seçin"), path == .setup ? L("Set up the server", "Sunucuyu kurun") : L("Connect to the server", "Sunucuya bağlanın"), L("Agents", "Ajanlar"), L("Ready", "Hazır")]
     }
 
     private var isConnected: Bool {
@@ -135,17 +135,17 @@ struct OnboardingView: View {
     private var welcome: some View {
         VStack(alignment: .leading, spacing: 28) {
             Heading(
-                title: "Ajanlarınız kendi sunucunuzda çalışsın",
-                lead: "Kervan; Claude, Codex ve Gemini gibi ajanları sizin makinenizde çalıştırır, siz de hepsini bu Mac'ten yönetirsiniz."
+                title: L("Run your agents on your own server", "Ajanlarınız kendi sunucunuzda çalışsın"),
+                lead: L("Kervan runs agents like Claude, Codex and Gemini on your own machine, and you manage them all from this Mac.", "Kervan; Claude, Codex ve Gemini gibi ajanları sizin makinenizde çalıştırır, siz de hepsini bu Mac'ten yönetirsiniz.")
             )
             VStack(alignment: .leading, spacing: 18) {
-                Promise(symbol: "moon.stars", title: "Mac kapansa da iş sürer", text: "Ajanlar sunucuda çalışır; döndüğünüzde kaldıkları yerden görürsünüz.")
-                Promise(symbol: "lock", title: "Her şey sizde kalır", text: "Kodunuz ve API anahtarlarınız kendi sunucunuzda durur, başka bir yere gitmez.")
-                Promise(symbol: "clock", title: "Birkaç dakikada hazır", text: "Sunucunuz varsa bir dakika, yoksa birlikte kurmak 3–5 dakika.")
+                Promise(symbol: "moon.stars", title: L("Work goes on when the Mac sleeps", "Mac kapansa da iş sürer"), text: L("Agents run on the server; when you come back, you pick up where they are.", "Ajanlar sunucuda çalışır; döndüğünüzde kaldıkları yerden görürsünüz."))
+                Promise(symbol: "lock", title: L("Everything stays with you", "Her şey sizde kalır"), text: L("Your code and API keys stay on your own server and go nowhere else.", "Kodunuz ve API anahtarlarınız kendi sunucunuzda durur, başka bir yere gitmez."))
+                Promise(symbol: "clock", title: L("Ready in minutes", "Birkaç dakikada hazır"), text: L("A minute if you have a server; setting one up together takes 3–5 minutes.", "Sunucunuz varsa bir dakika, yoksa birlikte kurmak 3–5 dakika."))
             }
             Actions {
                 Spacer()
-                Button("Başlayalım") { go(.choose) }
+                Button(L("Get started", "Başlayalım")) { go(.choose) }
                     .buttonStyle(PrimaryStyle())
                     .keyboardShortcut(.defaultAction)
             }
@@ -154,25 +154,25 @@ struct OnboardingView: View {
 
     private var choose: some View {
         VStack(alignment: .leading, spacing: 28) {
-            Heading(title: "Sunucunuz hazır mı?", lead: "Kervan'ın çalışacağı bir makine gerekiyor: ev sunucusu, bir sanal makine ya da buluttaki bir sunucu olabilir.")
+            Heading(title: L("Do you have a server?", "Sunucunuz hazır mı?"), lead: L("Kervan needs a machine to run on: a home server, a virtual machine or a server in the cloud.", "Kervan'ın çalışacağı bir makine gerekiyor: ev sunucusu, bir sanal makine ya da buluttaki bir sunucu olabilir."))
             VStack(spacing: 12) {
                 ChoiceTile(
                     symbol: "server.rack",
-                    title: "Kervan kurulu bir sunucum var",
-                    text: "Adresini ve erişim anahtarını girip bağlanırsınız.",
+                    title: L("I have a Kervan server", "Kervan kurulu bir sunucum var"),
+                    text: L("Enter its address and access key to connect.", "Adresini ve erişim anahtarını girip bağlanırsınız."),
                     selected: path == .connect
                 ) { path = .connect }
                 ChoiceTile(
                     symbol: "shippingbox",
-                    title: "Bir makineye birlikte kuralım",
-                    text: "Ubuntu ya da Debian bir makineye Mac'inizden SSH ile kurulur. Parolanız uygulamaya girilmez.",
+                    title: L("Set one up together", "Bir makineye birlikte kuralım"),
+                    text: L("Installed on an Ubuntu or Debian machine from your Mac over SSH. Your password never goes into the app.", "Ubuntu ya da Debian bir makineye Mac'inizden SSH ile kurulur. Parolanız uygulamaya girilmez."),
                     selected: path == .setup
                 ) { path = .setup }
             }
             Actions {
-                Button("Geri") { go(.welcome) }.buttonStyle(QuietStyle())
+                Button(L("Back", "Geri")) { go(.welcome) }.buttonStyle(QuietStyle())
                 Spacer()
-                Button("Devam") { go(path == .setup ? .setupForm : .connect) }
+                Button(L("Continue", "Devam")) { go(path == .setup ? .setupForm : .connect) }
                     .buttonStyle(PrimaryStyle())
                     .keyboardShortcut(.defaultAction)
             }
@@ -183,36 +183,36 @@ struct OnboardingView: View {
         @Bindable var model = model
         let state = model.connection.state
         return VStack(alignment: .leading, spacing: 28) {
-            Heading(title: "Sunucunuza bağlanalım", lead: "Bu bilgiler bir kez sorulur. Erişim anahtarı Mac'inizin Keychain'inde saklanır.")
+            Heading(title: L("Connect to your server", "Sunucunuza bağlanalım"), lead: L("You're asked for these once. The access key is kept in your Mac's Keychain.", "Bu bilgiler bir kez sorulur. Erişim anahtarı Mac'inizin Keychain'inde saklanır."))
             VStack(alignment: .leading, spacing: 18) {
-                Field(title: "Sunucu adresi", hint: "IP adresi, Tailscale adı ya da ağdaki adı. Port yazmazsanız 7420 kullanılır.") {
-                    TextField("Sunucu adresi", text: $model.serverInput, prompt: Text("ör. 192.168.1.21"))
+                Field(title: L("Server address", "Sunucu adresi"), hint: L("IP address, Tailscale name or network name. Port 7420 is used if you leave it out.", "IP adresi, Tailscale adı ya da ağdaki adı. Port yazmazsanız 7420 kullanılır.")) {
+                    TextField(L("Server address", "Sunucu adresi"), text: $model.serverInput, prompt: Text(L("e.g. 192.168.1.21", "ör. 192.168.1.21")))
                         .textContentType(.URL)
                 }
-                Field(title: "Erişim anahtarı", hint: nil) {
-                    SecureField("Erişim anahtarı", text: $model.tokenInput, prompt: Text("Sunucudaki KERVAN_TOKEN değeri"))
+                Field(title: L("Access key", "Erişim anahtarı"), hint: nil) {
+                    SecureField(L("Access key", "Erişim anahtarı"), text: $model.tokenInput, prompt: Text(L("The KERVAN_TOKEN value on the server", "Sunucudaki KERVAN_TOKEN değeri")))
                 }
-                Guidance(text: "Anahtarı sunucuda şu komutla görebilirsiniz:", command: "sudo grep KERVAN_TOKEN /etc/kervan/env")
+                Guidance(text: L("To see the key on the server, run:", "Anahtarı sunucuda şu komutla görebilirsiniz:"), command: "sudo grep KERVAN_TOKEN /etc/kervan/env")
             }
             .padding(20)
             .softSurface(radius: Radius.panel)
             .disabled(state.isBusy)
 
-            ConnectStatus(state: state, host: model.address?.host ?? "sunucu")
+            ConnectStatus(state: state, host: model.address?.host ?? L("the server", "sunucu"))
 
             Actions {
-                Button("Geri") {
+                Button(L("Back", "Geri")) {
                     if state.isBusy { model.disconnect() }
                     go(.choose)
                 }
                 .buttonStyle(QuietStyle())
                 Spacer()
                 if state.isBusy {
-                    Button("Vazgeç") { model.disconnect() }
+                    Button(L("Cancel", "Vazgeç")) { model.disconnect() }
                         .buttonStyle(QuietStyle())
                         .keyboardShortcut(.cancelAction)
                 } else {
-                    Button("Bağlan") { model.connect() }
+                    Button(L("Connect", "Bağlan")) { model.connect() }
                         .buttonStyle(PrimaryStyle())
                         .keyboardShortcut(.defaultAction)
                         .disabled(!model.canConnect)
@@ -223,38 +223,38 @@ struct OnboardingView: View {
 
     private var setupForm: some View {
         VStack(alignment: .leading, spacing: 28) {
-            Heading(title: "Hangi makineye kuralım?", lead: "Ubuntu ya da Debian çalışan, Mac'inizin SSH ile girebildiği bir makine yeterli.")
+            Heading(title: L("Which machine should we set up?", "Hangi makineye kuralım?"), lead: L("Any Ubuntu or Debian machine your Mac can reach over SSH will do.", "Ubuntu ya da Debian çalışan, Mac'inizin SSH ile girebildiği bir makine yeterli."))
             VStack(alignment: .leading, spacing: 18) {
                 HStack(alignment: .top, spacing: 14) {
-                    Field(title: "Makinenin adresi", hint: nil) {
-                        TextField("Makinenin adresi", text: $host, prompt: Text("ör. 192.168.1.30"))
+                    Field(title: L("Machine address", "Makinenin adresi"), hint: nil) {
+                        TextField(L("Machine address", "Makinenin adresi"), text: $host, prompt: Text(L("e.g. 192.168.1.30", "ör. 192.168.1.30")))
                     }
-                    Field(title: "Kullanıcı", hint: nil) {
-                        TextField("Kullanıcı", text: $user)
+                    Field(title: L("User", "Kullanıcı"), hint: nil) {
+                        TextField(L("User", "Kullanıcı"), text: $user)
                     }
                     .frame(width: 150)
                 }
                 Guidance(
-                    text: "Mac'iniz bu makineye parolasız giremiyorsa önce Terminal'de bir kez şunu çalıştırın:",
-                    command: "ssh-copy-id \(user.trimmed.isEmpty ? "ubuntu" : user.trimmed)@\(host.trimmed.isEmpty ? "ADRES" : host.trimmed)"
+                    text: L("If your Mac can't log in to this machine without a password, run this once in Terminal first:", "Mac'iniz bu makineye parolasız giremiyorsa önce Terminal'de bir kez şunu çalıştırın:"),
+                    command: L("ssh-copy-id \(user.trimmed.isEmpty ? "ubuntu" : user.trimmed)@\(host.trimmed.isEmpty ? "ADDRESS" : host.trimmed)", "ssh-copy-id \(user.trimmed.isEmpty ? "ubuntu" : user.trimmed)@\(host.trimmed.isEmpty ? "ADRES" : host.trimmed)")
                 )
             }
             .padding(20)
             .softSurface(radius: Radius.panel)
 
             VStack(alignment: .leading, spacing: 10) {
-                Text("Nereden bağlanacaksınız?")
+                Text(L("Where will you connect from?", "Nereden bağlanacaksınız?"))
                     .font(.headline)
                 HStack(alignment: .top, spacing: 12) {
-                    ChoiceTile(symbol: "wifi", title: "Bu ağdan", text: "Port yalnızca bu yerel ağdaki cihazlara açılır.", selected: access == .lan, compact: true) { access = .lan }
-                    ChoiceTile(symbol: "globe", title: "Her yerden", text: "Tailscale de kurulur; evden uzaktayken de bağlanırsınız.", selected: access == .both, compact: true) { access = .both }
+                    ChoiceTile(symbol: "wifi", title: L("This network", "Bu ağdan"), text: L("The port is open only to devices on this local network.", "Port yalnızca bu yerel ağdaki cihazlara açılır."), selected: access == .lan, compact: true) { access = .lan }
+                    ChoiceTile(symbol: "globe", title: L("Anywhere", "Her yerden"), text: L("Tailscale is installed too, so you can connect when you're away.", "Tailscale de kurulur; evden uzaktayken de bağlanırsınız."), selected: access == .both, compact: true) { access = .both }
                 }
             }
 
             Actions {
-                Button("Geri") { go(.choose) }.buttonStyle(QuietStyle())
+                Button(L("Back", "Geri")) { go(.choose) }.buttonStyle(QuietStyle())
                 Spacer()
-                Button("Kurulumu başlat") {
+                Button(L("Start setup", "Kurulumu başlat")) {
                     permission = .ask
                     go(.permission)
                 }
@@ -270,21 +270,21 @@ struct OnboardingView: View {
     private var permissionStep: some View {
         VStack(alignment: .leading, spacing: 28) {
             Heading(
-                title: permission == .denied ? "Yerel ağ izni kapalı" : "Yerel ağa erişim izni",
+                title: permission == .denied ? L("Local network access is off", "Yerel ağ izni kapalı") : L("Local network access", "Yerel ağa erişim izni"),
                 lead: permission == .denied
-                    ? "macOS şu an Kervan'ın ağdaki makinelere ulaşmasına izin vermiyor. Ayarlarda bir kez açmanız yeterli."
-                    : "Kervan'ın \(host.trimmed) makinesine bağlanabilmesi için macOS sizden bir kez izin isteyecek."
+                    ? L("macOS isn't letting Kervan reach machines on your network. Turning it on once in Settings is enough.", "macOS şu an Kervan'ın ağdaki makinelere ulaşmasına izin vermiyor. Ayarlarda bir kez açmanız yeterli.")
+                    : L("macOS will ask you once to let Kervan connect to \(host.trimmed).", "Kervan'ın \(host.trimmed) makinesine bağlanabilmesi için macOS sizden bir kez izin isteyecek.")
             )
             VStack(alignment: .leading, spacing: 18) {
                 if permission == .denied {
-                    Promise(symbol: "gearshape", title: "Sistem Ayarları › Gizlilik ve Güvenlik › Yerel Ağ", text: "Listede Kervan'ı bulun ve anahtarını açın. Sonra buraya dönüp yeniden kontrol edin.")
+                    Promise(symbol: "gearshape", title: L("System Settings › Privacy & Security › Local Network", "Sistem Ayarları › Gizlilik ve Güvenlik › Yerel Ağ"), text: L("Find Kervan in the list and turn it on. Then come back here and check again.", "Listede Kervan'ı bulun ve anahtarını açın. Sonra buraya dönüp yeniden kontrol edin."))
                 } else {
-                    Promise(symbol: "network", title: "Neden gerekiyor", text: "Kurulum, Mac'inizden bu makineye SSH ile bağlanır. Sunucunuzla konuşmak için de aynı izin kullanılır.")
-                    Promise(symbol: "hand.raised", title: "Ne paylaşılır", text: "Hiçbir şey. İzin yalnızca Kervan'ın ağınızdaki cihazlara bağlanabilmesi içindir.")
-                    Promise(symbol: "macwindow", title: "Ne göreceksiniz", text: "\"Kervan yerel ağınızdaki cihazları bulmak ve bunlara bağlanmak istiyor\" penceresinde İzin Ver'i seçin.")
+                    Promise(symbol: "network", title: L("Why it's needed", "Neden gerekiyor"), text: L("Setup connects from your Mac to this machine over SSH. The same permission is used to talk to your server.", "Kurulum, Mac'inizden bu makineye SSH ile bağlanır. Sunucunuzla konuşmak için de aynı izin kullanılır."))
+                    Promise(symbol: "hand.raised", title: L("What's shared", "Ne paylaşılır"), text: L("Nothing. The permission only lets Kervan connect to devices on your network.", "Hiçbir şey. İzin yalnızca Kervan'ın ağınızdaki cihazlara bağlanabilmesi içindir."))
+                    Promise(symbol: "macwindow", title: L("What you'll see", "Ne göreceksiniz"), text: L("Choose Allow when macOS says \"Kervan would like to find and connect to devices on your local network\".", "\"Kervan yerel ağınızdaki cihazları bulmak ve bunlara bağlanmak istiyor\" penceresinde İzin Ver'i seçin."))
                 }
                 if permission == .unreachable {
-                    Label("\(host.trimmed) yanıt vermedi. Makinenin açık ve bu ağda olduğunu, adresin doğru olduğunu kontrol edin.", systemImage: "exclamationmark.triangle.fill")
+                    Label(L("\(host.trimmed) didn't answer. Check that the machine is on, on this network, and that the address is right.", "\(host.trimmed) yanıt vermedi. Makinenin açık ve bu ağda olduğunu, adresin doğru olduğunu kontrol edin."), systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.kervanCoral)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -293,15 +293,15 @@ struct OnboardingView: View {
             .softSurface(radius: Radius.panel)
 
             Actions {
-                Button("Geri") { go(.setupForm) }
+                Button(L("Back", "Geri")) { go(.setupForm) }
                     .buttonStyle(QuietStyle())
                     .disabled(permission == .checking)
                 Spacer()
                 if permission == .denied {
-                    Button("Ayarları aç") { NSWorkspace.shared.open(LocalNetwork.settingsURL) }
+                    Button(L("Open Settings", "Ayarları aç")) { NSWorkspace.shared.open(LocalNetwork.settingsURL) }
                         .buttonStyle(QuietStyle())
                 }
-                Button(permission == .checking ? "Yanıt bekleniyor…" : permission == .ask ? "İzin ver" : "Yeniden kontrol et") {
+                Button(permission == .checking ? L("Waiting for an answer…", "Yanıt bekleniyor…") : permission == .ask ? L("Allow", "İzin ver") : L("Check again", "Yeniden kontrol et")) {
                     askPermission()
                 }
                 .buttonStyle(PrimaryStyle())
@@ -331,10 +331,10 @@ struct OnboardingView: View {
         let failed = installer.failure != nil
         return VStack(alignment: .leading, spacing: 28) {
             Heading(
-                title: failed ? "Kurulum yarıda kaldı" : (installer.step == .ready ? "Sunucu hazır, bağlanılıyor" : "Sunucunuz kuruluyor"),
+                title: failed ? L("Setup stopped", "Kurulum yarıda kaldı") : (installer.step == .ready ? L("Server ready, connecting", "Sunucu hazır, bağlanılıyor") : L("Setting up your server", "Sunucunuz kuruluyor")),
                 lead: failed
-                    ? "Sorunu giderdikten sonra yeniden deneyin; kurulum yarım kalan yerleri bozmadan baştan çalışır."
-                    : "\(host.trimmed) üzerinde. Genelde 3–5 dakika sürer; bu sırada başka işinize bakabilirsiniz, bitince burada görünür."
+                    ? L("Fix the problem and try again; setup runs from the start without breaking what's already done.", "Sorunu giderdikten sonra yeniden deneyin; kurulum yarım kalan yerleri bozmadan baştan çalışır.")
+                    : L("On \(host.trimmed). It usually takes 3–5 minutes; feel free to do something else, it shows up here when done.", "\(host.trimmed) üzerinde. Genelde 3–5 dakika sürer; bu sırada başka işinize bakabilirsiniz, bitince burada görünür.")
             )
             VStack(alignment: .leading, spacing: 16) {
                 StepList(
@@ -345,12 +345,12 @@ struct OnboardingView: View {
                     startedAt: installer.startedAt
                 )
                 if let url = installer.tailscaleURL {
-                    Button("Tailscale'e giriş yap") { NSWorkspace.shared.open(url) }
+                    Button(L("Sign in to Tailscale", "Tailscale'e giriş yap")) { NSWorkspace.shared.open(url) }
                         .buttonStyle(PrimaryStyle())
                 }
                 if installer.waitingForTerminal {
                     Guidance(
-                        text: "Bu makinede sudo parola istiyor. Terminal'de şunu çalıştırın; parolanız orada sorulur, kurulum bitince bu ekran kendiliğinden bağlanır.",
+                        text: L("sudo needs a password on this machine. Run this in Terminal; it asks for your password there, and this screen connects by itself when setup is done.", "Bu makinede sudo parola istiyor. Terminal'de şunu çalıştırın; parolanız orada sorulur, kurulum bitince bu ekran kendiliğinden bağlanır."),
                         command: HubSetup.terminalCommand(user: user.trimmed, host: host.trimmed, access: access)
                     )
                 }
@@ -360,11 +360,11 @@ struct OnboardingView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if installer.localNetworkBlocked {
-                    Button("Ayarları aç") { NSWorkspace.shared.open(LocalNetwork.settingsURL) }
+                    Button(L("Open Settings", "Ayarları aç")) { NSWorkspace.shared.open(LocalNetwork.settingsURL) }
                         .buttonStyle(PrimaryStyle())
                 }
                 if !installer.output.isEmpty {
-                    DisclosureGroup("Ayrıntılı çıktı") {
+                    DisclosureGroup(L("Detailed output", "Ayrıntılı çıktı")) {
                         ScrollView {
                             Text(installer.output)
                                 .font(.caption.monospaced())
@@ -382,18 +382,18 @@ struct OnboardingView: View {
 
             Actions {
                 if failed {
-                    Button("Bilgileri değiştir") {
+                    Button(L("Change details", "Bilgileri değiştir")) {
                         installer.reset()
                         go(.setupForm)
                     }
                     .buttonStyle(QuietStyle())
                     Spacer()
-                    Button("Yeniden dene") { install() }
+                    Button(L("Try again", "Yeniden dene")) { install() }
                         .buttonStyle(PrimaryStyle())
                         .keyboardShortcut(.defaultAction)
                 } else {
                     Spacer()
-                    Button("Kurulumu durdur") {
+                    Button(L("Stop setup", "Kurulumu durdur")) {
                         installer.reset()
                         go(.setupForm)
                     }
@@ -411,13 +411,13 @@ struct OnboardingView: View {
         let typed = offered.contains { !(keys[$0.id] ?? "").trimmed.isEmpty }
         return VStack(alignment: .leading, spacing: 28) {
             Heading(
-                title: "Ajanlarınızı hazırlayalım",
-                lead: "Claude Code, Codex ve Gemini sunucunuza kuruldu. Kullanmak istediklerinize anahtarını verin; anahtarlar yalnızca sunucunuzda saklanır."
+                title: L("Let's get your agents ready", "Ajanlarınızı hazırlayalım"),
+                lead: L("Claude Code, Codex and Gemini are installed on your server. Give a key to the ones you want to use; keys are stored only on your server.", "Claude Code, Codex ve Gemini sunucunuza kuruldu. Kullanmak istediklerinize anahtarını verin; anahtarlar yalnızca sunucunuzda saklanır.")
             )
             if configs.isEmpty {
                 HStack(spacing: 10) {
                     ProgressView().controlSize(.small)
-                    Text("Sunucudaki ajanlara bakılıyor…").foregroundStyle(.secondary)
+                    Text(L("Looking at the agents on the server…", "Sunucudaki ajanlara bakılıyor…")).foregroundStyle(.secondary)
                 }
             } else {
                 VStack(spacing: 12) {
@@ -434,22 +434,22 @@ struct OnboardingView: View {
                         .disabled(savingKeys)
                     }
                 }
-                Text("Sonra da ekleyebilir ya da değiştirebilirsiniz: Ayarlar › Ajanlar.")
+                Text(L("You can add or change them later in Settings › Agents.", "Sonra da ekleyebilir ya da değiştirebilirsiniz: Ayarlar › Ajanlar."))
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
             Actions {
-                Button("Şimdilik geç") { go(.done) }
+                Button(L("Skip for now", "Şimdilik geç")) { go(.done) }
                     .buttonStyle(QuietStyle())
                     .disabled(savingKeys)
                 Spacer()
                 if typed || savingKeys {
-                    Button(savingKeys ? "Ajanlar deneniyor…" : "Kaydet ve devam") { saveKeys(offered) }
+                    Button(savingKeys ? L("Trying the agents…", "Ajanlar deneniyor…") : L("Save and continue", "Kaydet ve devam")) { saveKeys(offered) }
                         .buttonStyle(PrimaryStyle())
                         .keyboardShortcut(.defaultAction)
                         .disabled(savingKeys)
                 } else if !readyAgents.isEmpty {
-                    Button("Devam") { go(.done) }
+                    Button(L("Continue", "Devam")) { go(.done) }
                         .buttonStyle(PrimaryStyle())
                         .keyboardShortcut(.defaultAction)
                 }
@@ -480,28 +480,28 @@ struct OnboardingView: View {
         let agents = readyAgents
         return VStack(alignment: .leading, spacing: 28) {
             Heading(
-                title: "Hazırsınız",
-                lead: "Kervan \(model.address?.host ?? "sunucunuz") üzerinde çalışıyor. Ajanlarınız orada çalışır; Mac'i kapatsanız da işleri sürer."
+                title: L("You're all set", "Hazırsınız"),
+                lead: L("Kervan is running on \(model.address?.host ?? "your server"). Your agents work there, and keep working when you close the Mac.", "Kervan \(model.address?.host ?? "sunucunuz") üzerinde çalışıyor. Ajanlarınız orada çalışır; Mac'i kapatsanız da işleri sürer.")
             )
             VStack(alignment: .leading, spacing: 12) {
                 if agents.isEmpty {
                     Promise(
                         symbol: "person.badge.key",
-                        title: "Henüz anahtarı olan bir ajan yok",
-                        text: "Ayarlar › Ajanlar'dan bir ajana anahtarını verdiğinizde ilk oturumu başlatabilirsiniz."
+                        title: L("No agent has a key yet", "Henüz anahtarı olan bir ajan yok"),
+                        text: L("Give an agent its key in Settings › Agents to start your first session.", "Ayarlar › Ajanlar'dan bir ajana anahtarını verdiğinizde ilk oturumu başlatabilirsiniz.")
                     )
                 } else {
-                    Text(agents.count == 1 ? "Sunucuda bir ajan hazır" : "Sunucuda \(agents.count) ajan hazır")
+                    Text(agents.count == 1 ? L("One agent is ready on the server", "Sunucuda bir ajan hazır") : L("\(agents.count) agents are ready on the server", "Sunucuda \(agents.count) ajan hazır"))
                         .font(.headline)
                     AgentChips(names: agents.map(\.name))
                 }
             }
             Actions {
-                Button("Kervan'a geç") { finish(startSession: false) }
+                Button(L("Go to Kervan", "Kervan'a geç")) { finish(startSession: false) }
                     .buttonStyle(QuietStyle())
                 Spacer()
                 if !agents.isEmpty {
-                    Button("İlk oturumu başlat") { finish(startSession: true) }
+                    Button(L("Start the first session", "İlk oturumu başlat")) { finish(startSession: true) }
                         .buttonStyle(PrimaryStyle())
                         .keyboardShortcut(.defaultAction)
                 }
@@ -530,13 +530,13 @@ private struct AgentKeyCard: View {
                 if ready {
                     HStack(spacing: 6) {
                         StatusDot(color: .kervanOasis, size: 6)
-                        Text("Hazır").font(.callout.weight(.medium))
+                        Text(L("Ready", "Hazır")).font(.callout.weight(.medium))
                     }
                     .foregroundStyle(Color.kervanOasis)
                 }
             }
             if ready && !changing {
-                Button("Anahtarı değiştir", action: change)
+                Button(L("Change key", "Anahtarı değiştir"), action: change)
                     .buttonStyle(.link)
                     .font(.callout)
             } else {
@@ -547,7 +547,7 @@ private struct AgentKeyCard: View {
                         .padding(.horizontal, 12)
                         .padding(.vertical, 9)
                         .background(Color.kervanWell, in: RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
-                    Link("Anahtar al", destination: sign.keyURL)
+                    Link(L("Get a key", "Anahtar al"), destination: sign.keyURL)
                         .font(.callout)
                 }
                 if let alternative = sign.alternative {
@@ -613,7 +613,7 @@ private struct RouteRail: View {
             .padding(.top, 64)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Adım \(current + 1) / \(stops.count): \(stops[min(current, stops.count - 1)])")
+        .accessibilityLabel(L("Step \(current + 1) of \(stops.count): \(stops[min(current, stops.count - 1)])", "Adım \(current + 1) / \(stops.count): \(stops[min(current, stops.count - 1)])"))
     }
 
     /// The line between stops, gold up to where you are, and the caravan travelling on the next leg.
@@ -910,12 +910,12 @@ struct ConnectStatus: View {
             case .disconnected, .connected:
                 EmptyView()
             case .connecting(let attempt):
-                Label(attempt > 1 ? "\(host) adresine yeniden bağlanılıyor (\(attempt). deneme)…" : "\(host) adresine bağlanılıyor…", systemImage: "arrow.triangle.2.circlepath")
+                Label(attempt > 1 ? L("Reconnecting to \(host) (attempt \(attempt))…", "\(host) adresine yeniden bağlanılıyor (\(attempt). deneme)…") : L("Connecting to \(host)…", "\(host) adresine bağlanılıyor…"), systemImage: "arrow.triangle.2.circlepath")
                     .foregroundStyle(.secondary)
             case .retrying(let at, _, _):
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     let seconds = max(0, Int(at.timeIntervalSince(context.date).rounded(.up)))
-                    Label("\(host) şu an yanıt vermiyor. Adresi ve sunucunun açık olduğunu kontrol edin; \(seconds) sn sonra yeniden denenecek.", systemImage: "clock")
+                    Label(L("\(host) isn't answering. Check the address and that the server is on; trying again in \(seconds) s.", "\(host) şu an yanıt vermiyor. Adresi ve sunucunun açık olduğunu kontrol edin; \(seconds) sn sonra yeniden denenecek."), systemImage: "clock")
                         .foregroundStyle(.secondary)
                 }
             case .failed(let failure):
@@ -929,11 +929,11 @@ struct ConnectStatus: View {
     static func text(for failure: ConnectionFailure) -> String {
         switch failure {
         case .unauthorized:
-            "Sunucu bu anahtarı tanımadı. Sunucudaki değerle karşılaştırıp yeniden girin."
+            L("The server didn't accept this key. Compare it with the value on the server and enter it again.", "Sunucu bu anahtarı tanımadı. Sunucudaki değerle karşılaştırıp yeniden girin.")
         case .unsupportedProtocol:
-            "Sunucu ile uygulama farklı protokol sürümleri kullanıyor. İkisini de güncelleyin."
+            L("The server and the app speak different protocol versions. Update both.", "Sunucu ile uygulama farklı protokol sürümleri kullanıyor. İkisini de güncelleyin.")
         case .unreachable(let reason):
-            "Sunucuya ulaşılamadı: \(reason)"
+            L("Couldn't reach the server: \(reason)", "Sunucuya ulaşılamadı: \(reason)")
         }
     }
 }

@@ -45,28 +45,28 @@ struct ProjectView: View {
             let sessions = model.store.sessions.filter { $0.projectId == projectID && $0.parentId == nil }
             Page(title: project.name, subtitle: project.path) {
                 HStack {
-                    Button("Düzenle…") { editing = true }
+                    Button(L("Edit…", "Düzenle…")) { editing = true }
                     Button {
                         model.newSession(project: projectID)
                     } label: {
-                        Label("Bu projede oturum", systemImage: "square.and.pencil")
+                        Label(L("New session here", "Bu projede oturum"), systemImage: "square.and.pencil")
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(.kervanLapis)
                     .disabled(!model.canCreateSession)
                 }
             } content: {
-                SettingsCard(title: "Talimatlar") {
+                SettingsCard(title: L("Instructions", "Talimatlar")) {
                     Text(project.instructions.isEmpty
-                        ? "Talimat yok. Ajanlar klasördeki CLAUDE.md ya da AGENTS.md dosyalarını yine kendileri okur."
+                        ? L("No instructions. Agents still read CLAUDE.md or AGENTS.md in the folder themselves.", "Talimat yok. Ajanlar klasördeki CLAUDE.md ya da AGENTS.md dosyalarını yine kendileri okur.")
                         : project.instructions)
                         .foregroundStyle(project.instructions.isEmpty ? .secondary : .primary)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                SettingsCard(title: "Oturumlar") {
+                SettingsCard(title: L("Sessions", "Oturumlar")) {
                     if sessions.isEmpty {
-                        Text("Bu projede henüz oturum yok.").foregroundStyle(.secondary)
+                        Text(L("No sessions in this project yet.", "Bu projede henüz oturum yok.")).foregroundStyle(.secondary)
                     }
                     ForEach(sessions) { session in
                         Button {
@@ -83,23 +83,23 @@ struct ProjectView: View {
                         .buttonStyle(.plain)
                     }
                 }
-                Button("Projeyi kaldır…", role: .destructive) { confirmDelete = true }
+                Button(L("Remove project…", "Projeyi kaldır…"), role: .destructive) { confirmDelete = true }
                     .buttonStyle(.link)
                     .foregroundStyle(Color.kervanCoral)
             }
             .sheet(isPresented: $editing) { ProjectSheet(project: project) }
-            .confirmationDialog("\(project.name) kaldırılsın mı?", isPresented: $confirmDelete) {
-                Button("Kaldır", role: .destructive) {
+            .confirmationDialog(L("Remove \(project.name)?", "\(project.name) kaldırılsın mı?"), isPresented: $confirmDelete) {
+                Button(L("Remove", "Kaldır"), role: .destructive) {
                     Task {
                         await model.store.deleteProject(projectID)
                         model.selectedSessionID = nil
                     }
                 }
             } message: {
-                Text("Klasör ve içindeki oturumlar sunucuda kalır; yalnızca proje listeden çıkar.")
+                Text(L("The folder and its sessions stay on the server; only the project is removed from the list.", "Klasör ve içindeki oturumlar sunucuda kalır; yalnızca proje listeden çıkar."))
             }
         } else {
-            Page(title: "Proje bulunamadı", subtitle: "Bu proje sunucudan kaldırılmış olabilir.") { EmptyView() } content: { EmptyView() }
+            Page(title: L("Project not found", "Proje bulunamadı"), subtitle: L("It may have been removed from the server.", "Bu proje sunucudan kaldırılmış olabilir.")) { EmptyView() } content: { EmptyView() }
         }
     }
 }
@@ -111,9 +111,9 @@ struct ProjectSheet: View {
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .clone: "Git deposu klonla"
-            case .folder: "Sunucudaki klasör"
-            case .empty: "Boş klasör"
+            case .clone: L("Clone a git repository", "Git deposu klonla")
+            case .folder: L("Folder on the server", "Sunucudaki klasör")
+            case .empty: L("Empty folder", "Boş klasör")
             }
         }
     }
@@ -131,31 +131,31 @@ struct ProjectSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Form {
-                TextField("Ad", text: $name, prompt: Text("ör. Web sitesi"))
+                TextField(L("Name", "Ad"), text: $name, prompt: Text(L("e.g. Website", "ör. Web sitesi")))
                 if project == nil {
-                    Picker("Kaynak", selection: $source) {
+                    Picker(L("Source", "Kaynak"), selection: $source) {
                         ForEach(Source.allCases) { Text($0.title).tag($0) }
                     }
                     switch source {
                     case .clone:
-                        TextField("Depo adresi", text: $location, prompt: Text("https://github.com/kullanici/depo.git"))
+                        TextField(L("Repository URL", "Depo adresi"), text: $location, prompt: Text(L("https://github.com/user/repo.git", "https://github.com/kullanici/depo.git")))
                             .font(.body.monospaced())
-                        Text("Sunucu kendi git erişimiyle klonlar; özel depolar için sunucuda SSH anahtarı ya da kimlik bilgisi gerekir.")
+                        Text(L("The server clones with its own git access; private repositories need an SSH key or credentials on the server.", "Sunucu kendi git erişimiyle klonlar; özel depolar için sunucuda SSH anahtarı ya da kimlik bilgisi gerekir."))
                             .font(.caption).foregroundStyle(.secondary)
                     case .folder:
-                        TextField("Klasör yolu", text: $location, prompt: Text("/home/ubuntu/projelerim/site"))
+                        TextField(L("Folder path", "Klasör yolu"), text: $location, prompt: Text(L("/home/ubuntu/projects/site", "/home/ubuntu/projelerim/site")))
                             .font(.body.monospaced())
                     case .empty:
-                        Text("Kervan'ın proje klasöründe yeni, boş bir klasör açılır.").font(.caption).foregroundStyle(.secondary)
+                        Text(L("A new empty folder is made in Kervan's projects folder.", "Kervan'ın proje klasöründe yeni, boş bir klasör açılır.")).font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 Section {
                     TextEditor(text: $instructions)
                         .frame(minHeight: 120)
                 } header: {
-                    Text("Talimatlar")
+                    Text(L("Instructions", "Talimatlar"))
                 } footer: {
-                    Text("Bu projedeki her ajana ilk mesajdan önce söylenir: kod stili, test komutu, dikkat edilecekler.")
+                    Text(L("Told to every agent in this project before its first message: code style, test command, things to watch out for.", "Bu projedeki her ajana ilk mesajdan önce söylenir: kod stili, test komutu, dikkat edilecekler."))
                 }
                 if let error {
                     Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.kervanCoral)
@@ -167,11 +167,11 @@ struct ProjectSheet: View {
             HStack {
                 if saving {
                     ProgressView().controlSize(.small)
-                    Text(source == .clone && project == nil ? "Klonlanıyor…" : "Kaydediliyor…").foregroundStyle(.secondary)
+                    Text(source == .clone && project == nil ? L("Cloning…", "Klonlanıyor…") : L("Saving…", "Kaydediliyor…")).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button("Vazgeç", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
-                Button(project == nil ? "Projeyi oluştur" : "Kaydet") { Task { await save() } }
+                Button(L("Cancel", "Vazgeç"), role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
+                Button(project == nil ? L("Create project", "Projeyi oluştur") : L("Save", "Kaydet")) { Task { await save() } }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
                     .disabled(!canSave || saving)
@@ -230,15 +230,15 @@ struct SchedulesView: View {
     var body: some View {
         let store = model.store
         Page(
-            title: "Zamanlanmış görevler",
-            subtitle: "Sunucu hep açık: görev vakti gelince kendi oturumunu açar ve ajana yazar. Bittiğinde bildirim gelir."
+            title: L("Scheduled tasks", "Zamanlanmış görevler"),
+            subtitle: L("The server is always on: when a task is due it opens its own session and writes to the agent. You get a notification when it's done.", "Sunucu hep açık: görev vakti gelince kendi oturumunu açar ve ajana yazar. Bittiğinde bildirim gelir.")
         ) {
             Button {
                 editing = ScheduleDraft(input: ScheduleInput(
                     title: "", agent: model.defaultAgent?.id ?? "", prompt: "", when: .daily(time: "09:00", weekdays: Array(1...5))
                 ))
             } label: {
-                Label("Yeni görev", systemImage: "plus")
+                Label(L("New task", "Yeni görev"), systemImage: "plus")
             }
             .buttonStyle(.borderedProminent)
             .tint(.kervanLapis)
@@ -250,8 +250,8 @@ struct SchedulesView: View {
             if store.schedules.isEmpty {
                 EmptyCard(
                     symbol: "calendar.badge.clock",
-                    title: "Henüz görev yok",
-                    text: "Ör. her sabah 09:00'da \"testleri çalıştır, kırılanı düzelt\" ya da her saat \"yeni issue'ları özetle\"."
+                    title: L("No tasks yet", "Henüz görev yok"),
+                    text: L("For example \"run the tests and fix what breaks\" every morning at 09:00, or \"summarize new issues\" every hour.", "Ör. her sabah 09:00'da \"testleri çalıştır, kırılanı düzelt\" ya da her saat \"yeni issue'ları özetle\".")
                 )
                 .frame(maxWidth: .infinity)
             }
@@ -275,13 +275,13 @@ struct SchedulesView: View {
                     .font(.callout).foregroundStyle(.secondary)
                 Text(schedule.prompt).font(.callout).lineLimit(2).foregroundStyle(.secondary)
                 if let lastError = schedule.lastError {
-                    Label("Son çalıştırma başarısız: \(lastError)", systemImage: "exclamationmark.triangle")
+                    Label(L("Last run failed: \(lastError)", "Son çalıştırma başarısız: \(lastError)"), systemImage: "exclamationmark.triangle")
                         .font(.caption).foregroundStyle(.kervanCoral)
                 } else if let last = schedule.lastRunAt.flatMap(Self.date) {
                     HStack(spacing: 6) {
-                        Text("Son çalıştı: \(last.formatted(date: .abbreviated, time: .shortened))")
+                        Text(L("Last ran: \(last.formatted(date: .abbreviated, time: .shortened))", "Son çalıştı: \(last.formatted(date: .abbreviated, time: .shortened))"))
                         if let sessionID = schedule.lastSessionId, model.store.session(sessionID) != nil {
-                            Button("Oturumu aç") { model.selectedSessionID = sessionID }.buttonStyle(.link)
+                            Button(L("Open session", "Oturumu aç")) { model.selectedSessionID = sessionID }.buttonStyle(.link)
                         }
                     }
                     .font(.caption).foregroundStyle(.secondary)
@@ -289,25 +289,25 @@ struct SchedulesView: View {
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 6) {
-                Toggle("Açık", isOn: Binding(get: { schedule.enabled }, set: { on in
+                Toggle(L("On", "Açık"), isOn: Binding(get: { schedule.enabled }, set: { on in
                     var input = ScheduleInput(schedule)
                     input.enabled = on
                     Task { error = await model.store.saveSchedule(input) }
                 }))
                 .toggleStyle(.switch)
                 .labelsHidden()
-                .help(schedule.enabled ? "Görevi duraklat" : "Görevi aç")
+                .help(schedule.enabled ? L("Pause task", "Görevi duraklat") : L("Turn task on", "Görevi aç"))
                 Menu {
-                    Button("Şimdi çalıştır") { Task { error = await model.store.runSchedule(schedule.id) } }
-                    Button("Düzenle…") { editing = ScheduleDraft(input: ScheduleInput(schedule)) }
+                    Button(L("Run now", "Şimdi çalıştır")) { Task { error = await model.store.runSchedule(schedule.id) } }
+                    Button(L("Edit…", "Düzenle…")) { editing = ScheduleDraft(input: ScheduleInput(schedule)) }
                     Divider()
-                    Button("Sil", role: .destructive) { Task { error = await model.store.deleteSchedule(schedule.id) } }
+                    Button(L("Delete", "Sil"), role: .destructive) { Task { error = await model.store.deleteSchedule(schedule.id) } }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
-                .accessibilityLabel("\(schedule.title) seçenekleri")
+                .accessibilityLabel(L("\(schedule.title) options", "\(schedule.title) seçenekleri"))
             }
         }
         .padding(16)
@@ -335,22 +335,22 @@ private struct ScheduleSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Form {
-                TextField("Ad", text: $input.title, prompt: Text("ör. Sabah test turu"))
-                Picker("Ajan", selection: $input.agent) {
+                TextField(L("Name", "Ad"), text: $input.title, prompt: Text(L("e.g. Morning test run", "ör. Sabah test turu")))
+                Picker(L("Agent", "Ajan"), selection: $input.agent) {
                     ForEach(model.store.agents) { Text($0.displayName).tag($0.id) }
                 }
-                Picker("Proje", selection: $input.projectId) {
-                    Text("Yok (kendi klasörü)").tag(String?.none)
+                Picker(L("Project", "Proje"), selection: $input.projectId) {
+                    Text(L("None (its own folder)", "Yok (kendi klasörü)")).tag(String?.none)
                     ForEach(model.store.projects) { Text($0.name).tag(Optional($0.id)) }
                 }
-                Section("Ne zaman") {
-                    Picker("Tekrar", selection: $daily) {
-                        Text("Her gün belirli saatte").tag(true)
-                        Text("Belirli aralıklarla").tag(false)
+                Section(L("When", "Ne zaman")) {
+                    Picker(L("Repeat", "Tekrar"), selection: $daily) {
+                        Text(L("Daily at a set time", "Her gün belirli saatte")).tag(true)
+                        Text(L("At an interval", "Belirli aralıklarla")).tag(false)
                     }
                     .pickerStyle(.radioGroup)
                     if daily {
-                        DatePicker("Saat", selection: $time, displayedComponents: .hourAndMinute)
+                        DatePicker(L("Time", "Saat"), selection: $time, displayedComponents: .hourAndMinute)
                         HStack(spacing: 4) {
                             ForEach(1...7, id: \.self) { day in
                                 Toggle(ScheduleWhen.dayNames[day - 1], isOn: Binding(
@@ -361,15 +361,15 @@ private struct ScheduleSheet: View {
                             }
                         }
                     } else {
-                        Picker("Aralık", selection: $minutes) {
+                        Picker(L("Interval", "Aralık"), selection: $minutes) {
                             ForEach([15, 30, 60, 120, 240, 720], id: \.self) { value in
                                 Text(ScheduleWhen.interval(minutes: value).label).tag(value)
                             }
                         }
                     }
-                    Text("Saat dilimi: \(input.timeZone)").font(.caption).foregroundStyle(.secondary)
+                    Text(L("Time zone: \(input.timeZone)", "Saat dilimi: \(input.timeZone)")).font(.caption).foregroundStyle(.secondary)
                 }
-                Section("Ajana ne yazılsın") {
+                Section(L("What to tell the agent", "Ajana ne yazılsın")) {
                     TextEditor(text: $input.prompt).frame(minHeight: 110)
                 }
                 if let error {
@@ -380,8 +380,8 @@ private struct ScheduleSheet: View {
             .scrollContentBackground(.hidden)
             HStack {
                 Spacer()
-                Button("Vazgeç", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Kaydet") { Task { await save() } }
+                Button(L("Cancel", "Vazgeç"), role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
+                Button(L("Save", "Kaydet")) { Task { await save() } }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
                     .disabled(!canSave)
@@ -435,13 +435,13 @@ struct UsageView: View {
     var body: some View {
         let report = model.store.usage
         Page(
-            title: "Kullanım",
-            subtitle: "Ajanların bildirdiği harcama. Şimdilik yalnızca maliyet bildiren ajanlar (Claude API) sayılır; abonelikle çalışan ajanlar görünmez."
+            title: L("Usage", "Kullanım"),
+            subtitle: L("Spending as the agents report it. Only agents that report cost (Claude API) count for now; agents used through a subscription don't show up.", "Ajanların bildirdiği harcama. Şimdilik yalnızca maliyet bildiren ajanlar (Claude API) sayılır; abonelikle çalışan ajanlar görünmez.")
         ) {
-            Picker("Dönem", selection: $days) {
-                Text("7 gün").tag(7)
-                Text("30 gün").tag(30)
-                Text("90 gün").tag(90)
+            Picker(L("Period", "Dönem"), selection: $days) {
+                Text(L("7 days", "7 gün")).tag(7)
+                Text(L("30 days", "30 gün")).tag(30)
+                Text(L("90 days", "90 gün")).tag(90)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -450,11 +450,11 @@ struct UsageView: View {
             if let report {
                 totals(report)
                 if report.days.isEmpty {
-                    EmptyCard(symbol: "chart.bar", title: "Bu dönemde harcama yok", text: "Ajanlar maliyet bildirdikçe günlük toplamlar burada birikir.")
+                    EmptyCard(symbol: "chart.bar", title: L("No spending in this period", "Bu dönemde harcama yok"), text: L("Daily totals build up here as agents report their cost.", "Ajanlar maliyet bildirdikçe günlük toplamlar burada birikir."))
                         .frame(maxWidth: .infinity)
                 } else {
-                    SettingsCard(title: "Günlük") { chart(report) }
-                    SettingsCard(title: "Ajanlara göre") {
+                    SettingsCard(title: L("Daily", "Günlük")) { chart(report) }
+                    SettingsCard(title: L("By agent", "Ajanlara göre")) {
                         ForEach(report.byAgent, id: \.agent) { entry in
                             HStack {
                                 Text(model.store.agentName(entry.agent))
@@ -463,13 +463,13 @@ struct UsageView: View {
                             }
                         }
                     }
-                    SettingsCard(title: "En çok harcayan oturumlar") {
+                    SettingsCard(title: L("Top sessions", "En çok harcayan oturumlar")) {
                         ForEach(report.sessions, id: \.sessionId) { entry in
                             Button {
                                 if model.store.session(entry.sessionId) != nil { model.selectedSessionID = entry.sessionId }
                             } label: {
                                 HStack {
-                                    Text(model.store.session(entry.sessionId)?.title ?? "Silinmiş oturum").lineLimit(1)
+                                    Text(model.store.session(entry.sessionId)?.title ?? L("Deleted session", "Silinmiş oturum")).lineLimit(1)
                                     Spacer()
                                     Text(usd(entry.costUsd)).monospacedDigit().foregroundStyle(.secondary)
                                 }
@@ -489,17 +489,17 @@ struct UsageView: View {
     private func chart(_ report: UsageReport) -> some View {
         Chart(Array(report.days.enumerated()), id: \.offset) { _, day in
             BarMark(
-                x: .value("Gün", Self.day(day.date) ?? .now, unit: .day),
+                x: .value(L("Day", "Gün"), Self.day(day.date) ?? .now, unit: .day),
                 y: .value("USD", day.costUsd)
             )
-            .foregroundStyle(by: .value("Ajan", model.store.agentName(day.agent)))
+            .foregroundStyle(by: .value(L("Agent", "Ajan"), model.store.agentName(day.agent)))
             .cornerRadius(3)
         }
         .chartForegroundStyleScale(range: [Color.kervanLapis, .kervanSaffron, .kervanOasis, .kervanCoral])
         // The whole period, so a single day is one narrow bar among empty days, not a bar across the chart.
         .chartXScale(domain: periodStart...Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: .now))!)
         .frame(height: 200)
-        .accessibilityLabel("Günlük harcama grafiği")
+        .accessibilityLabel(L("Daily spending chart", "Günlük harcama grafiği"))
     }
 
     private var periodStart: Date {
@@ -510,9 +510,9 @@ struct UsageView: View {
         let today = Self.key(.now)
         let week = Self.key(Calendar.current.date(byAdding: .day, value: -6, to: .now) ?? .now)
         return HStack(spacing: 12) {
-            tile("Bugün", report.total(since: today))
-            tile("Son 7 gün", report.total(since: week))
-            tile("Son \(days) gün", report.total)
+            tile(L("Today", "Bugün"), report.total(since: today))
+            tile(L("Last 7 days", "Son 7 gün"), report.total(since: week))
+            tile(L("Last \(days) days", "Son \(days) gün"), report.total)
         }
     }
 

@@ -25,7 +25,7 @@ export function slug(name: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 48);
-  return text || "proje";
+  return text || "project";
 }
 
 /** Only URLs git fetches over the network; no local paths or ext:: helpers. */

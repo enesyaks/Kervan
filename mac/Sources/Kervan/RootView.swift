@@ -98,25 +98,25 @@ private struct SidebarView: View {
                 SearchResults(hits: store.searchHits, query: query, searching: typing || store.isSearching)
             } else {
                 Section {
-                    Label("Zamanlanmış görevler", systemImage: "calendar.badge.clock").tag(AppModel.schedulesPage)
-                    Label("Kullanım", systemImage: "chart.bar").tag(AppModel.usagePage)
+                    Label(L("Scheduled tasks", "Zamanlanmış görevler"), systemImage: "calendar.badge.clock").tag(AppModel.schedulesPage)
+                    Label(L("Usage", "Kullanım"), systemImage: "chart.bar").tag(AppModel.usagePage)
                 }
                 Section {
                     ForEach(store.projects) { project in
                         Label(project.name, systemImage: "folder")
                             .tag(AppModel.projectPage(project.id))
                             .contextMenu {
-                                Button("Bu projede yeni oturum") { model.newSession(project: project.id) }
+                                Button(L("New session in this project", "Bu projede yeni oturum")) { model.newSession(project: project.id) }
                             }
                     }
                     if store.projects.isEmpty {
-                        Button("Proje ekle…") { newProject = true }
+                        Button(L("Add project…", "Proje ekle…")) { newProject = true }
                             .buttonStyle(.plain)
                             .foregroundStyle(.secondary)
                     }
                 } header: {
                     HStack {
-                        Text("Projeler")
+                        Text(L("Projects", "Projeler"))
                         Spacer()
                         Button {
                             newProject = true
@@ -124,13 +124,13 @@ private struct SidebarView: View {
                             Image(systemName: "plus")
                         }
                         .buttonStyle(.borderless)
-                        .help("Yeni proje")
-                        .accessibilityLabel("Yeni proje")
+                        .help(L("New project", "Yeni proje"))
+                        .accessibilityLabel(L("New project", "Yeni proje"))
                     }
                 }
                 if groups.isEmpty {
-                    Section("Oturumlar") {
-                        Text("Henüz oturum yok").foregroundStyle(.secondary)
+                    Section(L("Sessions", "Oturumlar")) {
+                        Text(L("No sessions yet", "Henüz oturum yok")).foregroundStyle(.secondary)
                     }
                 }
                 ForEach(groups) { group in
@@ -149,7 +149,7 @@ private struct SidebarView: View {
                             SessionRow(session: session).tag(session.id).contextMenu { menu(for: session) }
                         }
                     } header: {
-                        Text("Arşiv (\(archived.count))")
+                        Text(L("Archive (\(archived.count))", "Arşiv (\(archived.count))"))
                     }
                 }
                 TeamsSection()
@@ -158,7 +158,7 @@ private struct SidebarView: View {
         .listStyle(.sidebar)
         .scrollContentBackground(.hidden)
         .background(Color.kervanSidebar)
-        .searchable(text: $query, placement: .sidebar, prompt: "Konuşmalarda ara")
+        .searchable(text: $query, placement: .sidebar, prompt: L("Search conversations", "Konuşmalarda ara"))
         .onChange(of: query) { typing = true }
         .task(id: query) {
             // Wait for a pause in typing before asking the server.
@@ -168,12 +168,12 @@ private struct SidebarView: View {
             typing = false
         }
         .sheet(isPresented: $newProject) { ProjectSheet().environment(model) }
-        .alert("Oturumu yeniden adlandır", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
-            TextField("Başlık", text: $newTitle)
-            Button("Kaydet") {
+        .alert(L("Rename session", "Oturumu yeniden adlandır"), isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+            TextField(L("Title", "Başlık"), text: $newTitle)
+            Button(L("Save", "Kaydet")) {
                 if let session = renaming { Task { await store.rename(session.id, title: newTitle) } }
             }
-            Button("Vazgeç", role: .cancel) {}
+            Button(L("Cancel", "Vazgeç"), role: .cancel) {}
         }
         .toolbar {
             ToolbarItem {
@@ -182,9 +182,9 @@ private struct SidebarView: View {
                 Button {
                     model.newSession()
                 } label: {
-                    Label("Yeni oturum", systemImage: "square.and.pencil")
+                    Label(L("New session", "Yeni oturum"), systemImage: "square.and.pencil")
                 }
-                .help("\(model.defaultAgent?.name ?? "Ajan") ile yeni oturum (⌘N)")
+                .help(L("New session with \(model.defaultAgent?.name ?? "agent") (⌘N)", "\(model.defaultAgent?.name ?? "Ajan") ile yeni oturum (⌘N)"))
                 .disabled(!model.canCreateSession)
             }
         }
@@ -195,11 +195,11 @@ private struct SidebarView: View {
 
     @ViewBuilder
     private func menu(for session: SessionInfo) -> some View {
-        Button("Yeniden adlandır…") {
+        Button(L("Rename…", "Yeniden adlandır…")) {
             newTitle = session.title
             renaming = session
         }
-        Button(session.archived ? "Arşivden çıkar" : "Arşivle") {
+        Button(session.archived ? L("Unarchive", "Arşivden çıkar") : L("Archive", "Arşivle")) {
             Task { await model.store.setArchived(session.id, !session.archived) }
         }
     }
@@ -214,17 +214,17 @@ private struct SearchResults: View {
 
     var body: some View {
         if hits.isEmpty && searching {
-            Section("Sonuçlar") {
-                Text("Aranıyor…").foregroundStyle(.secondary)
+            Section(L("Results", "Sonuçlar")) {
+                Text(L("Searching…", "Aranıyor…")).foregroundStyle(.secondary)
             }
         } else if hits.isEmpty {
-            Section("Sonuçlar") {
-                Text("\u{201C}\(query)\u{201D} için sonuç yok").foregroundStyle(.secondary)
+            Section(L("Results", "Sonuçlar")) {
+                Text(L("No results for \u{201C}\(query)\u{201D}", "\u{201C}\(query)\u{201D} için sonuç yok")).foregroundStyle(.secondary)
             }
         } else {
             let order = hits.reduce(into: [String]()) { ids, hit in if !ids.contains(hit.sessionId) { ids.append(hit.sessionId) } }
             ForEach(order, id: \.self) { sessionID in
-                Section(model.store.session(sessionID)?.title ?? "Oturum") {
+                Section(model.store.session(sessionID)?.title ?? L("Session", "Oturum")) {
                     ForEach(hits.filter { $0.sessionId == sessionID }) { hit in
                         Button {
                             model.open(sessionID: hit.sessionId, at: hit.seq)
@@ -244,7 +244,7 @@ private struct HitRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(hit.role == .user ? "Siz" : "Ajan")
+            Text(hit.role == .user ? L("You", "Siz") : L("Agent", "Ajan"))
                 .font(.caption2)
                 .foregroundStyle(.secondary)
             hit.parts.reduce(Text("")) { text, part in
@@ -275,8 +275,8 @@ private struct SessionRow: View {
                         Image(systemName: "flag.fill")
                             .font(.caption2)
                             .foregroundStyle(Color.kervanSaffron)
-                            .help("Ana ajan: yardımcı başlatabilir")
-                            .accessibilityLabel("ana ajan")
+                            .help(L("Lead: can start helpers", "Ana ajan: yardımcı başlatabilir"))
+                            .accessibilityLabel(L("lead", "ana ajan"))
                     }
                 }
                 Text("\(agentName), \(session.status.label.lowercased())")
@@ -317,7 +317,7 @@ struct NewSessionButton: View {
 
     var body: some View {
         let agents = model.store.agents
-        let label = "Yeni oturum başlat"
+        let label = L("Start a new session", "Yeni oturum başlat")
         Group {
             if agents.count > 1 {
                 Menu {
@@ -329,14 +329,14 @@ struct NewSessionButton: View {
                 } primaryAction: {
                     model.newSession()
                 }
-                .help("\(model.defaultAgent?.name ?? "Ajan") ile yeni oturum (⌘N); okla başka bir ajan seçin")
+                .help(L("New session with \(model.defaultAgent?.name ?? "agent") (⌘N); use the arrow for another agent", "\(model.defaultAgent?.name ?? "Ajan") ile yeni oturum (⌘N); okla başka bir ajan seçin"))
             } else {
                 Button {
                     model.newSession()
                 } label: {
                     Label(label, systemImage: "square.and.pencil")
                 }
-                .help("Yeni oturum başlat (⌘N)")
+                .help(L("Start a new session (⌘N)", "Yeni oturum başlat (⌘N)"))
             }
         }
         .disabled(!model.canCreateSession)

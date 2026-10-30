@@ -16,19 +16,19 @@ public struct AgentSignIn: Equatable, Sendable, Identifiable {
 
     public static let all: [AgentSignIn] = [
         AgentSignIn(
-            id: "claude", name: "Claude Code", blurb: "Anthropic'in kodlama ajanı.",
+            id: "claude", name: "Claude Code", blurb: L("Anthropic's coding agent.", "Anthropic'in kodlama ajanı."),
             keyName: "ANTHROPIC_API_KEY", placeholder: "sk-ant-…",
             keyURL: URL(string: "https://console.anthropic.com/settings/keys")!,
-            alternative: "Claude aboneliğiniz varsa Mac'te Terminal'de claude setup-token çalıştırıp çıkan jetonu da yapıştırabilirsiniz."
+            alternative: L("With a Claude subscription, run claude setup-token in Terminal on your Mac and paste the token it prints instead.", "Claude aboneliğiniz varsa Mac'te Terminal'de claude setup-token çalıştırıp çıkan jetonu da yapıştırabilirsiniz.")
         ),
         AgentSignIn(
-            id: "codex", name: "Codex", blurb: "OpenAI'ın kodlama ajanı.",
+            id: "codex", name: "Codex", blurb: L("OpenAI's coding agent.", "OpenAI'ın kodlama ajanı."),
             keyName: "OPENAI_API_KEY", placeholder: "sk-…",
             keyURL: URL(string: "https://platform.openai.com/api-keys")!,
             alternative: nil
         ),
         AgentSignIn(
-            id: "gemini", name: "Gemini", blurb: "Google'ın kodlama ajanı; ücretsiz kotası var.",
+            id: "gemini", name: "Gemini", blurb: L("Google's coding agent, with a free tier.", "Google'ın kodlama ajanı; ücretsiz kotası var."),
             keyName: "GEMINI_API_KEY", placeholder: "AIza…",
             keyURL: URL(string: "https://aistudio.google.com/apikey")!,
             alternative: nil

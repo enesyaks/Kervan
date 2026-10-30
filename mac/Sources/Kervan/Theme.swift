@@ -44,11 +44,11 @@ extension ConnectionState {
 
     var shortLabel: String {
         switch self {
-        case .disconnected: "Bağlı değil"
-        case .connecting: "Bağlanıyor…"
-        case .retrying: "Ulaşılamıyor"
-        case .connected: "Bağlı"
-        case .failed: "Bağlanamadı"
+        case .disconnected: L("Not connected", "Bağlı değil")
+        case .connecting: L("Connecting…", "Bağlanıyor…")
+        case .retrying: L("Unreachable", "Ulaşılamıyor")
+        case .connected: L("Connected", "Bağlı")
+        case .failed: L("Couldn't connect", "Bağlanamadı")
         }
     }
 
@@ -82,13 +82,13 @@ extension SessionStatus {
 
     var label: String {
         switch self {
-        case .starting: "Hazırlanıyor"
-        case .idle: "Hazır"
-        case .running: "Çalışıyor"
-        case .waiting: "Onayınızı bekliyor"
-        case .error: "Durdu"
-        case .closed: "Kapandı"
-        case .unknown: "Bilinmiyor"
+        case .starting: L("Starting", "Hazırlanıyor")
+        case .idle: L("Ready", "Hazır")
+        case .running: L("Running", "Çalışıyor")
+        case .waiting: L("Waiting for you", "Onayınızı bekliyor")
+        case .error: L("Stopped", "Durdu")
+        case .closed: L("Closed", "Kapandı")
+        case .unknown: L("Unknown", "Bilinmiyor")
         }
     }
 }
@@ -115,7 +115,7 @@ struct CaravanDots: View {
 
 /// Dollars as the agents report them, written the Turkish way: $0,42.
 func usd(_ amount: Double) -> String {
-    amount.formatted(.currency(code: "USD").locale(Locale(identifier: "tr_TR")))
+    amount.formatted(.currency(code: "USD").locale(Language.shared.locale))
 }
 
 extension SessionStore {
@@ -123,12 +123,12 @@ extension SessionStore {
     func costSummary(_ session: SessionInfo) -> String? {
         let crew = crewCost(session.id)
         if let budget = session.budgetUsd {
-            return "\(usd(crew ?? 0)) / \(usd(budget)) bütçe"
+            return L("\(usd(crew ?? 0)) of \(usd(budget)) budget", "\(usd(crew ?? 0)) / \(usd(budget)) bütçe")
         }
         if !helpers(of: session.id).isEmpty, let crew {
-            return "yardımcılarla \(usd(crew)) harcandı"
+            return L("\(usd(crew)) spent with helpers", "yardımcılarla \(usd(crew)) harcandı")
         }
-        return session.usage?.costUsd.map { "\(usd($0)) harcandı" }
+        return session.usage?.costUsd.map { L("\(usd($0)) spent", "\(usd($0)) harcandı") }
     }
 }
 
@@ -238,9 +238,9 @@ enum Appearance: String, CaseIterable, Identifiable {
     }
     var label: String {
         switch self {
-        case .light: "Açık"
-        case .dark: "Koyu"
-        case .system: "Sistem"
+        case .light: L("Light", "Açık")
+        case .dark: L("Dark", "Koyu")
+        case .system: L("System", "Sistem")
         }
     }
 }

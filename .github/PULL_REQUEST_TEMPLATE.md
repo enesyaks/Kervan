@@ -1,15 +1,15 @@
-## Ne değişti, neden?
+## What changed, and why?
 
-<!-- Kısaca: hangi sorunu çözüyor, nasıl? İlgili issue varsa: Closes #… -->
+<!-- Briefly: which problem does it solve, and how? If there's an issue: Closes #… -->
 
-## Nasıl denendi?
+## How was it tested?
 
 - [ ] `cd server && npm test`
 - [ ] `cd mac && swift test`
-- [ ] Uygulamada elle denendi (arayüz değiştiyse ekran görüntüsü ekleyin)
+- [ ] Tried by hand in the app (add a screenshot if the UI changed)
 
-## Kontrol listesi
+## Checklist
 
-- [ ] Protokol değiştiyse sunucu ve Mac tarafı birlikte güncellendi ([CONTRIBUTING.md](../CONTRIBUTING.md))
-- [ ] Yeni davranış testle geldi
-- [ ] Token, API anahtarı ya da kişisel bilgi eklenmedi
+- [ ] If the protocol changed, the server and the Mac side changed together ([CONTRIBUTING.md](../CONTRIBUTING.md))
+- [ ] New behaviour comes with tests
+- [ ] No tokens, API keys or personal data added

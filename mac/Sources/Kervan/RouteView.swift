@@ -18,10 +18,10 @@ struct RouteView: View {
                 }
             }
             .frame(height: 12)
-            RouteNode(title: host.isEmpty ? "Sunucu" : host, symbol: "server.rack", color: state.tint, filled: isConnected)
+            RouteNode(title: host.isEmpty ? L("Server", "Sunucu") : host, symbol: "server.rack", color: state.tint, filled: isConnected)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Bağlantı: \(state.shortLabel), \(host)")
+        .accessibilityLabel(L("Connection: \(state.shortLabel), \(host)", "Bağlantı: \(state.shortLabel), \(host)"))
     }
 
     private var isConnected: Bool {
@@ -150,7 +150,7 @@ struct NetworkMap: View {
                     }
                     RouteNode(title: "Mac", symbol: "laptopcomputer", color: .kervanLapis, filled: true)
                         .position(x: mac.x, y: mac.y + 8)
-                    RouteNode(title: host.isEmpty ? "Sunucu" : host, symbol: "server.rack", color: state.tint, filled: state.isConnected)
+                    RouteNode(title: host.isEmpty ? L("Server", "Sunucu") : host, symbol: "server.rack", color: state.tint, filled: state.isConnected)
                         .position(x: hub.x, y: hub.y + 8)
                     ForEach(Array(zip(nodes, points)), id: \.0.id) { node, point in
                         RouteNode(title: node.name, symbol: "cpu", color: node.connected ? .kervanOasis : .secondary, filled: node.connected)
@@ -161,8 +161,8 @@ struct NetworkMap: View {
             .frame(height: height + 16)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(
-                "Bağlantılar: Mac, \(host) sunucusu ve " +
-                nodes.map { "\($0.name) \($0.connected ? "bağlı" : "bağlı değil")" }.joined(separator: ", ")
+                L("Connections: Mac, server \(host) and ", "Bağlantılar: Mac, \(host) sunucusu ve ") +
+                nodes.map { L("\($0.name) \($0.connected ? "connected" : "not connected")", "\($0.name) \($0.connected ? "bağlı" : "bağlı değil")") }.joined(separator: ", ")
             )
         }
     }

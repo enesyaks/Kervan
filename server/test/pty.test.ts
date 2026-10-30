@@ -86,7 +86,7 @@ describe("PTY fallback for agents without ACP", () => {
     sessions.prompt(id, "tekrar");
     await until(() => sessions.history(id).filter((e) => e.kind === "turn_end").length >= 1);
     const notices = sessions.history(id).flatMap((e) => (e.kind === "notice" ? [e.text] : []));
-    assert.ok(notices.some((t) => /hatırlamaz/.test(t)));
+    assert.ok(notices.some((t) => /remember the earlier conversation/.test(t)));
     assert.match(answers(sessions, id), /cevap: tekrar/);
     sessions.closeAll();
   });

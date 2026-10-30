@@ -232,7 +232,7 @@ public final class SessionStore {
                 do {
                     try await send(message)
                 } catch {
-                    awaiting.removeValue(forKey: id)?.resume(returning: "Sunucuya gönderilemedi: \(error.localizedDescription)")
+                    awaiting.removeValue(forKey: id)?.resume(returning: L("Couldn't send to the server: \(error.localizedDescription)", "Sunucuya gönderilemedi: \(error.localizedDescription)"))
                 }
             }
         }
@@ -469,7 +469,7 @@ public final class SessionStore {
         do {
             try await send(message)
         } catch {
-            lastError = "Sunucuya gönderilemedi: \(error.localizedDescription)"
+            lastError = L("Couldn't send to the server: \(error.localizedDescription)", "Sunucuya gönderilemedi: \(error.localizedDescription)")
         }
     }
 
@@ -478,12 +478,12 @@ public final class SessionStore {
     /// The server's error codes in the app's language; unknown codes keep the server's text.
     static func describe(code: String, message: String) -> String {
         switch code {
-        case "session_busy": "Ajan hâlâ önceki mesajınız üzerinde çalışıyor; bitince yazabilirsiniz."
-        case "session_unavailable": "Bu oturum şu an mesaj alamıyor."
-        case "unknown_session": "Bu oturum sunucuda bulunamadı."
-        case "unknown_agent": "Bu ajan sunucuda kurulu değil."
-        case "unknown_request": "Bu izin isteği artık geçerli değil."
-        case "node_offline": "Ajanın çalıştığı makine (node) şu an bağlı değil. Bağlandığında oturum kaldığı yerden devam eder."
+        case "session_busy": L("The agent is still working on your last message; you can write when it's done.", "Ajan hâlâ önceki mesajınız üzerinde çalışıyor; bitince yazabilirsiniz.")
+        case "session_unavailable": L("This session can't take messages right now.", "Bu oturum şu an mesaj alamıyor.")
+        case "unknown_session": L("This session wasn't found on the server.", "Bu oturum sunucuda bulunamadı.")
+        case "unknown_agent": L("This agent isn't installed on the server.", "Bu ajan sunucuda kurulu değil.")
+        case "unknown_request": L("This approval request has expired.", "Bu izin isteği artık geçerli değil.")
+        case "node_offline": L("The machine (node) this agent runs on isn't connected. The session continues when it's back.", "Ajanın çalıştığı makine (node) şu an bağlı değil. Bağlandığında oturum kaldığı yerden devam eder.")
         default: message
         }
     }
