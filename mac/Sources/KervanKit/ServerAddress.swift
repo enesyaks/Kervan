@@ -65,8 +65,41 @@ public enum NodeSetup {
             "-o", "ConnectTimeout=10",
             "-o", "StrictHostKeyChecking=accept-new",
             "\(user)@\(host)",
-            command(hub: hub, code: code, sudo: "sudo -n"),
+            // pipefail: when curl can't reach the hub, the run must fail, not end as an empty, "successful" bash.
+            "bash -o pipefail -c \"\(command(hub: hub, code: code, sudo: "sudo -n"))\"",
         ]
+    }
+
+    /// The hub's LAN address on the same network as `target`, when `target` is a LAN IPv4 address there.
+    public static func lanHub(for target: String, in addresses: [HubAddress]) -> HubAddress? {
+        guard let ip = ipv4(target.trimmingCharacters(in: .whitespaces)) else { return nil }
+        return addresses.first { address in
+            guard address.kind == .lan, let network = address.network else { return false }
+            let parts = network.split(separator: "/")
+            guard parts.count == 2, let base = ipv4(String(parts[0])), let bits = UInt32(parts[1]), bits <= 32 else { return false }
+            let mask: UInt32 = bits == 0 ? 0 : ~UInt32(0) << (32 - bits)
+            return ip & mask == base & mask
+        }
+    }
+
+    static func ipv4(_ text: String) -> UInt32? {
+        let parts = text.split(separator: ".")
+        guard parts.count == 4 else { return nil }
+        var value: UInt32 = 0
+        for part in parts {
+            guard let byte = UInt8(part) else { return nil }
+            value = value << 8 | UInt32(byte)
+        }
+        return value
+    }
+
+    /// True when the hub answers /health at `hub` (host:port) within a few seconds, from this Mac.
+    public static func isReachable(_ hub: String, timeout: TimeInterval = 3) async -> Bool {
+        guard let url = URL(string: "http://\(hub)/health") else { return false }
+        var request = URLRequest(url: url, timeoutInterval: timeout)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        guard let (_, response) = try? await URLSession.shared.data(for: request) else { return false }
+        return (response as? HTTPURLResponse)?.statusCode == 200
     }
 
     /// The hub-side firewall rule that lets machines on `network` reach the hub's port.

@@ -663,7 +663,7 @@ import Testing
         #expect(NodeSetup.command(address: ServerAddress("wss://hub.example:443")!, code: "x").hasPrefix("curl -fsSL 'https://hub.example:443/"))
         let ssh = NodeSetup.sshArguments(user: "ubuntu", host: "192.168.1.27", hub: "192.168.1.21:7420", code: "abc")
         #expect(ssh.contains("BatchMode=yes"), "never waits for a password")
-        #expect(ssh.last == "curl -fsSL 'http://192.168.1.21:7420/v1/node/install?code=abc' | sudo -n bash")
+        #expect(ssh.last == "bash -o pipefail -c \"curl -fsSL 'http://192.168.1.21:7420/v1/node/install?code=abc' | sudo -n bash\"")
         #expect(NodeSetup.firewallCommand(network: "192.168.1.0/24", port: 7420) == "sudo ufw allow from 192.168.1.0/24 to any port 7420 proto tcp")
     }
 
@@ -685,5 +685,17 @@ import Testing
         #expect(store.nodeInvite == nil)
         store.handle(.nodeInvited(id: id, name: "gpu", code: "c1", expiresAt: "t"))
         #expect(store.nodeInvite?.code == "c1")
+    }
+}
+
+@Suite struct LanHubTests {
+    @Test func suggestsTheHubsLanAddressForAMachineOnTheSameNetwork() {
+        let addresses = [
+            HubAddress(address: "100.66.121.56:7420", kind: .tailscale),
+            HubAddress(address: "192.168.1.21:7420", kind: .lan, network: "192.168.1.0/24"),
+        ]
+        #expect(NodeSetup.lanHub(for: "192.168.1.27", in: addresses)?.address == "192.168.1.21:7420")
+        #expect(NodeSetup.lanHub(for: "10.0.0.5", in: addresses) == nil, "another network")
+        #expect(NodeSetup.lanHub(for: "gpu-box", in: addresses) == nil, "a name, not an address")
     }
 }

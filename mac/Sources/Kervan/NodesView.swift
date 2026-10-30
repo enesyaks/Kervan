@@ -132,6 +132,18 @@ private struct AddNodeSheet: View {
                                 .font(.body.monospaced())
                             TextField("Kullanıcı", text: $user)
                                 .font(.body.monospaced())
+                            if let suggestion = NodeSetup.lanHub(for: host, in: model.store.hubAddresses), suggestion.address != hub {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Label("Bu makine hub ile aynı yerel ağda. Tailscale'de değilse hub'a yerel ağ adresinden (\(suggestion.address)) bağlanmalı.", systemImage: "lightbulb")
+                                        .font(.callout)
+                                        .foregroundStyle(Color.kervanSaffron)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                    Button("Yerel ağ adresini kullan") { storedHub = suggestion.address }
+                                }
+                            }
+                            if let lan = model.store.hubAddresses.first(where: { $0.address == hub && $0.kind == .lan }) {
+                                LanCheck(hub: lan)
+                            }
                             HStack {
                                 Button(installer.isRunning ? "Kuruluyor…" : "Kur") {
                                     installer.run(NodeSetup.sshArguments(user: user, host: host, hub: hub, code: invite.code))
@@ -292,10 +304,7 @@ private struct HubConnectionCard: View {
             Divider()
 
             if let lan {
-                Guidance(
-                    text: "Hub güvenlik için 7420 portunu yalnızca Tailscale'e açıyor. Yerel ağdaki makinelerin bağlanabilmesi için hub'da bir kez şunu çalıştırın. Yerel ağda trafik şifrelenmez; yalnızca evinizdeki gibi güvendiğiniz ağlarda kullanın.",
-                    command: NodeSetup.firewallCommand(network: lan.network ?? "192.168.1.0/24", port: Int(lan.address.split(separator: ":").last ?? "") ?? ServerAddress.defaultPort)
-                )
+                LanCheck(hub: lan)
             } else if stored.isEmpty || addresses.contains(where: { $0.address == hub && $0.kind == .tailscale }) {
                 Guidance(
                     text: "Yeni makinenin de aynı Tailscale ağında olması gerekir. Değilse o makinede bir kez şunu çalıştırın ve açılan bağlantıdan giriş yapın:",
@@ -337,5 +346,41 @@ private struct Guidance: View {
             }
         }
         .onChange(of: command) { copied = false }
+    }
+}
+
+/// Whether the hub answers on its LAN address, tried from this Mac; if not, the one-time firewall rule to open it.
+private struct LanCheck: View {
+    let hub: HubAddress
+    @State private var reachable: Bool?
+    @State private var attempt = 0
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            switch reachable {
+            case nil:
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Hub'ın yerel ağdan erişilebilir olduğu kontrol ediliyor…").font(.callout).foregroundStyle(.secondary)
+                }
+            case true?:
+                Label("Hub yerel ağdan erişilebilir.", systemImage: "checkmark.circle.fill")
+                    .font(.callout)
+                    .foregroundStyle(Color.kervanOasis)
+            case false?:
+                Label("Hub yerel ağdan kapalı görünüyor.", systemImage: "lock.fill")
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(Color.kervanSaffron)
+                Guidance(
+                    text: "Hub güvenlik için 7420 portunu yalnızca Tailscale'e açıyor. Yerel ağdaki makineler bağlanabilsin diye hub'da (VM'de) bir kez şunu çalıştırın; sudo parolanızı orada sorar. Yerel ağda trafik şifrelenmez, yalnızca güvendiğiniz ağlarda kullanın.",
+                    command: NodeSetup.firewallCommand(network: hub.network ?? "192.168.1.0/24", port: Int(hub.address.split(separator: ":").last ?? "") ?? ServerAddress.defaultPort)
+                )
+                Button("Tekrar kontrol et") { attempt += 1 }
+            }
+        }
+        .task(id: "\(hub.address)-\(attempt)") {
+            reachable = nil
+            reachable = await NodeSetup.isReachable(hub.address)
+        }
     }
 }
