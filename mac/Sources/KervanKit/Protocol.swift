@@ -611,6 +611,8 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
     /// Files (all when `paths` is empty) back as they were before the user message `seq`.
     case sessionRevert(id: String, sessionId: String, seq: Int, paths: [String] = [])
     case sessionCommit(id: String, sessionId: String, message: String)
+    /// Commits what is left on a branch of its own, pushes it and opens a pull request.
+    case sessionPullRequest(id: String, sessionId: String, title: String, body: String)
     case projectList(id: String)
     case projectSave(id: String, project: ProjectInput)
     case projectDelete(id: String, projectId: String)
@@ -651,7 +653,7 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case type, `protocol`, client, id, agent, sessionId, text, requestId, optionId, attachments, title, archived, query
         case skills, mcpServers, server, name, agentId, role, roleId, roles, orchestrate, budgetUsd, configId, value
-        case projectId, since, seq, paths, project, schedule, scheduleId, days, timeZone, terminalId, data, message
+        case projectId, since, seq, paths, project, schedule, scheduleId, days, timeZone, terminalId, data, message, body
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -673,6 +675,12 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
             try c.encode(id, forKey: .id)
             try c.encode(sessionId, forKey: .sessionId)
             try c.encode(message, forKey: .message)
+        case .sessionPullRequest(let id, let sessionId, let title, let body):
+            try c.encode("session.pullRequest", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(sessionId, forKey: .sessionId)
+            try c.encode(title, forKey: .title)
+            if !body.isEmpty { try c.encode(body, forKey: .body) }
         case .projectList(let id):
             try c.encode("project.list", forKey: .type)
             try c.encode(id, forKey: .id)
@@ -880,13 +888,14 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
     case terminalExited(terminalId: String)
     case portListResult(id: String, ports: [ListeningPort])
     case diagnosticsResult(id: String, report: Diagnostics)
+    case sessionPullRequestResult(id: String, sessionId: String, pullRequest: PullRequestInfo)
     /// A type this client doesn't know yet. Ignored, so the server can add types without a version bump.
     case unknown(type: String)
 
     private enum CodingKeys: String, CodingKey {
         case type, `protocol`, server, agents, agentDetails, id, code, message, session, sessions, sessionId, events, event, hits, servers
         case nodes, roles, team, teams, name, expiresAt, hubAddresses
-        case changes, projects, schedules, report, terminalId, backlog, data, ports
+        case changes, projects, schedules, report, terminalId, backlog, data, ports, pullRequest
     }
 
     public init(from decoder: any Decoder) throws {
@@ -988,6 +997,12 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
             self = .terminalOutput(terminalId: try c.decode(String.self, forKey: .terminalId), data: try c.decode(String.self, forKey: .data))
         case "terminal.exited":
             self = .terminalExited(terminalId: try c.decode(String.self, forKey: .terminalId))
+        case "session.pullRequest.result":
+            self = .sessionPullRequestResult(
+                id: try c.decode(String.self, forKey: .id),
+                sessionId: try c.decode(String.self, forKey: .sessionId),
+                pullRequest: try c.decode(PullRequestInfo.self, forKey: .pullRequest)
+            )
         case "diagnostics.result":
             self = .diagnosticsResult(id: try c.decode(String.self, forKey: .id), report: try c.decode(Diagnostics.self, forKey: .report))
         case "port.list.result":

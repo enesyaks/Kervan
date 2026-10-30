@@ -184,8 +184,10 @@ flowchart LR
 
 ### 1. The app
 
-Download the app from the [latest release](https://github.com/enesyaks/Kervan/releases/latest). It isn't signed
-by Apple, so macOS warns the first time you open it: **right-click → Open** in Finder. To build it from source:
+Download the app from the [latest release](https://github.com/enesyaks/Kervan/releases/latest). It isn't notarized
+by Apple yet, so macOS blocks it the first time you open it. Open it once, then go to **System Settings → Privacy &
+Security** and click **Open Anyway** (on macOS 14, right-click → Open in Finder also works). After that it opens
+normally, and later versions install from inside the app. To build it from source:
 
 ```bash
 git clone https://github.com/enesyaks/Kervan.git

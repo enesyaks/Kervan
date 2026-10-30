@@ -80,6 +80,9 @@ struct ChangesPanel: View {
     @State private var working = false
     @State private var commitMessage = ""
     @State private var confirmRevertAll = false
+    @State private var proposing = false
+    /// What the last pull request did, shown under the commit box.
+    @State private var proposed: PullRequestInfo?
 
     var body: some View {
         let store = model.store
@@ -230,13 +233,32 @@ struct ChangesPanel: View {
             HStack {
                 Text(L("Commits every change in the folder.", "Klasördeki bütün değişiklikler commit edilir.")).font(.caption).foregroundStyle(.secondary)
                 Spacer()
+                Button(L("Pull request…", "Pull request…")) { proposing = true }
+                    .disabled(working)
+                    .help(L("Push this work on a branch of its own and open a pull request", "Bu işi kendi branch'inde push edip pull request açar"))
                 Button("Commit") { Task { await commit() } }
                     .buttonStyle(.borderedProminent)
                     .tint(.kervanLapis)
                     .disabled(commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || working)
             }
+            if let proposed {
+                ProposedNote(pullRequest: proposed)
+            }
         }
         .padding(12)
+        .sheet(isPresented: $proposing) {
+            PullRequestSheet(
+                sessionID: sessionID,
+                title: commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? model.store.session(sessionID)?.title ?? ""
+                    : commitMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+            ) { result in
+                proposed = result
+                commitMessage = ""
+                Task { await load() }
+            }
+            .environment(model)
+        }
     }
 
     private func load() async {

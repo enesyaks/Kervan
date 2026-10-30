@@ -184,7 +184,9 @@ flowchart LR
 ### 1. Uygulama
 
 Hazır derlenmiş uygulamayı [son sürümden](https://github.com/enesyaks/Kervan/releases/latest) indirebilirsiniz.
-Uygulama Apple tarafından imzalanmadığı için ilk açılışta macOS uyarır: Finder'da **sağ tık → Aç** deyin.
+Uygulama henüz Apple tarafından onaylanmadığı (notarize edilmediği) için macOS ilk açılışta engeller. Bir kez açmayı
+deneyin, sonra **Sistem Ayarları → Gizlilik ve Güvenlik** bölümünde **Yine de Aç**'a tıklayın (macOS 14'te Finder'da
+sağ tık → Aç da olur). Sonrasında normal açılır; yeni sürümler uygulamanın içinden kurulur.
 Kaynaktan derlemek için:
 
 ```bash

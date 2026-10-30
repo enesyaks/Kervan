@@ -9,6 +9,7 @@ import WebSocket from "ws";
 import { isDue, localParts } from "../src/schedules.ts";
 import { parseLsof, parseSs } from "../src/tunnel.ts";
 import { redact } from "../src/diagnostics.ts";
+import { githubRepoURL, openPullRequest } from "../src/pullrequest.ts";
 import { log } from "../src/log.ts";
 import type { ScheduleInfo } from "../src/protocol.ts";
 import type { SessionManager } from "../src/sessions.ts";
@@ -308,5 +309,51 @@ describe("changes, projects, schedules, terminals, ports, usage", () => {
     assert.equal(redact("gemini AIzaSyA1234567890abcdefghijklmno ok"), "gemini AIza… ok");
     assert.equal(redact("token 25d3e6141117cbb29e47c47fc151382a9376c63f74422893 end"), "token … end");
     assert.equal(redact("nothing secret here"), "nothing secret here");
+  });
+});
+
+describe("pull requests", () => {
+  const git = (cwd: string, ...args: string[]) =>
+    execFileSync("git", ["-C", cwd, "-c", "user.name=T", "-c", "user.email=t@t", ...args], { encoding: "utf8" }).trim();
+
+  /** A clone of a bare "origin" with one commit on main. */
+  function clone(): { work: string; origin: string } {
+    const origin = mkdtempSync(join(tmpdir(), "kervan-origin-"));
+    execFileSync("git", ["init", "-q", "--bare", "-b", "main", origin]);
+    const work = mkdtempSync(join(tmpdir(), "kervan-work-"));
+    execFileSync("git", ["clone", "-q", origin, work], { stdio: "ignore" });
+    git(work, "checkout", "-q", "-b", "main");
+    writeFileSync(join(work, "a.txt"), "one\n");
+    git(work, "add", "-A");
+    git(work, "commit", "-q", "-m", "first");
+    git(work, "push", "-q", "-u", "origin", "main");
+    git(work, "remote", "set-head", "origin", "main");
+    return { work, origin };
+  }
+
+  it("reads GitHub remotes in their SSH and HTTPS forms", () => {
+    assert.equal(githubRepoURL("git@github.com:enesyaks/Kervan.git"), "https://github.com/enesyaks/Kervan");
+    assert.equal(githubRepoURL("https://github.com/enesyaks/Kervan"), "https://github.com/enesyaks/Kervan");
+    assert.equal(githubRepoURL("https://x-token@github.com/enesyaks/Kervan.git/"), "https://github.com/enesyaks/Kervan");
+    assert.equal(githubRepoURL("git@gitlab.com:a/b.git"), undefined);
+  });
+
+  it("moves work on main to its own branch, commits and pushes it, and leaves main alone", async () => {
+    const { work, origin } = clone();
+    writeFileSync(join(work, "a.txt"), "two\n");
+    const result = await openPullRequest(work, { title: "Fix the greeting", body: "", sessionId: "abcdef1234" });
+    assert.equal(result.base, "main");
+    assert.equal(result.branch, "kervan/fix-the-greeting-abcdef12");
+    assert.equal(result.created, false);
+    assert.equal(result.url, undefined, "not a GitHub remote, so no compare page");
+    assert.equal(git(origin, "log", "-1", "--format=%s", result.branch), "Fix the greeting");
+    assert.equal(git(origin, "log", "-1", "--format=%s", "main"), "first");
+    assert.equal(git(work, "status", "--porcelain"), "");
+  });
+
+  it("refuses when there is nothing to propose", async () => {
+    const { work } = clone();
+    git(work, "checkout", "-q", "-b", "kervan/empty");
+    await assert.rejects(openPullRequest(work, { title: "Nothing", body: "", sessionId: "s1" }), /nothing to propose/);
   });
 });

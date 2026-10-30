@@ -234,3 +234,24 @@ import Testing
         #expect(url.contains("line%20400") || url.contains("line+400"))
     }
 }
+
+@Suite struct PullRequestTests {
+    @Test func requestLeavesOutAnEmptyBody() throws {
+        let plain = try ClientMessage.sessionPullRequest(id: "r", sessionId: "s", title: "Fix it", body: "").jsonString()
+        #expect(plain.contains(#""type":"session.pullRequest""#))
+        #expect(plain.contains(#""title":"Fix it""#))
+        #expect(!plain.contains("body"))
+        let described = try ClientMessage.sessionPullRequest(id: "r", sessionId: "s", title: "Fix it", body: "Why").jsonString()
+        #expect(described.contains(#""body":"Why""#))
+    }
+
+    @Test func answerCarriesTheLinkWhenThereIsOne() throws {
+        let opened = try ServerMessage.decode(#"{"type":"session.pullRequest.result","id":"r","sessionId":"s","pullRequest":{"branch":"kervan/fix-1","base":"main","url":"https://github.com/a/b/pull/7","created":true}}"#)
+        guard case .sessionPullRequestResult(_, _, let pr) = opened else { Issue.record("not a pull request result"); return }
+        #expect(pr.created && pr.url?.absoluteString == "https://github.com/a/b/pull/7")
+        #expect(opened.requestID == "r")
+        let pushed = try ServerMessage.decode(#"{"type":"session.pullRequest.result","id":"r","sessionId":"s","pullRequest":{"branch":"b","base":"main","created":false}}"#)
+        guard case .sessionPullRequestResult(_, _, let bare) = pushed else { Issue.record("not a pull request result"); return }
+        #expect(bare.url == nil && !bare.created)
+    }
+}

@@ -9,6 +9,7 @@ import {
   type AgentDetail,
   type ChangeSet,
   type ConfigOption,
+  type PullRequestInfo,
   type ServerMessage,
   type TeamInfo,
   type SessionEvent,
@@ -17,6 +18,7 @@ import {
   type UsageReport,
 } from "./protocol.ts";
 import { commitAll, repositoryBranch, type Checkpoints } from "./checkpoints.ts";
+import { openPullRequest } from "./pullrequest.ts";
 import type { ProjectRegistry } from "./projects.ts";
 import { localParts, type Scheduler } from "./schedules.ts";
 import { TerminalHub } from "./terminals.ts";
@@ -838,6 +840,18 @@ export class SessionManager {
       const text = error instanceof Error && "stderr" in error ? String((error as { stderr: unknown }).stderr).trim() : String(error instanceof Error ? error.message : error);
       throw new KervanError("bad_message", text === "nothing to commit" ? "nothing to commit" : `git commit failed: ${text}`);
     }
+  }
+
+  /** Puts the session's work up for review on a branch of its own; see openPullRequest. */
+  async pullRequest(sessionId: string, title: string, body: string): Promise<PullRequestInfo> {
+    const session = this.require(sessionId);
+    this.requireLocal(session);
+    const result = await openPullRequest(session.cwd, { title: title.trim(), body, sessionId });
+    this.record(session, {
+      kind: "notice",
+      text: result.created ? `Opened a pull request: ${result.url}` : `Pushed ${result.branch} for a pull request into ${result.base}`,
+    });
+    return result;
   }
 
   /** A scheduled task: a new session that gets `prompt` as soon as its agent is up. Resolves with its id. */

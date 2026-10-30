@@ -391,6 +391,14 @@ public struct UsageReport: Codable, Equatable, Sendable {
     }
 }
 
+/// A session's work put up for review. `url` is the pull request, or GitHub's compare page when `created` is false.
+public struct PullRequestInfo: Codable, Equatable, Sendable {
+    public let branch: String
+    public let base: String
+    public let url: URL?
+    public let created: Bool
+}
+
 /// The server's part of a bug report: versions, what runs, and recent log lines it already redacted.
 public struct Diagnostics: Codable, Equatable, Sendable {
     public struct Agent: Codable, Equatable, Sendable {
@@ -442,4 +450,8 @@ extension ClientMessage {
 
 extension ServerMessage {
     public var requestID: String? { KervanKit.requestID(of: self) }
+}
+
+public struct PullRequestFailure: Error, Equatable, Sendable {
+    public let message: String
 }

@@ -105,6 +105,13 @@ async function handleRequest(
     case "session.commit":
       await sessions.commit(message.sessionId, message.message);
       return send(ws, { type: "ok", id: message.id });
+    case "session.pullRequest":
+      return send(ws, {
+        type: "session.pullRequest.result",
+        id: message.id,
+        sessionId: message.sessionId,
+        pullRequest: await sessions.pullRequest(message.sessionId, message.title, message.body ?? ""),
+      });
     case "project.list":
       return send(ws, { type: "project.list.result", id: message.id, projects: sessions.projects?.list() ?? [] });
     case "project.save":

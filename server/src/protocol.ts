@@ -201,6 +201,14 @@ export interface UsageReport {
 }
 
 /** For "Report a problem": no prompts, no keys; log lines are redacted. */
+/** A session's work put up for review. `url` is the pull request, or GitHub's compare page when `created` is false. */
+export interface PullRequestInfo {
+  branch: string;
+  base: string;
+  url?: string;
+  created: boolean;
+}
+
 export interface Diagnostics {
   version: string;
   node: string;
@@ -258,6 +266,8 @@ export type ClientMessage =
   /** Puts files (all when `paths` is missing) back as they were before the user message `seq`. */
   | { type: "session.revert"; id: string; sessionId: string; seq: number; paths?: string[] }
   | { type: "session.commit"; id: string; sessionId: string; message: string }
+  /** Commits what is left on a branch of its own, pushes it and opens a pull request. */
+  | { type: "session.pullRequest"; id: string; sessionId: string; title: string; body?: string }
   | { type: "project.list"; id: string }
   | { type: "project.save"; id: string; project: Record<string, unknown> }
   | { type: "project.delete"; id: string; projectId: string }
@@ -343,7 +353,8 @@ export type ServerMessage =
   | { type: "terminal.output"; terminalId: string; data: string }
   | { type: "terminal.exited"; terminalId: string }
   | { type: "port.list.result"; id: string; ports: ListeningPort[] }
-  | { type: "diagnostics.result"; id: string; report: Diagnostics };
+  | { type: "diagnostics.result"; id: string; report: Diagnostics }
+  | { type: "session.pullRequest.result"; id: string; sessionId: string; pullRequest: PullRequestInfo };
 
 export type ParseResult =
   | { ok: true; message: ClientMessage }
@@ -397,6 +408,7 @@ const STRING_FIELDS: Record<string, readonly string[]> = {
   "session.changes": ["id", "sessionId"],
   "session.revert": ["id", "sessionId"],
   "session.commit": ["id", "sessionId", "message"],
+  "session.pullRequest": ["id", "sessionId", "title"],
   "project.list": ["id"],
   "project.save": ["id"],
   "project.delete": ["id", "projectId"],
@@ -493,6 +505,13 @@ export function parseClientMessage(raw: string): ParseResult {
   }
   if (data.type === "session.commit" && (message.message.trim() === "" || message.message.length > 5000)) {
     return fail("bad_message", "commit message must be 1–5000 characters");
+  }
+  if (data.type === "session.pullRequest") {
+    if (message.title.trim() === "" || message.title.length > 250) return fail("bad_message", "title must be 1–250 characters");
+    if (data.body !== undefined && (typeof data.body !== "string" || data.body.length > 20_000)) {
+      return fail("bad_message", "body must be text up to 20000 characters");
+    }
+    (message as Record<string, unknown>).body = data.body ?? "";
   }
   for (const [type, field] of [["project.save", "project"], ["schedule.save", "schedule"]] as const) {
     if (data.type !== type) continue;

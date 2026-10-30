@@ -39,6 +39,7 @@ public final class SessionStore {
     /// Ports something listens on, on the server.
     public private(set) var ports: [ListeningPort]?
     private var diagnosticsReport: Diagnostics?
+    private var pullRequestAnswer: PullRequestInfo?
     /// The shell open in each session's folder, by session id.
     public private(set) var terminals: [String: TerminalState] = [:]
 
@@ -156,6 +157,16 @@ public final class SessionStore {
     @discardableResult
     public func commit(_ sessionID: String, message: String) async -> String? {
         await call(.sessionCommit(id: Self.newID(), sessionId: sessionID, message: message))
+    }
+
+    /// Pushes the session's work on a branch of its own and opens a pull request; the server's refusal on failure.
+    public func pullRequest(_ sessionID: String, title: String, body: String) async -> Result<PullRequestInfo, PullRequestFailure> {
+        pullRequestAnswer = nil
+        if let failure = await call(.sessionPullRequest(id: Self.newID(), sessionId: sessionID, title: title, body: body)) {
+            return .failure(PullRequestFailure(message: failure))
+        }
+        guard let answer = pullRequestAnswer else { return .failure(PullRequestFailure(message: L("The server didn't answer.", "Sunucu yanıt vermedi."))) }
+        return .success(answer)
     }
 
     // MARK: Projects and scheduled tasks
@@ -376,6 +387,8 @@ public final class SessionStore {
             usage = report
         case .diagnosticsResult(_, let report):
             diagnosticsReport = report
+        case .sessionPullRequestResult(_, _, let pullRequest):
+            pullRequestAnswer = pullRequest
         case .portListResult(_, let ports):
             self.ports = ports
         case .terminalOpened(_, let terminalID, let sessionID, let backlog):
