@@ -318,6 +318,8 @@ export type ServerMessage =
   | { type: "nodes.updated"; nodes: NodeInfo[]; hubAddresses: HubAddress[] }
   | { type: "session.changes.result"; id: string; sessionId: string; changes: ChangeSet }
   | { type: "project.list.result"; id: string; projects: ProjectInfo[] }
+  /** Broadcast after a project was added, changed or removed. */
+  | { type: "projects.updated"; projects: ProjectInfo[] }
   | { type: "schedule.list.result"; id: string; schedules: ScheduleInfo[] }
   /** Broadcast after a schedule ran or changed. */
   | { type: "schedules.updated"; schedules: ScheduleInfo[] }

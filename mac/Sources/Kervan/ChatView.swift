@@ -10,12 +10,16 @@ struct ChatView: View {
     @State private var attachments: [Attachment] = []
     @State private var dropTargeted = false
     @State private var highlighted: Int?
+    @State private var rewinding: Rewind?
+    @State private var fileNames: [String] = []
 
     var body: some View {
         let session = model.store.session(sessionID)
         let status = session?.status ?? .unknown
         let agentName = model.store.agentName(session?.agent ?? "")
         let items = model.store.transcript(for: sessionID)
+        let checkpoints = model.store.checkpoints(for: sessionID)
+        let free = status == .idle && model.connection.state.isConnected
 
         VStack(spacing: 0) {
             if !model.connection.state.isConnected {
@@ -33,29 +37,9 @@ struct ChatView: View {
                         if items.isEmpty {
                             EmptySession(status: status, agentName: agentName)
                         }
+                        let resumable = Transcript.resumable(items)
                         ForEach(items) { item in
-                            TranscriptRow(
-                                item: item,
-                                agentName: agentName,
-                                senderName: senderName,
-                                terminal: model.store.isTerminal(sessionID),
-                                resume: item.id == Transcript.resumable(items) && status == .idle
-                                    ? { Task { await model.store.resume(sessionID) } }
-                                    : nil
-                            ) { requestId, choice in
-                                Task { await model.store.respond(sessionID, requestId: requestId, optionId: choice.optionId) }
-                            }
-                            .padding(highlighted == item.id ? 6 : 0)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .fill(Color.kervanLapis.opacity(highlighted == item.id ? 0.14 : 0))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .strokeBorder(Color.kervanLapis.opacity(highlighted == item.id ? 0.7 : 0), lineWidth: 1.5)
-                            )
-                            .id(item.id)
-                            .transition(.arrive(reduce: reduceMotion))
+                            row(item, resumable: resumable == item.id && status == .idle, canAct: free, canRewind: checkpoints.contains(item.id), agentName: agentName)
                         }
                         if status == .running {
                             HStack(spacing: 8) {
@@ -107,6 +91,15 @@ struct ChatView: View {
                 }
             }
 
+            if let plan = model.store.plan(for: sessionID) {
+                PlanCard(entries: plan)
+                    .frame(maxWidth: 760)
+                    .padding(.horizontal, 28)
+                    .padding(.top, 8)
+                    .frame(maxWidth: .infinity)
+                    .background(Color.kervanCanvas)
+            }
+
             Composer(
                 draft: $draft,
                 attachments: attachments,
@@ -117,7 +110,11 @@ struct ChatView: View {
                 attach: chooseFiles,
                 remove: { id in attachments.removeAll { $0.id == id } },
                 options: session.map { ConfigOption.ordered($0.config) } ?? [],
-                choose: { option, value in Task { await model.store.setConfig(sessionID, configId: option.id, value: value) } }
+                choose: { option, value in Task { await model.store.setConfig(sessionID, configId: option.id, value: value) } },
+                suggestions: suggestions,
+                pick: pick,
+                paste: pasteImage,
+                needFiles: { Task { await loadFileNames() } }
             )
         }
         .overlay { if dropTargeted { DropHint() } }
@@ -132,10 +129,44 @@ struct ChatView: View {
                 .joined(separator: ", ")
         )
         .inspector(isPresented: Bindable(model).showFiles) {
-            FilesPanel(sessionID: sessionID)
-                .inspectorColumnWidth(min: 240, ideal: 300)
+            SessionInspector(sessionID: sessionID)
+                .inspectorColumnWidth(min: 280, ideal: 360, max: 640)
         }
-        .toolbar {
+        .toolbar { tools }
+        .alert(
+            "Dosyalar geri sarılsın mı?",
+            isPresented: Binding(get: { rewinding != nil }, set: { if !$0 { rewinding = nil } }),
+            presenting: rewinding
+        ) { pending in
+            Button(pending.thenEdit ? "Geri sar ve düzenle" : "Geri sar", role: .destructive) { rewind(pending) }
+            Button("Vazgeç", role: .cancel) {}
+        } message: { _ in
+            Text("Klasördeki dosyalar bu mesajdan önceki hâline döner; ajanın sonradan oluşturduğu dosyalar silinir. Konuşma silinmez; ajana bir sonraki mesajınızda söylenir.")
+        }
+    }
+
+    private func row(_ item: TranscriptItem, resumable: Bool, canAct: Bool, canRewind: Bool, agentName: String) -> some View {
+        let lit = highlighted == item.id
+        return TranscriptRow(
+            item: item,
+            agentName: agentName,
+            senderName: senderName,
+            terminal: model.store.isTerminal(sessionID),
+            resume: resumable ? { Task { await model.store.resume(sessionID) } } : nil,
+            act: canAct ? { action in act(action, on: item) } : nil,
+            canRewind: canRewind
+        ) { requestId, choice in
+            Task { await model.store.respond(sessionID, requestId: requestId, optionId: choice.optionId) }
+        }
+        .padding(lit ? 6 : 0)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.kervanLapis.opacity(lit ? 0.14 : 0)))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.kervanLapis.opacity(lit ? 0.7 : 0), lineWidth: 1.5))
+        .id(item.id)
+        .transition(.arrive(reduce: reduceMotion))
+    }
+
+    @ToolbarContentBuilder
+    private var tools: some ToolbarContent {
             if Crew.of(sessionID, sessions: model.store.sessions, teams: model.store.teams) != nil {
                 ToolbarItem {
                     Button {
@@ -149,13 +180,95 @@ struct ChatView: View {
             }
             ToolbarItem {
                 Button {
+                    model.showPanel(.changes)
+                } label: {
+                    Label("Değişiklikler", systemImage: "plusminus")
+                }
+                .help("Ajanın değiştirdiği dosyalar (⌥⌘D)")
+                .keyboardShortcut("d", modifiers: [.command, .option])
+            }
+            ToolbarItem {
+                Button {
                     model.showFiles.toggle()
                 } label: {
-                    Label("Dosyalar", systemImage: "folder")
+                    Label("Panel", systemImage: "sidebar.right")
                 }
-                .help("Oturumun çalışma klasörünü göster")
+                .help("Dosyalar, değişiklikler, terminal ve önizleme (⌥⌘0)")
+                .keyboardShortcut("0", modifiers: [.command, .option])
+            }
+    }
+
+    /// A message the user chose to rewind to, waiting for their yes.
+    private struct Rewind: Equatable {
+        let seq: Int
+        let text: String
+        let thenEdit: Bool
+    }
+
+    private func act(_ action: MessageAction, on item: TranscriptItem) {
+        guard case .user(let seq, let text, _, _) = item else { return }
+        switch action {
+        case .resend:
+            draft = text
+            send()
+        case .edit:
+            rewinding = Rewind(seq: seq, text: text, thenEdit: true)
+        case .rewind:
+            rewinding = Rewind(seq: seq, text: text, thenEdit: false)
+        }
+    }
+
+    private func rewind(_ pending: Rewind) {
+        Task {
+            if let failure = await model.store.revert(sessionID, toBefore: pending.seq) {
+                model.store.lastError = failure
+                return
+            }
+            if pending.thenEdit { draft = pending.text }
+        }
+    }
+
+    // MARK: Suggestions
+
+    /// Slash commands while the draft is "/…", workspace files after an "@".
+    private var suggestions: [Suggestion] {
+        if let commands = Transcript.suggestions(for: draft, in: model.store.commands(for: sessionID)) {
+            return commands.prefix(30).map {
+                Suggestion(id: "/" + $0.name, title: "/" + $0.name, detail: $0.description, symbol: "command", insert: "/\($0.name) ")
             }
         }
+        if let word = Transcript.mention(in: draft) {
+            let typed = word.lowercased()
+            return fileNames
+                .filter { typed.isEmpty || $0.lowercased().contains(typed) }
+                .sorted { ($0.lowercased().hasPrefix(typed) ? 0 : 1, $0.count) < ($1.lowercased().hasPrefix(typed) ? 0 : 1, $1.count) }
+                .prefix(30)
+                .map { Suggestion(id: "@" + $0, title: $0, detail: "", symbol: "doc", insert: "@\($0) ", file: $0) }
+        }
+        return []
+    }
+
+    private func pick(_ suggestion: Suggestion) {
+        if suggestion.file != nil, let at = draft.lastIndex(of: "@") {
+            draft = String(draft[..<at]) + suggestion.insert
+        } else {
+            draft = suggestion.insert
+        }
+    }
+
+    /// The workspace's files, for "@" suggestions; fetched when the first "@" is typed.
+    private func loadFileNames() async {
+        guard fileNames.isEmpty, let client = model.fileClient else { return }
+        if let listing = try? await client.list(sessionID: sessionID) {
+            fileNames = listing.entries.filter { $0.type == .file }.map(\.path)
+        }
+    }
+
+    /// ⌘V with a picture on the pasteboard: it is uploaded and attached like a dropped file.
+    private func pasteImage() -> Bool {
+        guard let file = PastedImage.take() else { return false }
+        attach([file])
+        return true
     }
 
     private static let bottom = "bottom"
@@ -177,7 +290,9 @@ struct ChatView: View {
     private func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, model.store.session(sessionID)?.status == .idle, attachments.allSatisfy(\.isReady) else { return }
-        let paths = attachments.map(\.remotePath)
+        // Files mentioned with "@" go along as attachments, so the agent gets them as files, not just names.
+        let mentioned = fileNames.filter { text.contains("@\($0)") }
+        let paths = Array(NSOrderedSet(array: attachments.map(\.remotePath) + mentioned)) as? [String] ?? attachments.map(\.remotePath)
         draft = ""
         attachments = []
         model.store.lastError = nil
@@ -275,6 +390,16 @@ struct BranchLabel: View {
     }
 }
 
+/// What can be done with one of your messages from the chat.
+enum MessageAction {
+    /// Put the folder back to before it, and the text in the composer to change and send again.
+    case edit
+    /// Put the folder back to before it.
+    case rewind
+    /// Send the same text again.
+    case resend
+}
+
 struct TranscriptRow: View {
     let item: TranscriptItem
     let agentName: String
@@ -283,35 +408,114 @@ struct TranscriptRow: View {
     var terminal = false
     /// Set on a turn a server restart cut off, while the agent is free: continues it.
     var resume: (() -> Void)?
+    /// Set on your own messages while the agent is free; `canRewind` when the folder was saved before it.
+    var act: ((MessageAction) -> Void)?
+    var canRewind = false
     let respond: (String, PermissionChoice) -> Void
+    @State private var hovering = false
 
     var body: some View {
         switch item {
-        case .user(_, let text, let attached, let from):
-            // Your words sit on the right in a soft bubble; a lead's instructions to a helper get its gold.
-            let accent = from == nil ? Color.kervanLapis : Color.kervanSaffron
-            HStack {
-                Spacer(minLength: 64)
-                VStack(alignment: .trailing, spacing: 8) {
-                    if let from {
-                        Label(senderName(from), systemImage: "flag.fill")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(Color.kervanSaffron)
-                    }
-                    Text(text)
-                        .font(.system(size: 14, design: .rounded))
-                        .textSelection(.enabled)
-                        .lineSpacing(3)
-                    if !attached.isEmpty {
-                        FlowChips(names: attached.map { $0.split(separator: "/").last.map(String.init) ?? $0 })
-                    }
+        case .user(_, let text, let attached, let from) where from == nil && act != nil:
+            userBubble(text: text, attached: attached, from: nil)
+                .overlay(alignment: .bottomLeading) {
+                    if hovering { actions(text) }
                 }
-                .padding(.vertical, 10)
-                .padding(.horizontal, 14)
-                .background(accent.opacity(0.16), in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                .onHover { hovering = $0 }
+                .contextMenu { menu(text) }
+        case .user(_, let text, let attached, let from):
+            userBubble(text: text, attached: attached, from: from)
+        default:
+            content
+        }
+    }
+
+    @ViewBuilder
+    private func menu(_ text: String) -> some View {
+        if canRewind {
+            Button("Düzenle ve yeniden gönder") { act?(.edit) }
+            Button("Dosyaları bu mesajdan önceye geri sar") { act?(.rewind) }
+        }
+        Button("Aynı mesajı yeniden gönder") { act?(.resend) }
+        Divider()
+        Button("Kopyala") {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+        }
+    }
+
+    /// Small buttons beside the bubble on hover; the same actions are in its context menu.
+    private func actions(_ text: String) -> some View {
+        HStack(spacing: 2) {
+            if canRewind {
+                iconButton("pencil", "Düzenle ve yeniden gönder: dosyalar bu mesajdan önceki hâline döner") { act?(.edit) }
+                iconButton("arrow.uturn.backward", "Dosyaları bu mesajdan önceye geri sar") { act?(.rewind) }
             }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(from.map { "Ana ajan \(senderName($0)): \(text)" } ?? "Siz: \(text)")
+            iconButton("arrow.clockwise", "Aynı mesajı yeniden gönder") { act?(.resend) }
+            iconButton("doc.on.doc", "Kopyala") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(text, forType: .string)
+            }
+        }
+        .padding(3)
+        .softSurface(radius: Radius.chip)
+        .transition(.opacity)
+    }
+
+    private func iconButton(_ symbol: String, _ help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 24, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(SoftPressStyle())
+        .help(help)
+        .accessibilityLabel(help)
+    }
+
+    private func userBubble(text: String, attached: [String], from: String?) -> some View {
+        // Your words sit on the right in a soft bubble; a lead's instructions to a helper get its gold.
+        let accent = from == nil ? Color.kervanLapis : Color.kervanSaffron
+        return HStack {
+            Spacer(minLength: 64)
+            VStack(alignment: .trailing, spacing: 8) {
+                if let from {
+                    Label(senderName(from), systemImage: "flag.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Color.kervanSaffron)
+                }
+                Text(text)
+                    .font(.system(size: 14, design: .rounded))
+                    .textSelection(.enabled)
+                    .lineSpacing(3)
+                if !attached.isEmpty {
+                    FlowChips(names: attached.map { $0.split(separator: "/").last.map(String.init) ?? $0 })
+                }
+            }
+            .padding(.vertical, 10)
+            .padding(.horizontal, 14)
+            .background(accent.opacity(0.16), in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(from.map { "Ana ajan \(senderName($0)): \(text)" } ?? "Siz: \(text)")
+        .accessibilityActions {
+            if act != nil && from == nil {
+                if canRewind {
+                    Button("Düzenle ve yeniden gönder") { act?(.edit) }
+                    Button("Dosyaları bu mesajdan önceye geri sar") { act?(.rewind) }
+                }
+                Button("Aynı mesajı yeniden gönder") { act?(.resend) }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch item {
+        case .user:
+            EmptyView() // drawn by `body`
 
         case .agent(_, let text) where terminal:
             Text(text.trimmingCharacters(in: .newlines))
@@ -338,8 +542,8 @@ struct TranscriptRow: View {
             }
             .foregroundStyle(.secondary)
 
-        case .tool(_, _, let title, let kind, let status):
-            ToolRow(title: title, kind: kind, status: status)
+        case .tool(_, _, let title, let kind, let status, let diffs):
+            ToolRow(title: title, kind: kind, status: status, diffs: diffs)
 
         case .permission(_, let prompt):
             PermissionCard(prompt: prompt, agentName: agentName) { respond(prompt.requestId, $0) }
@@ -386,29 +590,72 @@ struct TranscriptRow: View {
     }
 }
 
+/// One tool call; an edit with a reported diff opens to show the changed lines.
 private struct ToolRow: View {
     let title: String
     let kind: String
     let status: String
+    var diffs: [FileDiff] = []
+    @State private var open = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: Self.symbol(kind))
-                .foregroundStyle(.secondary)
-                .frame(width: 16)
-            Text(title)
-                .font(.callout.monospaced())
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer(minLength: 12)
-            Text(Self.statusLabel(status))
-                .font(.caption)
-                .foregroundStyle(Self.statusTint(status))
+        let lines = diffs.map { (path: $0.path, lines: $0.lines, truncated: $0.truncated) }
+        let added = lines.reduce(0) { $0 + $1.lines.filter { $0.kind == .added }.count }
+        let removed = lines.reduce(0) { $0 + $1.lines.filter { $0.kind == .removed }.count }
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                withAnimation(Motion.pick(Motion.fast, reduce: reduceMotion)) { open.toggle() }
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: Self.symbol(kind))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 16)
+                    Text(title)
+                        .font(.callout.monospaced())
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: 12)
+                    if !diffs.isEmpty {
+                        LineCounts(added: added, removed: removed)
+                        Image(systemName: "chevron.down")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .rotationEffect(.degrees(open ? 0 : -90))
+                    }
+                    Text(Self.statusLabel(status))
+                        .font(.caption)
+                        .foregroundStyle(Self.statusTint(status))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(diffs.isEmpty)
+            .accessibilityElement(children: .combine)
+            .accessibilityHint(diffs.isEmpty ? "" : open ? "Farkı gizler" : "Değişen satırları gösterir")
+
+            if open {
+                ForEach(Array(lines.enumerated()), id: \.offset) { _, diff in
+                    VStack(alignment: .leading, spacing: 4) {
+                        if lines.count > 1 || diff.path != title {
+                            Text(diff.path).font(.caption.monospaced()).foregroundStyle(.secondary)
+                        }
+                        if diff.lines.isEmpty {
+                            Text("İçerik aynı kaldı.").font(.caption).foregroundStyle(.secondary)
+                        } else {
+                            DiffLinesView(lines: diff.lines)
+                        }
+                        if diff.truncated {
+                            Text("Dosya uzun; farkın tamamı Değişiklikler panelinde.").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .transition(.opacity)
+            }
         }
         .padding(.vertical, 8)
         .padding(.horizontal, 12)
         .background(Color.kervanWell.opacity(0.7), in: RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
-        .accessibilityElement(children: .combine)
     }
 
     private static func symbol(_ kind: String) -> String { toolSymbol(kind) }
@@ -551,10 +798,27 @@ private struct Composer: View {
     /// The agent's settings (model, effort, mode), shown under the text field.
     let options: [ConfigOption]
     let choose: (ConfigOption, String) -> Void
+    /// Slash commands or files matching what is being typed.
+    let suggestions: [Suggestion]
+    let pick: (Suggestion) -> Void
+    /// ⌘V: takes a picture from the pasteboard if there is one; false lets the text field paste text.
+    let paste: () -> Bool
+    /// Asked for once an "@" is typed, to load the folder's file names.
+    let needFiles: () -> Void
     @FocusState private var focused: Bool
+    @State private var selected = 0
+    /// Escape hides the suggestions until the draft changes again.
+    @State private var dismissed = false
+    @State private var pasteMonitor: Any?
+
+    private var showing: Bool { !suggestions.isEmpty && !dismissed && focused }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            if showing {
+                SuggestionList(suggestions: suggestions, selected: min(selected, suggestions.count - 1)) { choice($0) }
+                    .transition(.opacity)
+            }
             if !attachments.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
@@ -581,8 +845,32 @@ private struct Composer: View {
                     .font(.system(size: 14, design: .rounded))
                     .lineLimit(1...8)
                     .focused($focused)
-                    .onSubmit(send)
+                    .onSubmit(submit)
+                    .onKeyPress(.downArrow) { move(1) }
+                    .onKeyPress(.upArrow) { move(-1) }
+                    .onKeyPress(.tab) { showing ? (choice(suggestions[min(selected, suggestions.count - 1)]), KeyPress.Result.handled).1 : .ignored }
+                    .onKeyPress(.escape) {
+                        guard showing else { return .ignored }
+                        dismissed = true
+                        return .handled
+                    }
                     .padding(.vertical, 7)
+                    .onChange(of: draft) {
+                        dismissed = false
+                        selected = 0
+                        if Transcript.mention(in: draft) != nil { needFiles() }
+                    }
+
+                Button(action: dictate) {
+                    Image(systemName: "mic")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 28, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(SoftPressStyle())
+                .help("Sesle yazın (macOS dikte)")
+                .accessibilityLabel("Dikte")
 
                 let busy = status == .running || status == .waiting
                 let empty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -615,7 +903,7 @@ private struct Composer: View {
                     SettingMenu(option: option) { choose(option, $0) }
                 }
                 Spacer()
-                Text("↩ gönderir, ⌥↩ yeni satır açar.")
+                Text("/ komut, @ dosya. ↩ gönderir, ⌥↩ yeni satır.")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
@@ -627,7 +915,48 @@ private struct Composer: View {
         .padding(.bottom, 14)
         .frame(maxWidth: .infinity)
         .background(Color.kervanCanvas)
-        .onAppear { focused = true }
+        .onAppear {
+            focused = true
+            // ⌘V with a screenshot on the pasteboard attaches it; text pastes as usual.
+            pasteMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                guard focused, event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+                      event.charactersIgnoringModifiers == "v", paste()
+                else { return event }
+                return nil
+            }
+        }
+        .onDisappear {
+            if let pasteMonitor { NSEvent.removeMonitor(pasteMonitor) }
+            pasteMonitor = nil
+        }
+    }
+
+    /// Return picks the highlighted suggestion while the list shows; otherwise it sends.
+    private func submit() {
+        if showing {
+            choice(suggestions[min(selected, suggestions.count - 1)])
+        } else {
+            send()
+        }
+    }
+
+    private func choice(_ suggestion: Suggestion) {
+        pick(suggestion)
+        focused = true
+    }
+
+    private func move(_ step: Int) -> KeyPress.Result {
+        guard showing else { return .ignored }
+        selected = (selected + step + suggestions.count) % suggestions.count
+        return .handled
+    }
+
+    /// Starts macOS dictation in the text field (the same as pressing the dictation key).
+    private func dictate() {
+        focused = true
+        DispatchQueue.main.async {
+            NSApp.sendAction(Selector(("startDictation:")), to: nil, from: nil)
+        }
     }
 }
 

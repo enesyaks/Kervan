@@ -48,7 +48,11 @@ describe("server restart", () => {
 
     const second = boot(dir);
     assert.equal(second.sessions.list()[0].status, "idle");
-    assert.deepEqual(second.sessions.history(id).map((e) => e.kind), ["user_message", "agent_message_chunk", "turn_end"]);
+    // The agent announces its slash commands whenever it likes; they aren't part of the turn.
+    assert.deepEqual(
+      second.sessions.history(id).map((e) => e.kind).filter((kind) => kind !== "commands"),
+      ["user_message", "agent_message_chunk", "turn_end"],
+    );
 
     second.sessions.prompt(id, "whoami again");
     await second.until((m) => isEvent(id, "turn_end")(m));

@@ -57,8 +57,8 @@ import Testing
         )
         #expect(message == .sessionEvent(sessionId: "s1", event: SessionEvent(seq: 3, at: "t", body: .toolCall(id: "t1", title: "Read a.txt", kind: "read", status: "pending"))))
 
-        let unknown = try ServerMessage.decode(#"{"type":"session.event","sessionId":"s1","event":{"seq":4,"kind":"plan"}}"#)
-        #expect(unknown == .sessionEvent(sessionId: "s1", event: SessionEvent(seq: 4, body: .unknown(kind: "plan"))))
+        let unknown = try ServerMessage.decode(#"{"type":"session.event","sessionId":"s1","event":{"seq":4,"kind":"future_kind"}}"#)
+        #expect(unknown == .sessionEvent(sessionId: "s1", event: SessionEvent(seq: 4, body: .unknown(kind: "future_kind"))))
     }
 
     @Test func decodesSessionInfoWithUnknownStatus() throws {
@@ -192,7 +192,7 @@ import Testing
     @Test func selectsOnlySessionsItCreated() async {
         let (store, outbox) = makeStore()
         await store.create(agent: "claude")
-        guard case .sessionCreate(let requestID, "claude", _, _, false, _)? = outbox.sent.last else {
+        guard case .sessionCreate(let requestID, "claude", _, _, false, _, _)? = outbox.sent.last else {
             Issue.record("expected a session.create")
             return
         }

@@ -17,7 +17,11 @@ final class AppModel {
         didSet { if let selectedSessionID { notifier?.clear(selectedSessionID) } }
     }
     private var notifier: Notifier?
+    /// The side panel next to a chat, and which of its pages shows.
     var showFiles = false
+    var panel: SessionPanel = .files
+    /// Server ports forwarded to this Mac, for the Preview panel.
+    let forwarder = PortForwarder()
     /// The selected session's whole team (or lead and helpers) side by side, instead of its chat alone.
     var showCrew = false
     var showNewTeam = false
@@ -103,7 +107,31 @@ final class AppModel {
 
     func disconnect() {
         connection.disconnect()
+        forwarder.stopAll()
         isLinked = false
+    }
+
+    /// The WebSocket request for one forwarded connection to `port` on the server.
+    func tunnelRequest(port: Int) -> URLRequest? {
+        guard let activeAddress, let activeToken,
+              var components = URLComponents(url: activeAddress.url, resolvingAgainstBaseURL: false)
+        else { return nil }
+        components.path = "/v1/tunnel"
+        components.queryItems = [URLQueryItem(name: "port", value: String(port))]
+        guard let url = components.url else { return nil }
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(activeToken)", forHTTPHeaderField: "Authorization")
+        return request
+    }
+
+    /// Opens a side panel page for the selected chat.
+    func showPanel(_ panel: SessionPanel) {
+        if showFiles && self.panel == panel {
+            showFiles = false
+        } else {
+            self.panel = panel
+            showFiles = true
+        }
     }
 
     func open(sessionID: String, at seq: Int) {
@@ -129,23 +157,64 @@ final class AppModel {
 
     /// Set to an agent id to show the new-session sheet with that agent picked.
     var newSessionAgent: String?
+    /// The project the new-session sheet starts in; nil for a folder of the session's own.
+    var newSessionProject: String?
 
     /// Opens the new-session sheet; the session starts from there.
-    func newSession(agent: String? = nil) {
+    func newSession(agent: String? = nil, project: String? = nil) {
         guard let agent = agent ?? defaultAgent?.id else { return }
+        newSessionProject = project
         newSessionAgent = agent
     }
 
-    func startSession(agent: String, skills: [String], mcpServers: [String], orchestrate: Bool = false, budgetUsd: Double? = nil) {
+    func startSession(
+        agent: String, skills: [String], mcpServers: [String], orchestrate: Bool = false, budgetUsd: Double? = nil, projectId: String? = nil
+    ) {
         lastAgentID = agent
         UserDefaults.standard.set(skills, forKey: Self.lastSkillsKey)
         UserDefaults.standard.set(mcpServers, forKey: Self.lastMcpKey)
         UserDefaults.standard.set(orchestrate, forKey: Self.lastOrchestrateKey)
-        Task { await store.create(agent: agent, skills: skills, mcpServers: mcpServers, orchestrate: orchestrate, budgetUsd: budgetUsd) }
+        Task {
+            await store.create(
+                agent: agent, skills: skills, mcpServers: mcpServers, orchestrate: orchestrate, budgetUsd: budgetUsd, projectId: projectId
+            )
+        }
     }
 
-    private func restoreToken() async {
-        let token = if let fromEnvironment = environment["KERVAN_TOKEN"] {
+    // Sidebar entries that aren't sessions share its selection, under these tags.
+    static let usagePage = "page:usage"
+    static let schedulesPage = "page:schedules"
+    static let projectPrefix = "project:"
+    static func projectPage(_ id: String) -> String { projectPrefix + id }
+}
+
+/// The pages of the panel next to a chat.
+enum SessionPanel: String, CaseIterable, Identifiable {
+    case files, changes, terminal, preview
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .files: "Dosyalar"
+        case .changes: "Değişiklikler"
+        case .terminal: "Terminal"
+        case .preview: "Önizleme"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .files: "folder"
+        case .changes: "plusminus"
+        case .terminal: "terminal"
+        case .preview: "safari"
+        }
+    }
+}
+
+extension AppModel {
+    fileprivate func restoreToken() async {
+        let token = if let fromEnvironment = ProcessInfo.processInfo.environment["KERVAN_TOKEN"] {
             fromEnvironment
         } else {
             await Task.detached { TokenStore.read() }.value

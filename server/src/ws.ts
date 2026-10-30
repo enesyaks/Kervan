@@ -108,9 +108,11 @@ async function handleRequest(
       return send(ws, { type: "project.list.result", id: message.id, projects: sessions.projects?.list() ?? [] });
     case "project.save":
       await requireProjects(sessions).save(message.project);
+      sessions.broadcast({ type: "projects.updated", projects: requireProjects(sessions).list() });
       return send(ws, { type: "project.list.result", id: message.id, projects: requireProjects(sessions).list() });
     case "project.delete":
       requireProjects(sessions).remove(message.projectId);
+      sessions.broadcast({ type: "projects.updated", projects: requireProjects(sessions).list() });
       return send(ws, { type: "project.list.result", id: message.id, projects: requireProjects(sessions).list() });
     case "schedule.list":
       return send(ws, { type: "schedule.list.result", id: message.id, schedules: sessions.scheduler?.list() ?? [] });

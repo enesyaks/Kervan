@@ -12,9 +12,11 @@ struct NewSessionSheet: View {
     @State private var budget: Double?
     @State private var available: [SkillInfo]?
     @State private var loadError: String?
+    @State private var project: String?
 
-    init(agent: String) {
+    init(agent: String, project: String? = nil) {
         _agent = State(initialValue: agent)
+        _project = State(initialValue: project)
         _skills = State(initialValue: Set(UserDefaults.standard.stringArray(forKey: AppModel.lastSkillsKey) ?? []))
         _mcpServers = State(initialValue: Set(UserDefaults.standard.stringArray(forKey: AppModel.lastMcpKey) ?? []))
         _orchestrate = State(initialValue: UserDefaults.standard.bool(forKey: AppModel.lastOrchestrateKey))
@@ -28,6 +30,13 @@ struct NewSessionSheet: View {
                 Section {
                     Picker("Ajan", selection: $agent) {
                         ForEach(model.store.agents) { Text($0.displayName).tag($0.id) }
+                    }
+                    Picker(selection: $project) {
+                        Text("Yok (oturumun kendi klasörü)").tag(String?.none)
+                        ForEach(model.store.projects) { Text($0.name).tag(Optional($0.id)) }
+                    } label: {
+                        Text("Proje")
+                        Text("Ajan projenin klasöründe, projenin talimatlarıyla çalışır.")
                     }
                     Toggle(isOn: $orchestrate) {
                         Text("Yardımcı ajan başlatabilsin")
@@ -87,7 +96,8 @@ struct NewSessionSheet: View {
                         skills: skills.filter(names.contains).sorted(),
                         mcpServers: mcpServers.filter { name in servers.contains { $0.name == name } }.sorted(),
                         orchestrate: orchestrate,
-                        budgetUsd: orchestrate ? budget.flatMap { $0 > 0 ? $0 : nil } : nil
+                        budgetUsd: orchestrate ? budget.flatMap { $0 > 0 ? $0 : nil } : nil,
+                        projectId: project
                     )
                     dismiss()
                 }

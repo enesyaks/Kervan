@@ -127,15 +127,22 @@ public struct SessionInfo: Codable, Equatable, Sendable, Identifiable {
     public var usage: SessionUsage?
     /// The agent's session settings (model, effort, mode), with the current choice.
     public var config: [ConfigOption]
+    /// The project whose folder the session works in.
+    public var projectId: String?
+    /// Set when a scheduled task started the session.
+    public var scheduleId: String?
     public var error: String?
 
     public init(
         id: String, agent: String, title: String, status: SessionStatus, createdAt: String,
         archived: Bool = false, skills: [String] = [], mcpServers: [String] = [], teamId: String? = nil,
         role: String? = nil, parentId: String? = nil, orchestrate: Bool = false, budgetUsd: Double? = nil,
-        branch: String? = nil, usage: SessionUsage? = nil, config: [ConfigOption] = [], error: String? = nil
+        branch: String? = nil, usage: SessionUsage? = nil, config: [ConfigOption] = [], projectId: String? = nil,
+        scheduleId: String? = nil, error: String? = nil
     ) {
         self.config = config
+        self.projectId = projectId
+        self.scheduleId = scheduleId
         self.budgetUsd = budgetUsd
         self.branch = branch
         self.usage = usage
@@ -154,7 +161,10 @@ public struct SessionInfo: Codable, Equatable, Sendable, Identifiable {
         self.error = error
     }
 
-    private enum CodingKeys: String, CodingKey { case id, agent, title, status, createdAt, archived, skills, mcpServers, teamId, role, parentId, orchestrate, budgetUsd, branch, usage, config, error }
+    private enum CodingKeys: String, CodingKey {
+        case id, agent, title, status, createdAt, archived, skills, mcpServers, teamId, role, parentId, orchestrate, budgetUsd, branch, usage, config
+        case projectId, scheduleId, error
+    }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -174,6 +184,8 @@ public struct SessionInfo: Codable, Equatable, Sendable, Identifiable {
         branch = try c.decodeIfPresent(String.self, forKey: .branch)
         usage = try c.decodeIfPresent(SessionUsage.self, forKey: .usage)
         config = try c.decodeIfPresent([ConfigOption].self, forKey: .config) ?? []
+        projectId = try c.decodeIfPresent(String.self, forKey: .projectId)
+        scheduleId = try c.decodeIfPresent(String.self, forKey: .scheduleId)
         error = try c.decodeIfPresent(String.self, forKey: .error)
     }
 }
@@ -497,8 +509,15 @@ public struct SessionEvent: Decodable, Equatable, Sendable {
         case userMessage(String, attachments: [String] = [], from: String? = nil)
         case agentMessageChunk(String)
         case agentThoughtChunk(String)
-        case toolCall(id: String, title: String, kind: String, status: String)
-        case toolCallUpdate(id: String, title: String?, status: String?)
+        /// `diffs`: the file edits the call made, when the agent reports them.
+        case toolCall(id: String, title: String, kind: String, status: String, diffs: [FileDiff] = [])
+        case toolCallUpdate(id: String, title: String?, status: String?, diffs: [FileDiff] = [])
+        /// The agent's whole plan as it stands now.
+        case plan([PlanEntry])
+        /// The slash commands the agent offers now.
+        case commands([SlashCommand])
+        /// The folder was saved just before the user message `messageSeq`; it can be put back to this point.
+        case checkpoint(commit: String, messageSeq: Int)
         case permissionRequest(requestId: String, title: String, toolKind: String, detail: String?, options: [PermissionChoice])
         /// `optionId` is nil when the request was cancelled.
         case permissionResolved(requestId: String, optionId: String?)
@@ -523,6 +542,7 @@ public struct SessionEvent: Decodable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case seq, at, kind, text, toolCallId, title, toolKind, status, stopReason, message
         case requestId, detail, options, optionId, attachments, from
+        case diffs, entries, commands, commit, messageSeq
     }
 
     public init(from decoder: any Decoder) throws {
@@ -544,14 +564,20 @@ public struct SessionEvent: Decodable, Equatable, Sendable {
                 id: try c.decode(String.self, forKey: .toolCallId),
                 title: try c.decode(String.self, forKey: .title),
                 kind: try c.decodeIfPresent(String.self, forKey: .toolKind) ?? "other",
-                status: try c.decodeIfPresent(String.self, forKey: .status) ?? "pending"
+                status: try c.decodeIfPresent(String.self, forKey: .status) ?? "pending",
+                diffs: try c.decodeIfPresent([FileDiff].self, forKey: .diffs) ?? []
             )
         case "tool_call_update":
             body = .toolCallUpdate(
                 id: try c.decode(String.self, forKey: .toolCallId),
                 title: try c.decodeIfPresent(String.self, forKey: .title),
-                status: try c.decodeIfPresent(String.self, forKey: .status)
+                status: try c.decodeIfPresent(String.self, forKey: .status),
+                diffs: try c.decodeIfPresent([FileDiff].self, forKey: .diffs) ?? []
             )
+        case "plan": body = .plan(try c.decode([PlanEntry].self, forKey: .entries))
+        case "commands": body = .commands(try c.decode([SlashCommand].self, forKey: .commands))
+        case "checkpoint":
+            body = .checkpoint(commit: try c.decode(String.self, forKey: .commit), messageSeq: try c.decode(Int.self, forKey: .messageSeq))
         case "permission_request":
             body = .permissionRequest(
                 requestId: try c.decode(String.self, forKey: .requestId),
@@ -576,7 +602,27 @@ public struct SessionEvent: Decodable, Equatable, Sendable {
 public enum ClientMessage: Encodable, Equatable, Sendable {
     case hello(client: PeerInfo)
     case ping(id: String)
-    case sessionCreate(id: String, agent: String, skills: [String] = [], mcpServers: [String] = [], orchestrate: Bool = false, budgetUsd: Double? = nil)
+    case sessionCreate(
+        id: String, agent: String, skills: [String] = [], mcpServers: [String] = [], orchestrate: Bool = false,
+        budgetUsd: Double? = nil, projectId: String? = nil
+    )
+    /// `sinceTurn`: only what the last message changed; otherwise everything since the first one.
+    case sessionChanges(id: String, sessionId: String, sinceTurn: Bool = false)
+    /// Files (all when `paths` is empty) back as they were before the user message `seq`.
+    case sessionRevert(id: String, sessionId: String, seq: Int, paths: [String] = [])
+    case sessionCommit(id: String, sessionId: String, message: String)
+    case projectList(id: String)
+    case projectSave(id: String, project: ProjectInput)
+    case projectDelete(id: String, projectId: String)
+    case scheduleList(id: String)
+    case scheduleSave(id: String, schedule: ScheduleInput)
+    case scheduleDelete(id: String, scheduleId: String)
+    case scheduleRun(id: String, scheduleId: String)
+    case usageReport(id: String, days: Int, timeZone: String)
+    case terminalOpen(id: String, sessionId: String)
+    case terminalInput(id: String, terminalId: String, data: String)
+    case terminalClose(id: String, terminalId: String)
+    case portList(id: String)
     case sessionList(id: String)
     case nodeList(id: String)
     case nodeInvite(id: String, name: String)
@@ -604,11 +650,75 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case type, `protocol`, client, id, agent, sessionId, text, requestId, optionId, attachments, title, archived, query
         case skills, mcpServers, server, name, agentId, role, roleId, roles, orchestrate, budgetUsd, configId, value
+        case projectId, since, seq, paths, project, schedule, scheduleId, days, timeZone, terminalId, data, message
     }
 
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         switch self {
+        case .sessionChanges(let id, let sessionId, let sinceTurn):
+            try c.encode("session.changes", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(sessionId, forKey: .sessionId)
+            try c.encode(sinceTurn ? "turn" : "session", forKey: .since)
+        case .sessionRevert(let id, let sessionId, let seq, let paths):
+            try c.encode("session.revert", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(sessionId, forKey: .sessionId)
+            try c.encode(seq, forKey: .seq)
+            if !paths.isEmpty { try c.encode(paths, forKey: .paths) }
+        case .sessionCommit(let id, let sessionId, let message):
+            try c.encode("session.commit", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(sessionId, forKey: .sessionId)
+            try c.encode(message, forKey: .message)
+        case .projectList(let id):
+            try c.encode("project.list", forKey: .type)
+            try c.encode(id, forKey: .id)
+        case .projectSave(let id, let project):
+            try c.encode("project.save", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(project, forKey: .project)
+        case .projectDelete(let id, let projectId):
+            try c.encode("project.delete", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(projectId, forKey: .projectId)
+        case .scheduleList(let id):
+            try c.encode("schedule.list", forKey: .type)
+            try c.encode(id, forKey: .id)
+        case .scheduleSave(let id, let schedule):
+            try c.encode("schedule.save", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(schedule, forKey: .schedule)
+        case .scheduleDelete(let id, let scheduleId):
+            try c.encode("schedule.delete", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(scheduleId, forKey: .scheduleId)
+        case .scheduleRun(let id, let scheduleId):
+            try c.encode("schedule.run", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(scheduleId, forKey: .scheduleId)
+        case .usageReport(let id, let days, let timeZone):
+            try c.encode("usage.report", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(days, forKey: .days)
+            try c.encode(timeZone, forKey: .timeZone)
+        case .terminalOpen(let id, let sessionId):
+            try c.encode("terminal.open", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(sessionId, forKey: .sessionId)
+        case .terminalInput(let id, let terminalId, let data):
+            try c.encode("terminal.input", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(terminalId, forKey: .terminalId)
+            try c.encode(data, forKey: .data)
+        case .terminalClose(let id, let terminalId):
+            try c.encode("terminal.close", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(terminalId, forKey: .terminalId)
+        case .portList(let id):
+            try c.encode("port.list", forKey: .type)
+            try c.encode(id, forKey: .id)
         case .hello(let client):
             try c.encode("hello", forKey: .type)
             try c.encode(kervanProtocolVersion, forKey: .protocol)
@@ -616,7 +726,7 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
         case .ping(let id):
             try c.encode("ping", forKey: .type)
             try c.encode(id, forKey: .id)
-        case .sessionCreate(let id, let agent, let skills, let mcpServers, let orchestrate, let budgetUsd):
+        case .sessionCreate(let id, let agent, let skills, let mcpServers, let orchestrate, let budgetUsd, let projectId):
             try c.encode("session.create", forKey: .type)
             try c.encode(id, forKey: .id)
             try c.encode(agent, forKey: .agent)
@@ -624,6 +734,7 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
             if !mcpServers.isEmpty { try c.encode(mcpServers, forKey: .mcpServers) }
             if orchestrate { try c.encode(true, forKey: .orchestrate) }
             if orchestrate, let budgetUsd { try c.encode(budgetUsd, forKey: .budgetUsd) }
+            if let projectId { try c.encode(projectId, forKey: .projectId) }
         case .sessionConfig(let id, let sessionId, let configId, let value):
             try c.encode("session.config", forKey: .type)
             try c.encode(id, forKey: .id)
@@ -751,12 +862,26 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
     case teamCreated(id: String, team: TeamInfo)
     case teamListResult(id: String, teams: [TeamInfo])
     case teamUpdated(TeamInfo)
+    case sessionChangesResult(id: String, sessionId: String, changes: ChangeSet)
+    case projectListResult(id: String, projects: [ProjectInfo])
+    case scheduleListResult(id: String, schedules: [ScheduleInfo])
+    /// Broadcast after a task ran or the list changed.
+    case schedulesUpdated([ScheduleInfo])
+    /// Broadcast after a project was added, changed or removed.
+    case projectsUpdated([ProjectInfo])
+    case usageReportResult(id: String, report: UsageReport)
+    /// `backlog`: what the shell printed before this client opened it.
+    case terminalOpened(id: String, terminalId: String, sessionId: String, backlog: String)
+    case terminalOutput(terminalId: String, data: String)
+    case terminalExited(terminalId: String)
+    case portListResult(id: String, ports: [ListeningPort])
     /// A type this client doesn't know yet. Ignored, so the server can add types without a version bump.
     case unknown(type: String)
 
     private enum CodingKeys: String, CodingKey {
         case type, `protocol`, server, agents, agentDetails, id, code, message, session, sessions, sessionId, events, event, hits, servers
         case nodes, roles, team, teams, name, expiresAt, hubAddresses
+        case changes, projects, schedules, report, terminalId, backlog, data, ports
     }
 
     public init(from decoder: any Decoder) throws {
@@ -831,6 +956,35 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
             self = .mcpListResult(id: try c.decode(String.self, forKey: .id), servers: try c.decode([McpServerSummary].self, forKey: .servers))
         case "session.search.result":
             self = .sessionSearchResult(id: try c.decode(String.self, forKey: .id), hits: try c.decode([SearchHit].self, forKey: .hits))
+        case "session.changes.result":
+            self = .sessionChangesResult(
+                id: try c.decode(String.self, forKey: .id),
+                sessionId: try c.decode(String.self, forKey: .sessionId),
+                changes: try c.decode(ChangeSet.self, forKey: .changes)
+            )
+        case "project.list.result":
+            self = .projectListResult(id: try c.decode(String.self, forKey: .id), projects: try c.decode([ProjectInfo].self, forKey: .projects))
+        case "schedule.list.result":
+            self = .scheduleListResult(id: try c.decode(String.self, forKey: .id), schedules: try c.decode([ScheduleInfo].self, forKey: .schedules))
+        case "projects.updated":
+            self = .projectsUpdated(try c.decode([ProjectInfo].self, forKey: .projects))
+        case "schedules.updated":
+            self = .schedulesUpdated(try c.decode([ScheduleInfo].self, forKey: .schedules))
+        case "usage.report.result":
+            self = .usageReportResult(id: try c.decode(String.self, forKey: .id), report: try c.decode(UsageReport.self, forKey: .report))
+        case "terminal.opened":
+            self = .terminalOpened(
+                id: try c.decode(String.self, forKey: .id),
+                terminalId: try c.decode(String.self, forKey: .terminalId),
+                sessionId: try c.decode(String.self, forKey: .sessionId),
+                backlog: try c.decodeIfPresent(String.self, forKey: .backlog) ?? ""
+            )
+        case "terminal.output":
+            self = .terminalOutput(terminalId: try c.decode(String.self, forKey: .terminalId), data: try c.decode(String.self, forKey: .data))
+        case "terminal.exited":
+            self = .terminalExited(terminalId: try c.decode(String.self, forKey: .terminalId))
+        case "port.list.result":
+            self = .portListResult(id: try c.decode(String.self, forKey: .id), ports: try c.decode([ListeningPort].self, forKey: .ports))
         default:
             self = .unknown(type: type)
         }

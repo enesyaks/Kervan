@@ -1,0 +1,420 @@
+import Foundation
+
+/// A file edit the agent reported. Paths are relative to the session folder when inside it.
+public struct FileDiff: Codable, Equatable, Sendable {
+    public let path: String
+    /// nil for a new file.
+    public let oldText: String?
+    public let newText: String
+    public let truncated: Bool
+
+    public init(path: String, oldText: String? = nil, newText: String, truncated: Bool = false) {
+        self.path = path
+        self.oldText = oldText
+        self.newText = newText
+        self.truncated = truncated
+    }
+
+    private enum CodingKeys: String, CodingKey { case path, oldText, newText, truncated }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        path = try c.decode(String.self, forKey: .path)
+        oldText = try c.decodeIfPresent(String.self, forKey: .oldText)
+        newText = try c.decode(String.self, forKey: .newText)
+        truncated = try c.decodeIfPresent(Bool.self, forKey: .truncated) ?? false
+    }
+
+    /// The changed lines with a little context, the way a code review shows them.
+    public var lines: [DiffLine] { DiffLine.compare(oldText ?? "", newText) }
+}
+
+public struct DiffLine: Equatable, Sendable, Identifiable {
+    public enum Kind: Sendable { case context, added, removed, gap }
+    public let id: Int
+    public let kind: Kind
+    public let text: String
+
+    public init(id: Int, kind: Kind, text: String) {
+        self.id = id
+        self.kind = kind
+        self.text = text
+    }
+
+    /// Lines kept around each change; longer unchanged stretches fold into one `gap` line.
+    public static let context = 3
+
+    /// A line diff of two texts (Swift's own Myers difference), unchanged stretches shortened.
+    public static func compare(_ old: String, _ new: String) -> [DiffLine] {
+        let before = old.isEmpty ? [] : old.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let after = new.isEmpty ? [] : new.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        var removed = Set<Int>()
+        var inserted = Set<Int>()
+        for change in after.difference(from: before) {
+            switch change {
+            case .remove(let offset, _, _): removed.insert(offset)
+            case .insert(let offset, _, _): inserted.insert(offset)
+            }
+        }
+        // Walk both texts together: removals at their old position, insertions at their new one.
+        var all: [(kind: Kind, text: String)] = []
+        var i = 0, j = 0
+        while i < before.count || j < after.count {
+            if i < before.count, removed.contains(i) {
+                all.append((.removed, before[i]))
+                i += 1
+            } else if j < after.count, inserted.contains(j) {
+                all.append((.added, after[j]))
+                j += 1
+            } else {
+                if i < before.count { all.append((.context, before[i])) }
+                i += 1
+                j += 1
+            }
+        }
+        let changed = all.indices.filter { all[$0].kind != .context }
+        guard !changed.isEmpty else { return [] }
+        var keep = Set<Int>()
+        for index in changed {
+            for near in max(0, index - context)...min(all.count - 1, index + context) { keep.insert(near) }
+        }
+        var lines: [DiffLine] = []
+        var skipping = false
+        for index in all.indices {
+            if keep.contains(index) {
+                lines.append(DiffLine(id: lines.count, kind: all[index].kind, text: all[index].text))
+                skipping = false
+            } else if !skipping {
+                lines.append(DiffLine(id: lines.count, kind: .gap, text: ""))
+                skipping = true
+            }
+        }
+        return lines
+    }
+
+    /// The lines of a unified git patch (one file's part of it), headers dropped and hunks marked as gaps.
+    public static func parse(patch: String) -> [DiffLine] {
+        var lines: [DiffLine] = []
+        var inHunk = false
+        for line in patch.split(separator: "\n", omittingEmptySubsequences: false) {
+            if line.hasPrefix("@@") {
+                if inHunk { lines.append(DiffLine(id: lines.count, kind: .gap, text: "")) }
+                inHunk = true
+                continue
+            }
+            guard inHunk, !line.hasPrefix("\\") else { continue }
+            let kind: Kind = line.hasPrefix("+") ? .added : line.hasPrefix("-") ? .removed : .context
+            lines.append(DiffLine(id: lines.count, kind: kind, text: String(line.dropFirst())))
+        }
+        return lines
+    }
+}
+
+/// One step of the agent's plan.
+public struct PlanEntry: Codable, Equatable, Sendable {
+    public let content: String
+    /// pending | in_progress | completed
+    public let status: String
+    /// high | medium | low
+    public let priority: String
+
+    public init(content: String, status: String, priority: String = "medium") {
+        self.content = content
+        self.status = status
+        self.priority = priority
+    }
+}
+
+/// A slash command the agent offers, e.g. /review.
+public struct SlashCommand: Codable, Equatable, Sendable, Identifiable {
+    public let name: String
+    public let description: String
+    /// What to type after the command, when it takes input.
+    public let hint: String?
+    public var id: String { name }
+
+    public init(name: String, description: String, hint: String? = nil) {
+        self.name = name
+        self.description = description
+        self.hint = hint
+    }
+}
+
+public struct ProjectInfo: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let name: String
+    /// Absolute path on the server.
+    public let path: String
+    public let instructions: String
+    public let createdAt: String
+
+    public init(id: String, name: String, path: String, instructions: String = "", createdAt: String = "") {
+        self.id = id
+        self.name = name
+        self.path = path
+        self.instructions = instructions
+        self.createdAt = createdAt
+    }
+}
+
+/// What project.save takes: an existing project by id (only name and instructions change), or a new
+/// one from a folder on the server, a repository to clone, or neither (an empty folder).
+public struct ProjectInput: Encodable, Equatable, Sendable {
+    public var id: String?
+    public var name: String
+    public var instructions: String
+    public var path: String?
+    public var gitUrl: String?
+
+    public init(id: String? = nil, name: String, instructions: String = "", path: String? = nil, gitUrl: String? = nil) {
+        self.id = id
+        self.name = name
+        self.instructions = instructions
+        self.path = path
+        self.gitUrl = gitUrl
+    }
+}
+
+public enum ScheduleWhen: Codable, Equatable, Sendable {
+    /// `time` is HH:MM; weekdays are ISO (1 = Monday … 7 = Sunday).
+    case daily(time: String, weekdays: [Int])
+    case interval(minutes: Int)
+
+    private enum CodingKeys: String, CodingKey { case kind, time, weekdays, minutes }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if try c.decode(String.self, forKey: .kind) == "interval" {
+            self = .interval(minutes: try c.decode(Int.self, forKey: .minutes))
+        } else {
+            self = .daily(time: try c.decode(String.self, forKey: .time), weekdays: try c.decode([Int].self, forKey: .weekdays))
+        }
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .daily(let time, let weekdays):
+            try c.encode("daily", forKey: .kind)
+            try c.encode(time, forKey: .time)
+            try c.encode(weekdays, forKey: .weekdays)
+        case .interval(let minutes):
+            try c.encode("interval", forKey: .kind)
+            try c.encode(minutes, forKey: .minutes)
+        }
+    }
+
+    /// "Hafta içi 09:00", "Her gün 18:30", "30 dakikada bir".
+    public var label: String {
+        switch self {
+        case .interval(let minutes):
+            return minutes % 60 == 0 ? "\(minutes / 60) saatte bir" : "\(minutes) dakikada bir"
+        case .daily(let time, let weekdays):
+            let days: String = switch Set(weekdays) {
+            case Set(1...7): "Her gün"
+            case Set(1...5): "Hafta içi"
+            case Set([6, 7]): "Hafta sonu"
+            default: weekdays.sorted().map { Self.dayNames[$0 - 1] }.joined(separator: ", ")
+            }
+            return "\(days) \(time)"
+        }
+    }
+
+    public static let dayNames = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"]
+}
+
+public struct ScheduleInfo: Codable, Equatable, Sendable, Identifiable {
+    public var id: String
+    public var title: String
+    public var agent: String
+    public var projectId: String?
+    public var prompt: String
+    public var when: ScheduleWhen
+    public var timeZone: String
+    public var enabled: Bool
+    public var lastRunAt: String?
+    public var lastSessionId: String?
+    public var lastError: String?
+
+    public init(
+        id: String, title: String, agent: String, projectId: String? = nil, prompt: String, when: ScheduleWhen,
+        timeZone: String = TimeZone.current.identifier, enabled: Bool = true, lastRunAt: String? = nil,
+        lastSessionId: String? = nil, lastError: String? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.agent = agent
+        self.projectId = projectId
+        self.prompt = prompt
+        self.when = when
+        self.timeZone = timeZone
+        self.enabled = enabled
+        self.lastRunAt = lastRunAt
+        self.lastSessionId = lastSessionId
+        self.lastError = lastError
+    }
+}
+
+/// What schedule.save takes; no id makes a new task.
+public struct ScheduleInput: Encodable, Equatable, Sendable {
+    public var id: String?
+    public var title: String
+    public var agent: String
+    public var projectId: String?
+    public var prompt: String
+    public var when: ScheduleWhen
+    public var timeZone: String
+    public var enabled: Bool
+
+    public init(
+        id: String? = nil, title: String, agent: String, projectId: String? = nil, prompt: String, when: ScheduleWhen,
+        timeZone: String = TimeZone.current.identifier, enabled: Bool = true
+    ) {
+        self.id = id
+        self.title = title
+        self.agent = agent
+        self.projectId = projectId
+        self.prompt = prompt
+        self.when = when
+        self.timeZone = timeZone
+        self.enabled = enabled
+    }
+
+    public init(_ schedule: ScheduleInfo) {
+        self.init(
+            id: schedule.id, title: schedule.title, agent: schedule.agent, projectId: schedule.projectId,
+            prompt: schedule.prompt, when: schedule.when, timeZone: schedule.timeZone, enabled: schedule.enabled
+        )
+    }
+}
+
+public struct ChangedFile: Codable, Equatable, Sendable, Identifiable {
+    public enum Status: String, Codable, Sendable { case added, modified, deleted }
+    public let path: String
+    public let status: Status
+    public let additions: Int
+    public let deletions: Int
+    public var id: String { path }
+
+    public init(path: String, status: Status, additions: Int, deletions: Int) {
+        self.path = path
+        self.status = status
+        self.additions = additions
+        self.deletions = deletions
+    }
+}
+
+/// What changed in a session's folder since one of its checkpoints.
+public struct ChangeSet: Codable, Equatable, Sendable {
+    public let files: [ChangedFile]
+    public let patch: String
+    public let truncated: Bool
+    /// The user message the changes are counted from; nil before the first message.
+    public let sinceSeq: Int?
+    /// The folder is a git repository, so the changes can be committed there.
+    public let repository: Bool
+    public let branch: String?
+
+    public init(files: [ChangedFile], patch: String = "", truncated: Bool = false, sinceSeq: Int? = nil, repository: Bool = false, branch: String? = nil) {
+        self.files = files
+        self.patch = patch
+        self.truncated = truncated
+        self.sinceSeq = sinceSeq
+        self.repository = repository
+        self.branch = branch
+    }
+
+    /// The patch split per file, keyed by path (from each "diff --git a/… b/…" header).
+    public var patches: [String: String] {
+        var result: [String: String] = [:]
+        var current: String?
+        var lines: [Substring] = []
+        func flush() { if let current { result[current] = lines.joined(separator: "\n") } }
+        for line in patch.split(separator: "\n", omittingEmptySubsequences: false) {
+            if line.hasPrefix("diff --git ") {
+                flush()
+                lines = []
+                // The b/ side names the file as it is now.
+                current = line.range(of: " b/", options: .backwards).map { String(line[$0.upperBound...]) }
+            }
+            lines.append(line)
+        }
+        flush()
+        return result
+    }
+}
+
+public struct UsageReport: Codable, Equatable, Sendable {
+    public struct Day: Codable, Equatable, Sendable {
+        /// YYYY-MM-DD in the time zone asked for.
+        public let date: String
+        public let agent: String
+        public let costUsd: Double
+
+        public init(date: String, agent: String, costUsd: Double) {
+            self.date = date
+            self.agent = agent
+            self.costUsd = costUsd
+        }
+    }
+
+    public struct SessionCost: Codable, Equatable, Sendable {
+        public let sessionId: String
+        public let costUsd: Double
+
+        public init(sessionId: String, costUsd: Double) {
+            self.sessionId = sessionId
+            self.costUsd = costUsd
+        }
+    }
+
+    public let days: [Day]
+    public let sessions: [SessionCost]
+
+    public init(days: [Day], sessions: [SessionCost]) {
+        self.days = days
+        self.sessions = sessions
+    }
+
+    public var total: Double { days.reduce(0) { $0 + $1.costUsd } }
+
+    /// Spending on and after `date` (YYYY-MM-DD).
+    public func total(since date: String) -> Double {
+        days.filter { $0.date >= date }.reduce(0) { $0 + $1.costUsd }
+    }
+
+    /// Each agent's total, largest first.
+    public var byAgent: [(agent: String, costUsd: Double)] {
+        Dictionary(grouping: days, by: \.agent)
+            .map { (agent: $0.key, costUsd: $0.value.reduce(0) { $0 + $1.costUsd }) }
+            .sorted { $0.costUsd > $1.costUsd }
+    }
+}
+
+public struct ListeningPort: Codable, Equatable, Sendable, Identifiable {
+    public let port: Int
+    public let process: String?
+    public var id: Int { port }
+
+    public init(port: Int, process: String? = nil) {
+        self.port = port
+        self.process = process
+    }
+}
+
+/// The `id` a request carries and its answer echoes; nil for messages without one (hello, events).
+private func requestID(of value: Any) -> String? {
+    guard let payload = Mirror(reflecting: value).children.first?.value else { return nil }
+    // A case whose only value is its id (`.ok(id:)`) has that string as its payload, not a tuple.
+    if let id = payload as? String { return id }
+    guard let id = Mirror(reflecting: payload).children.first(where: { $0.label == "id" })?.value else { return nil }
+    return (id as? String) ?? (id as? String?) ?? nil
+}
+
+extension ClientMessage {
+    public var requestID: String? { KervanKit.requestID(of: self) }
+}
+
+extension ServerMessage {
+    public var requestID: String? { KervanKit.requestID(of: self) }
+}

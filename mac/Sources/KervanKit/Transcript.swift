@@ -33,7 +33,8 @@ public enum TranscriptItem: Equatable, Sendable, Identifiable {
     case user(id: Int, text: String, attachments: [String] = [], from: String? = nil)
     case agent(id: Int, text: String)
     case thought(id: Int, text: String)
-    case tool(id: Int, toolCallId: String, title: String, kind: String, status: String)
+    /// `diffs`: the file edits the call made, when the agent reports them.
+    case tool(id: Int, toolCallId: String, title: String, kind: String, status: String, diffs: [FileDiff] = [])
     case permission(id: Int, PermissionPrompt)
     case stopped(id: Int, reason: String)
     case notice(id: Int, text: String)
@@ -42,7 +43,7 @@ public enum TranscriptItem: Equatable, Sendable, Identifiable {
     /// The seq of the event that started the row; stable while chunks stream in.
     public var id: Int {
         switch self {
-        case .user(let id, _, _, _), .agent(let id, _), .thought(let id, _), .tool(let id, _, _, _, _),
+        case .user(let id, _, _, _), .agent(let id, _), .thought(let id, _), .tool(let id, _, _, _, _, _),
              .permission(let id, _), .stopped(let id, _), .notice(let id, _), .error(let id, _):
             id
         }
@@ -57,6 +58,48 @@ public enum Transcript {
     public static func resumable(_ items: [TranscriptItem]) -> Int? {
         guard case .stopped(let id, "interrupted")? = items.last else { return nil }
         return id
+    }
+
+    /// The plan of the current turn: the latest one the agent sent since the user's last message.
+    public static func plan(_ events: [SessionEvent]) -> [PlanEntry]? {
+        for event in events.reversed() {
+            switch event.body {
+            case .plan(let entries): return entries.isEmpty ? nil : entries
+            case .userMessage: return nil
+            default: continue
+            }
+        }
+        return nil
+    }
+
+    /// The slash commands the agent offers, as it last said.
+    public static func commands(_ events: [SessionEvent]) -> [SlashCommand] {
+        for event in events.reversed() {
+            if case .commands(let commands) = event.body { return commands }
+        }
+        return []
+    }
+
+    /// The user messages the folder can be put back to (it was saved just before them).
+    public static func checkpoints(_ events: [SessionEvent]) -> Set<Int> {
+        Set(events.compactMap { if case .checkpoint(_, let seq) = $0.body { seq } else { nil } })
+    }
+
+    /// The commands matching what is typed after "/", for the composer's suggestions; nil when the draft isn't one.
+    public static func suggestions(for draft: String, in commands: [SlashCommand]) -> [SlashCommand]? {
+        guard draft.hasPrefix("/"), !draft.contains(" "), !draft.contains("\n") else { return nil }
+        let typed = draft.dropFirst().lowercased()
+        let matching = commands.filter { typed.isEmpty || $0.name.lowercased().hasPrefix(typed) }
+        return matching.isEmpty ? nil : matching
+    }
+
+    /// The word being typed after an "@" at the end of the draft, for file suggestions; nil when there is none.
+    public static func mention(in draft: String) -> String? {
+        guard let at = draft.lastIndex(of: "@") else { return nil }
+        // An @ that starts a word: at the start or after whitespace (not an e-mail address).
+        if at != draft.startIndex, !draft[draft.index(before: at)].isWhitespace { return nil }
+        let word = draft[draft.index(after: at)...]
+        return word.contains(where: \.isWhitespace) ? nil : String(word)
     }
 
     /// Folds events into rows: consecutive chunks join into one message, tool updates
@@ -82,14 +125,20 @@ public enum Transcript {
                 } else {
                     items.append(.thought(id: event.seq, text: text))
                 }
-            case .toolCall(let toolCallId, let title, let kind, let status):
+            case .toolCall(let toolCallId, let title, let kind, let status, let diffs):
                 toolRows[toolCallId] = items.count
-                items.append(.tool(id: event.seq, toolCallId: toolCallId, title: title, kind: kind, status: status))
-            case .toolCallUpdate(let toolCallId, let newTitle, let newStatus):
+                items.append(.tool(id: event.seq, toolCallId: toolCallId, title: title, kind: kind, status: status, diffs: diffs))
+            case .toolCallUpdate(let toolCallId, let newTitle, let newStatus, let newDiffs):
                 guard let index = toolRows[toolCallId],
-                      case .tool(let id, _, let title, let kind, let status) = items[index]
+                      case .tool(let id, _, let title, let kind, let status, let diffs) = items[index]
                 else { continue }
-                items[index] = .tool(id: id, toolCallId: toolCallId, title: newTitle ?? title, kind: kind, status: newStatus ?? status)
+                items[index] = .tool(
+                    id: id, toolCallId: toolCallId, title: newTitle ?? title, kind: kind, status: newStatus ?? status,
+                    diffs: newDiffs.isEmpty ? diffs : newDiffs
+                )
+            case .plan, .commands, .checkpoint:
+                // Not rows: the plan sits above the composer, commands feed its suggestions.
+                continue
             case .permissionRequest(let requestId, let title, let toolKind, let detail, let options):
                 permissionRows[requestId] = items.count
                 let prompt = PermissionPrompt(requestId: requestId, title: title, toolKind: toolKind, detail: detail, options: options)

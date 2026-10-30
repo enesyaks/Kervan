@@ -33,7 +33,7 @@ export class TerminalHub {
     if (running) return { terminalId: running.id, backlog: running.backlog };
     const child = spawn("python3", ["-c", PTY_HELPER, "bash", "--noprofile", "--norc", "-i"], {
       cwd,
-      env: { ...process.env, TERM: "dumb", NO_COLOR: "1", PS1: "\\w $ ", COLUMNS: "120", LINES: "40", PAGER: "cat", GIT_PAGER: "cat" },
+      env: { ...process.env, TERM: "dumb", NO_COLOR: "1", BASH_SILENCE_DEPRECATION_WARNING: "1", PS1: "\\w $ ", COLUMNS: "120", LINES: "40", PAGER: "cat", GIT_PAGER: "cat" },
       stdio: ["pipe", "pipe", "pipe"],
     });
     const terminal: Terminal = { id: randomUUID(), sessionId, child, backlog: "" };

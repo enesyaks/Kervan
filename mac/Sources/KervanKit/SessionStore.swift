@@ -31,6 +31,26 @@ public final class SessionStore {
     public private(set) var mcpServers: [McpServerSummary] = []
     /// True while the latest search is on its way.
     public private(set) var isSearching = false
+    public private(set) var projects: [ProjectInfo] = []
+    public private(set) var schedules: [ScheduleInfo] = []
+    /// The last Changes answer per session.
+    public private(set) var changes: [String: ChangeSet] = [:]
+    public private(set) var usage: UsageReport?
+    /// Ports something listens on, on the server.
+    public private(set) var ports: [ListeningPort]?
+    /// The shell open in each session's folder, by session id.
+    public private(set) var terminals: [String: TerminalState] = [:]
+
+    public struct TerminalState: Equatable, Sendable {
+        public let id: String
+        public var output: String
+        public var exited = false
+    }
+
+    /// Requests whose answer someone awaits, by request id: resumed with nil on success, else the error.
+    private var awaiting: [String: CheckedContinuation<String?, Never>] = [:]
+    /// What a terminal keeps on screen; older output scrolls away.
+    static let terminalChars = 200_000
 
     /// Called when a live status change deserves a notification (not for lists loaded on connect).
     public var onAlert: (@MainActor (SessionAlert) -> Void)?
@@ -92,16 +112,130 @@ public final class SessionStore {
         await request(.roleList(id: Self.newID()))
         await request(.teamList(id: Self.newID()))
         await request(.nodeList(id: Self.newID()))
+        await request(.projectList(id: Self.newID()))
+        await request(.scheduleList(id: Self.newID()))
+        // Terminals opened before a reconnect may be gone; they reopen when shown.
+        terminals = [:]
     }
 
     public func create(
-        agent: String, skills: [String] = [], mcpServers: [String] = [], orchestrate: Bool = false, budgetUsd: Double? = nil
+        agent: String, skills: [String] = [], mcpServers: [String] = [], orchestrate: Bool = false, budgetUsd: Double? = nil,
+        projectId: String? = nil
     ) async {
         let id = Self.newID()
         pendingCreates.insert(id)
         await request(.sessionCreate(
-            id: id, agent: agent, skills: skills, mcpServers: mcpServers, orchestrate: orchestrate, budgetUsd: budgetUsd
+            id: id, agent: agent, skills: skills, mcpServers: mcpServers, orchestrate: orchestrate, budgetUsd: budgetUsd,
+            projectId: projectId
         ))
+    }
+
+    // MARK: Changes, rewinding, committing
+
+    /// The plan the agent is following in this turn, if it shared one.
+    public func plan(for sessionID: String) -> [PlanEntry]? { Transcript.plan(events[sessionID] ?? []) }
+
+    public func commands(for sessionID: String) -> [SlashCommand] { Transcript.commands(events[sessionID] ?? []) }
+
+    /// User messages whose "before" the folder can be put back to.
+    public func checkpoints(for sessionID: String) -> Set<Int> { Transcript.checkpoints(events[sessionID] ?? []) }
+
+    /// Fetches what the session changed; the answer lands in `changes`. Returns the server's refusal, if any.
+    @discardableResult
+    public func loadChanges(_ sessionID: String, sinceTurn: Bool = false) async -> String? {
+        await call(.sessionChanges(id: Self.newID(), sessionId: sessionID, sinceTurn: sinceTurn))
+    }
+
+    /// Puts files back as they were before the user message `seq` (all of them when `paths` is empty).
+    @discardableResult
+    public func revert(_ sessionID: String, toBefore seq: Int, paths: [String] = []) async -> String? {
+        await call(.sessionRevert(id: Self.newID(), sessionId: sessionID, seq: seq, paths: paths))
+    }
+
+    @discardableResult
+    public func commit(_ sessionID: String, message: String) async -> String? {
+        await call(.sessionCommit(id: Self.newID(), sessionId: sessionID, message: message))
+    }
+
+    // MARK: Projects and scheduled tasks
+
+    public func project(_ id: String?) -> ProjectInfo? {
+        id.flatMap { id in projects.first { $0.id == id } }
+    }
+
+    @discardableResult
+    public func saveProject(_ project: ProjectInput) async -> String? {
+        await call(.projectSave(id: Self.newID(), project: project))
+    }
+
+    @discardableResult
+    public func deleteProject(_ id: String) async -> String? {
+        await call(.projectDelete(id: Self.newID(), projectId: id))
+    }
+
+    public func loadSchedules() async {
+        await request(.scheduleList(id: Self.newID()))
+    }
+
+    @discardableResult
+    public func saveSchedule(_ schedule: ScheduleInput) async -> String? {
+        await call(.scheduleSave(id: Self.newID(), schedule: schedule))
+    }
+
+    @discardableResult
+    public func deleteSchedule(_ id: String) async -> String? {
+        await call(.scheduleDelete(id: Self.newID(), scheduleId: id))
+    }
+
+    /// Runs the task now; its new session shows up in the sidebar.
+    @discardableResult
+    public func runSchedule(_ id: String) async -> String? {
+        await call(.scheduleRun(id: Self.newID(), scheduleId: id))
+    }
+
+    // MARK: Usage, ports, terminals
+
+    public func loadUsage(days: Int, timeZone: TimeZone = .current) async {
+        await request(.usageReport(id: Self.newID(), days: days, timeZone: timeZone.identifier))
+    }
+
+    public func loadPorts() async {
+        await request(.portList(id: Self.newID()))
+    }
+
+    /// Opens (or finds) the shell in the session's folder; it lands in `terminals`. Returns the refusal, if any.
+    @discardableResult
+    public func openTerminal(_ sessionID: String) async -> String? {
+        await call(.terminalOpen(id: Self.newID(), sessionId: sessionID))
+    }
+
+    public func typeInTerminal(_ sessionID: String, _ data: String) async {
+        guard let terminal = terminals[sessionID], !terminal.exited else { return }
+        await request(.terminalInput(id: Self.newID(), terminalId: terminal.id, data: data))
+    }
+
+    public func closeTerminal(_ sessionID: String) async {
+        guard let terminal = terminals[sessionID] else { return }
+        await request(.terminalClose(id: Self.newID(), terminalId: terminal.id))
+    }
+
+    public func clearTerminal(_ sessionID: String) {
+        terminals[sessionID]?.output = ""
+    }
+
+    /// Sends and waits for the server's answer to this request: nil when it went through, else why not.
+    private func call(_ message: ClientMessage) async -> String? {
+        guard let id = message.requestID else { return nil }
+        return await withCheckedContinuation { continuation in
+            awaiting[id] = continuation
+            Task {
+                do {
+                    try await send(message)
+                } catch {
+                    awaiting.removeValue(forKey: id)?.resume(returning: "Sunucuya gönderilemedi: \(error.localizedDescription)")
+                }
+            }
+        }
     }
 
     /// What a lead and its helpers have spent together, from what their agents reported; nil when none reported a cost.
@@ -212,7 +346,39 @@ public final class SessionStore {
     }
 
     public func handle(_ message: ServerMessage) {
+        defer {
+            // Answers someone is waiting for: the state above is already updated when they resume.
+            if let id = message.requestID, let waiter = awaiting.removeValue(forKey: id) {
+                if case .error(let code, let text, _) = message {
+                    waiter.resume(returning: Self.describe(code: code, message: text))
+                } else {
+                    waiter.resume(returning: nil)
+                }
+            }
+        }
+        if case .error(_, _, let id?) = message, awaiting[id] != nil { return }
         switch message {
+        case .sessionChangesResult(_, let sessionID, let changeSet):
+            changes[sessionID] = changeSet
+        case .projectListResult(_, let projects), .projectsUpdated(let projects):
+            self.projects = projects
+        case .scheduleListResult(_, let schedules), .schedulesUpdated(let schedules):
+            self.schedules = schedules
+        case .usageReportResult(_, let report):
+            usage = report
+        case .portListResult(_, let ports):
+            self.ports = ports
+        case .terminalOpened(_, let terminalID, let sessionID, let backlog):
+            if terminals[sessionID]?.id != terminalID {
+                terminals[sessionID] = TerminalState(id: terminalID, output: backlog)
+            }
+        case .terminalOutput(let terminalID, let data):
+            guard let sessionID = terminals.first(where: { $0.value.id == terminalID })?.key else { break }
+            var text = terminals[sessionID]!.output + data
+            if text.count > Self.terminalChars { text = String(text.suffix(Self.terminalChars)) }
+            terminals[sessionID]!.output = text
+        case .terminalExited(let terminalID):
+            if let sessionID = terminals.first(where: { $0.value.id == terminalID })?.key { terminals[sessionID]!.exited = true }
         case .sessionListResult(_, let list):
             sessions = list.sorted { $0.createdAt > $1.createdAt }
             for session in list { requestHistory(session.id) }

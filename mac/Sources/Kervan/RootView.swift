@@ -14,6 +14,12 @@ struct RootView: View {
             Group {
                 if !model.isLinked || model.connection.state.isFailed {
                     ConnectView()
+                } else if model.selectedSessionID == AppModel.usagePage {
+                    UsageView()
+                } else if model.selectedSessionID == AppModel.schedulesPage {
+                    SchedulesView()
+                } else if let id = model.selectedSessionID, id.hasPrefix(AppModel.projectPrefix) {
+                    ProjectView(projectID: String(id.dropFirst(AppModel.projectPrefix.count))).id(id)
                 } else if let id = model.selectedSessionID, model.store.session(id) != nil {
                     if model.showCrew, let crew = Crew.of(id, sessions: model.store.sessions, teams: model.store.teams) {
                         CrewView(crew: crew, selected: id)
@@ -52,7 +58,7 @@ struct RootView: View {
         }
         .sheet(isPresented: Binding(get: { model.newSessionAgent != nil }, set: { if !$0 { model.newSessionAgent = nil } })) {
             if let agent = model.newSessionAgent {
-                NewSessionSheet(agent: agent).environment(model)
+                NewSessionSheet(agent: agent, project: model.newSessionProject).environment(model)
             }
         }
         .onChange(of: model.store.lastCreatedSessionID) { _, created in
@@ -73,6 +79,7 @@ private struct SidebarView: View {
     @State private var showArchive = false
     @State private var renaming: SessionInfo?
     @State private var newTitle = ""
+    @State private var newProject = false
 
     var body: some View {
         @Bindable var model = model
@@ -88,6 +95,37 @@ private struct SidebarView: View {
             if searching {
                 SearchResults(hits: store.searchHits, query: query, searching: typing || store.isSearching)
             } else {
+                Section {
+                    Label("Zamanlanmış görevler", systemImage: "calendar.badge.clock").tag(AppModel.schedulesPage)
+                    Label("Kullanım", systemImage: "chart.bar").tag(AppModel.usagePage)
+                }
+                Section {
+                    ForEach(store.projects) { project in
+                        Label(project.name, systemImage: "folder")
+                            .tag(AppModel.projectPage(project.id))
+                            .contextMenu {
+                                Button("Bu projede yeni oturum") { model.newSession(project: project.id) }
+                            }
+                    }
+                    if store.projects.isEmpty {
+                        Button("Proje ekle…") { newProject = true }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.secondary)
+                    }
+                } header: {
+                    HStack {
+                        Text("Projeler")
+                        Spacer()
+                        Button {
+                            newProject = true
+                        } label: {
+                            Image(systemName: "plus")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Yeni proje")
+                        .accessibilityLabel("Yeni proje")
+                    }
+                }
                 if groups.isEmpty {
                     Section("Oturumlar") {
                         Text("Henüz oturum yok").foregroundStyle(.secondary)
@@ -127,6 +165,7 @@ private struct SidebarView: View {
             await store.search(query)
             typing = false
         }
+        .sheet(isPresented: $newProject) { ProjectSheet().environment(model) }
         .alert("Oturumu yeniden adlandır", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("Başlık", text: $newTitle)
             Button("Kaydet") {
