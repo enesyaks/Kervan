@@ -27,19 +27,20 @@ struct NodesSection: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             ForEach(model.store.nodeInfos) { node in
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(node.connected ? Color.kervanOasis : Color.secondary.opacity(0.5))
-                        .frame(width: 7, height: 7)
-        .background(Color.kervanCanvas)
-                    Text(node.name).font(.body.monospaced())
-                    Text(node.connected ? "bağlı" : "bağlı değil").foregroundStyle(.secondary)
-                    Spacer()
-                    if let version = node.version {
-                        Text("v\(version)").font(.caption).foregroundStyle(.tertiary)
+                let agents = model.store.agents.filter { $0.node == node.name }
+                HStack(spacing: 10) {
+                    StatusDot(color: node.connected ? Color.kervanOasis : Color.secondary.opacity(0.5))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(node.name).font(.body.monospaced())
+                        Text(Self.detail(node, agents: agents.count))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
+                    Spacer()
                     Button("Kaldır", role: .destructive) { removing = node }.buttonStyle(.borderless)
                 }
+                .padding(12)
+                .softSurface(radius: Radius.chip)
             }
             if !model.store.nodeInfos.isEmpty {
                 Text("Bir ajanı node'da çalıştırmak için düzenleyip Node alanından seçin.")
@@ -59,25 +60,45 @@ struct NodesSection: View {
             Text("Bağlantısı kesilir ve anahtarı geçersiz olur. O makinedeki kurulum yerinde kalır; tekrar eklemek için yeni bir davet gerekir.")
         }
     }
+
+    /// "bağlı, v0.1.0, 2 ajan" or "bağlı değil, en son 5 dk önce".
+    private static func detail(_ node: NodeInfo, agents: Int) -> String {
+        var parts = [node.connected ? "bağlı" : "bağlı değil"]
+        if !node.connected, let seen = node.lastSeen.flatMap(Self.parse) {
+            parts.append("en son " + seen.formatted(.relative(presentation: .named).locale(Locale(identifier: "tr_TR"))))
+        }
+        if let version = node.version { parts.append("v\(version)") }
+        parts.append(agents == 0 ? "atanmış ajan yok" : "\(agents) ajan")
+        return parts.joined(separator: ", ")
+    }
+
+    private static func parse(_ text: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: text) ?? ISO8601DateFormatter().date(from: text)
+    }
 }
 
-/// Name the node, then either copy one command to run on it, or let the app run it over SSH.
+/// Name the node, see what setting it up involves, then either copy one command to run on it or let the app
+/// run it over SSH while showing each stage; once it connects, the sheet says what to do next.
 private struct AddNodeSheet: View {
     enum Method: Hashable { case command, ssh }
 
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
-    @State private var method: Method = .command
+    @State private var method: Method = .ssh
     @State private var host = ""
     @State private var user = NSUserName()
     @State private var installer = SSHInstaller()
     @State private var copied = false
     @AppStorage(NodeHubChoice.key) private var storedHub = ""
+    @AppStorage(SettingsTab.key) private var settingsTab = SettingsTab.general
 
     var body: some View {
         let invite = model.store.nodeInvite.flatMap { $0.name == name ? $0 : nil }
         let connected = model.store.nodeInfos.contains { $0.name == name && $0.connected }
+        let hub = model.activeAddress.map { NodeHubChoice.resolve(storedHub, appHub: NodeSetup.hub(of: $0)) } ?? ""
 
         VStack(alignment: .leading, spacing: 0) {
             Form {
@@ -91,47 +112,59 @@ private struct AddNodeSheet: View {
                 }
 
                 if invite == nil {
-                    Section {
-                        Text("Yeni makine Ubuntu ya da Debian olmalı ve bu sunucuyla aynı Tailscale ağında bulunmalı.")
-                            .foregroundStyle(.secondary)
+                    Section("Neler olacak") {
+                        Label("Yeni makineye Node.js, Kervan ve kervan-node servisi kurulur. Genelde 2–4 dakika sürer.", systemImage: "shippingbox")
+                        Label("Makine hub'a kendine özel bir anahtarla bağlanır; Node'lar sekmesinden istediğiniz an kaldırabilirsiniz.", systemImage: "key")
+                        Label("Hub'a \(hub) adresinden ulaşır. Makine Tailscale'de değilse Node'lar sekmesinden yerel ağ adresini seçin.", systemImage: "network")
+                        Label("Makine Ubuntu ya da Debian olmalı. Parolanız uygulamaya hiç girilmez.", systemImage: "lock")
                     }
+                    .labelStyle(GuideLabelStyle())
                 }
 
-                if let invite, let address = model.activeAddress {
-                    let hub = NodeHubChoice.resolve(storedHub, appHub: NodeSetup.hub(of: address))
-                    Section {
-                        Picker("Kurulum", selection: $method) {
-                            Text("Komutu kendim çalıştırırım").tag(Method.command)
-                            Text("Uygulama SSH ile kursun").tag(Method.ssh)
+                if let invite {
+                    if !connected {
+                        Section {
+                            Picker("Kurulum", selection: $method) {
+                                Text("Uygulama SSH ile kursun").tag(Method.ssh)
+                                Text("Komutu kendim çalıştırırım").tag(Method.command)
+                            }
+                            .pickerStyle(.radioGroup)
+                            .disabled(installer.isRunning)
                         }
-                        .pickerStyle(.radioGroup)
                     }
 
-                    if method == .command {
+                    if method == .command && !connected {
                         Section {
                             let command = NodeSetup.command(hub: hub, code: invite.code)
+                            Label("Komutu kopyalayın.", systemImage: "1.circle")
                             Text(command)
                                 .font(.callout.monospaced())
                                 .textSelection(.enabled)
                                 .padding(8)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+                                .background(Color.kervanWell, in: RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
                             Button(copied ? "Kopyalandı" : "Komutu kopyala") {
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(command, forType: .string)
                                 copied = true
                             }
+                            Label("Yeni makinede bir terminal açıp yapıştırın; sudo parolanızı orada sorar.", systemImage: "2.circle")
+                            Label("Kurulum bitince bu sayfa kendiliğinden güncellenir.", systemImage: "3.circle")
                         } header: {
-                            Text("Bu komutu yeni makinede çalıştırın")
+                            Text("Yeni makinede çalıştırın")
                         } footer: {
-                            Text("Node hub'a \(hub) adresiyle bağlanacak; Node'lar bölümünden değiştirebilirsiniz. sudo parolanızı orada sorar. Kod tek kullanımlık ve 30 dakika geçerli.")
+                            Text("Kod tek kullanımlık ve 30 dakika geçerli.")
                         }
-                    } else {
+                    }
+
+                    if method == .ssh && !connected {
                         Section {
-                            TextField("Adres", text: $host, prompt: Text("gpu-makinesi ya da 100.x.y.z"))
+                            TextField("Adres", text: $host, prompt: Text("ör. 192.168.1.27"))
                                 .font(.body.monospaced())
+                                .disabled(installer.isRunning)
                             TextField("Kullanıcı", text: $user)
                                 .font(.body.monospaced())
+                                .disabled(installer.isRunning)
                             if let suggestion = NodeSetup.lanHub(for: host, in: model.store.hubAddresses), suggestion.address != hub {
                                 VStack(alignment: .leading, spacing: 8) {
                                     Label("Bu makine hub ile aynı yerel ağda. Tailscale'de değilse hub'a yerel ağ adresinden (\(suggestion.address)) bağlanmalı.", systemImage: "lightbulb")
@@ -145,29 +178,78 @@ private struct AddNodeSheet: View {
                                 LanCheck(hub: lan)
                             }
                             HStack {
-                                Button(installer.isRunning ? "Kuruluyor…" : "Kur") {
+                                Button(installer.failure == nil ? "Kur" : "Yeniden dene") {
                                     installer.run(NodeSetup.sshArguments(user: user, host: host, hub: hub, code: invite.code))
                                 }
-                                .disabled(host.isEmpty || user.isEmpty || installer.isRunning || connected)
-                                if installer.isRunning { ProgressView().controlSize(.small) }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(host.isEmpty || user.isEmpty || installer.isRunning)
+                                Spacer()
                             }
+                        } header: {
+                            Text("Hangi makine?")
+                        } footer: {
+                            Text("Mac'inizin SSH anahtarıyla bağlanır; parola sormaz.")
+                        }
+                    }
+
+                    if installer.started || connected {
+                        Section("Kurulum") {
+                            InstallProgressList(
+                                reached: connected ? .connected : (installer.succeeded ? .connected : InstallStep.reached(in: installer.output)),
+                                running: installer.isRunning || (installer.succeeded && !connected),
+                                failed: installer.failure != nil,
+                                connected: connected,
+                                startedAt: installer.startedAt
+                            )
                             if let failure = installer.failure {
-                                Label(failure, systemImage: "exclamationmark.triangle")
+                                Label(failure, systemImage: "exclamationmark.triangle.fill")
                                     .foregroundStyle(.kervanCoral)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                             if !installer.output.isEmpty {
-                                ScrollView {
-                                    Text(installer.output)
-                                        .font(.caption.monospaced())
-                                        .textSelection(.enabled)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                DisclosureGroup("Ayrıntılı çıktı") {
+                                    ScrollView {
+                                        Text(installer.output)
+                                            .font(.caption.monospaced())
+                                            .textSelection(.enabled)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                    .frame(height: 120)
+                                    .defaultScrollAnchor(.bottom)
                                 }
-                                .frame(height: 120)
-                                .defaultScrollAnchor(.bottom)
                             }
-                        } footer: {
-                            Text("Mac'inizin SSH anahtarıyla bağlanır; parola sormaz. Node hub'a \(hub) adresiyle bağlanacak.")
+                        }
+                    } else if method == .command && invite.code.isEmpty == false && !connected {
+                        Section {
+                            HStack(spacing: 8) {
+                                CaravanDots()
+                                Text("Makinenin bağlanması bekleniyor…").foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+
+                    if connected {
+                        Section("Sıradaki adımlar") {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Label("Bu makinedeki ajanlar için API anahtarı ekleyin", systemImage: "1.circle")
+                                    .font(.callout.weight(.medium))
+                                Guidance(
+                                    text: "Node'da şu dosyaya ANTHROPIC_API_KEY=…, OPENAI_API_KEY=… ya da GEMINI_API_KEY=… satırlarını ekleyip servisi yeniden başlatın:",
+                                    command: "sudo nano /etc/kervan/node.env && sudo systemctl restart kervan-node"
+                                )
+                            }
+                            VStack(alignment: .leading, spacing: 8) {
+                                Label("Bir ajanı bu node'da çalıştırın", systemImage: "2.circle")
+                                    .font(.callout.weight(.medium))
+                                Text("Ajanlar sekmesinde bir ajanı düzenleyip Node alanından '\(name)' seçin. Uygulamada \"Claude Code (\(name))\" gibi görünür.")
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                Button("Ajanlar sekmesine git") {
+                                    settingsTab = SettingsTab.agents
+                                    dismiss()
+                                }
+                            }
                         }
                     }
                 }
@@ -177,11 +259,8 @@ private struct AddNodeSheet: View {
 
             HStack(spacing: 8) {
                 if connected {
-                    Label("'\(name)' bağlandı. Artık ajanları bu node'a atayabilirsiniz.", systemImage: "checkmark.circle.fill")
+                    Label("'\(name)' bağlandı.", systemImage: "checkmark.circle.fill")
                         .foregroundStyle(Color.kervanOasis)
-                } else if invite != nil {
-                    CaravanDots()
-                    Text("'\(name)' bekleniyor…").foregroundStyle(.secondary)
                 }
                 Spacer()
                 if invite == nil {
@@ -198,13 +277,76 @@ private struct AddNodeSheet: View {
             }
             .padding(16)
         }
-        .frame(width: 540, height: 420) // fits under the Settings window; the form scrolls
+        .frame(width: 560, height: 460) // fits under the Settings window; the form scrolls
         .background(Color.kervanCanvas)
         .onDisappear { installer.stop() }
     }
 
     private static func isValid(_ name: String) -> Bool {
         name != "local" && name.range(of: "^[a-z0-9][a-z0-9-]{0,31}$", options: .regularExpression) != nil
+    }
+}
+
+/// Each install stage with its state: done, in progress (with time spent), failed, or still to come.
+private struct InstallProgressList: View {
+    let reached: InstallStep
+    let running: Bool
+    let failed: Bool
+    let connected: Bool
+    let startedAt: Date?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(InstallStep.allCases, id: \.self) { step in
+                let done = step < reached || (connected && step == .connected)
+                let current = step == reached && !done
+                HStack(alignment: .top, spacing: 10) {
+                    Group {
+                        if done {
+                            Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.kervanOasis)
+                        } else if current && failed {
+                            Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.kervanCoral)
+                        } else if current && running {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "circle").foregroundStyle(.tertiary)
+                        }
+                    }
+                    .frame(width: 18)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(step.title)
+                            .font(.callout.weight(current ? .semibold : .regular))
+                            .foregroundStyle(done || current ? .primary : .secondary)
+                        if current {
+                            Text(step == .connected && running ? "Servis açıldı; makinenin hub'a bağlanması bekleniyor." : step.detail)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer()
+                    if current && running, let startedAt {
+                        TimelineView(.periodic(from: .now, by: 1)) { context in
+                            let seconds = Int(context.date.timeIntervalSince(startedAt))
+                            Text(String(format: "%d:%02d", seconds / 60, seconds % 60))
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .accessibilityElement(children: .combine)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+/// Icons in a calm accent, text wrapping freely: for short guidance lists.
+private struct GuideLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            configuration.icon.foregroundStyle(Color.kervanLapis).frame(width: 18)
+            configuration.title.fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 
@@ -215,11 +357,16 @@ final class SSHInstaller {
     private(set) var output = ""
     private(set) var isRunning = false
     private(set) var failure: String?
+    private(set) var startedAt: Date?
+    private(set) var succeeded = false
+    var started: Bool { startedAt != nil }
     private var process: Process?
 
     func run(_ arguments: [String]) {
         output = ""
         failure = nil
+        succeeded = false
+        startedAt = Date()
         isRunning = true
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
@@ -239,7 +386,7 @@ final class SSHInstaller {
                 guard let self else { return }
                 pipe.fileHandleForReading.readabilityHandler = nil
                 self.isRunning = false
-                if status != 0 { self.failure = NodeSetup.explain(output: self.output) }
+                if status == 0 { self.succeeded = true } else { self.failure = NodeSetup.explain(output: self.output) }
             }
         }
         do {

@@ -699,3 +699,21 @@ import Testing
         #expect(NodeSetup.lanHub(for: "gpu-box", in: addresses) == nil, "a name, not an address")
     }
 }
+
+@Suite struct InstallProgressTests {
+    @Test func followsTheScriptsMarkers() {
+        #expect(InstallStep.reached(in: "") == .connecting)
+        #expect(InstallStep.reached(in: "==> Kervan: hub kontrol ediliyor (http://x)\n") == .checkingHub)
+        let output = """
+        ==> Kervan: hub kontrol ediliyor (http://192.168.1.21:7420)
+        ==> paketler
+        ==> Node.js 24
+        ==> kullanıcı ve klasörler
+        ==> Kervan kodu
+        added 134 packages in 9s
+        """
+        #expect(InstallStep.reached(in: output) == .files)
+        #expect(InstallStep.reached(in: output + "\n==> hub'a 'gpu' olarak katılınıyor\n==> servis\n") == .service)
+        #expect(InstallStep.reached(in: "npm warn: packages\n") == .connecting, "only ==> lines count")
+    }
+}

@@ -3,24 +3,38 @@ import KervanKit
 import SwiftUI
 
 /// ⌘, — the server's skill library and MCP servers. Changes go straight to the server.
+/// Settings tabs by name, remembered, so a step elsewhere can open the right one.
+enum SettingsTab {
+    static let key = "settingsTab"
+    static let general = "general", skills = "skills", mcp = "mcp", agents = "agents", roles = "roles", nodes = "nodes"
+}
+
 struct SettingsView: View {
+    @AppStorage(SettingsTab.key) private var tab = SettingsTab.general
+
     var body: some View {
-        TabView {
+        TabView(selection: $tab) {
             GeneralSettings()
                 .tabItem { Label("Genel", systemImage: "gearshape") }
+                .tag(SettingsTab.general)
             SkillsSettings()
                 .tabItem { Label("Skill'ler", systemImage: "book.closed") }
+                .tag(SettingsTab.skills)
             McpSettings()
                 .tabItem { Label("MCP sunucuları", systemImage: "point.3.connected.trianglepath.dotted") }
+                .tag(SettingsTab.mcp)
             AgentsSettings()
                 .tabItem { Label("Ajanlar", systemImage: "person.2") }
+                .tag(SettingsTab.agents)
             RolesSettings()
                 .tabItem { Label("Roller", systemImage: "theatermasks") }
+                .tag(SettingsTab.roles)
             ScrollView {
                 NodesSection().padding(20)
             }
             .settingsPage()
             .tabItem { Label("Node'lar", systemImage: "server.rack") }
+                .tag(SettingsTab.nodes)
         }
         .frame(width: 620, height: 480)
         .fontDesign(.rounded)
