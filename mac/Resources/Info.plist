@@ -34,5 +34,7 @@
         <key>NSAllowsLocalNetworking</key>
         <true/>
     </dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Kervan, yerel ağınızdaki sunucunuza bağlanmak ve yeni sunucuları SSH ile kurmak için yerel ağa erişir.</string>
 </dict>
 </plist>

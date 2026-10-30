@@ -117,6 +117,10 @@ public enum NodeSetup {
         if output.contains("Permission denied") {
             return "SSH bağlantısı reddedildi. Mac'inizin SSH anahtarını o makineye ekleyin (ssh-copy-id) ya da komutu kendiniz çalıştırın."
         }
+        // macOS answers an app without Local Network permission with "No route to host", even when Terminal gets through.
+        if output.contains("No route to host") {
+            return "Mac bu uygulamanın yerel ağa çıkmasına izin vermiyor olabilir. Sistem Ayarları › Gizlilik ve Güvenlik › Yerel Ağ'da Kervan'ı açın, sonra yeniden deneyin. İzin açıksa makinenin aynı ağda ve açık olduğunu kontrol edin."
+        }
         if output.contains("Could not resolve hostname") || output.contains("ssh: connect to host") {
             return "Makineye ulaşılamadı. Adresi ve makinenin açık olduğunu kontrol edin."
         }

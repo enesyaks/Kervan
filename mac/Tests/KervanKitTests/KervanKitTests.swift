@@ -671,6 +671,7 @@ import Testing
         #expect(NodeSetup.explain(output: "sudo: a password is required").contains("sudo parola istiyor"))
         #expect(NodeSetup.explain(output: "ubuntu@gpu: Permission denied (publickey).").contains("ssh-copy-id"))
         #expect(NodeSetup.explain(output: "ssh: Could not resolve hostname gpu").contains("Makineye ulaşılamadı"))
+        #expect(NodeSetup.explain(output: "ssh: connect to host 192.168.1.28 port 22: No route to host").contains("Yerel Ağ"))
         #expect(NodeSetup.explain(output: "curl: (6) Could not resolve host: kervan").contains("yerel ağ IP'sini seçin"))
         #expect(NodeSetup.explain(output: "curl: (7) Failed to connect to 192.168.1.21 port 7420").contains("güvenlik duvarına"))
     }
