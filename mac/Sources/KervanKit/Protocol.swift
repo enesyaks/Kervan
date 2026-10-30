@@ -331,12 +331,15 @@ public struct AgentConfig: Decodable, Equatable, Sendable, Identifiable {
     public let node: String
     public let source: Source
     public let available: Bool
+    /// Builtin agents on the server: whether a key or login is there; nil when the server can't tell.
+    public let signedIn: Bool?
 
     public init(
         id: String, name: String, command: String, args: [String] = [], authMethod: String? = nil, skillsDir: String? = nil,
         envKeys: [String] = [], node: String = "local", source: Source, available: Bool = true,
-        protocol: String? = nil, quietMs: Int? = nil
+        protocol: String? = nil, quietMs: Int? = nil, signedIn: Bool? = nil
     ) {
+        self.signedIn = signedIn
         self.protocol = `protocol`
         self.quietMs = quietMs
         self.id = id

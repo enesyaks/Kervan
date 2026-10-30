@@ -7,7 +7,7 @@ import SwiftUI
 /// right, one question at a time: hello, which way, then connect to a server or set one up, then ready.
 struct OnboardingView: View {
     enum Stage: Hashable {
-        case welcome, choose, connect, setupForm, permission, setupProgress, done
+        case welcome, choose, connect, setupForm, permission, setupProgress, agents, done
 
         /// Which stop on the route this stage belongs to.
         var stop: Int {
@@ -15,7 +15,8 @@ struct OnboardingView: View {
             case .welcome: 0
             case .choose: 1
             case .connect, .setupForm, .permission, .setupProgress: 2
-            case .done: 3
+            case .agents: 3
+            case .done: 4
             }
         }
     }
@@ -27,13 +28,19 @@ struct OnboardingView: View {
 
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var stage: Stage = .welcome
+    /// KERVAN_ONBOARDING=agents opens on the agents step, for checking it against a running server.
+    @State private var stage: Stage = ProcessInfo.processInfo.environment["KERVAN_ONBOARDING"] == "agents" ? .agents : .welcome
     @State private var path: Path = .connect
     @State private var host = ""
     @State private var user = "ubuntu"
     @State private var access: HubSetup.Access = .lan
     @State private var installer = HubInstaller()
     @State private var permission: Permission = .ask
+    /// Keys typed on the agents step, by agent id; they go to the server and are cleared once saved.
+    @State private var keys: [String: String] = [:]
+    @State private var changing: Set<String> = []
+    @State private var keyErrors: [String: String] = [:]
+    @State private var savingKeys = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -56,14 +63,19 @@ struct OnboardingView: View {
             .background(Color.kervanCanvas)
         }
         .ignoresSafeArea()
-        .onChange(of: isConnected) { _, connected in
-            if connected && (stage == .connect || stage == .setupProgress) { go(.done) }
+        .onChange(of: isConnected, initial: true) { _, connected in
+            guard connected else { return }
+            // The agents step needs the server's list, which can only be asked for once connected.
+            if stage == .connect || stage == .setupProgress || stage == .agents {
+                Task { await model.store.loadAgentConfigs() }
+                if stage != .agents { go(.agents) }
+            }
         }
         .onDisappear { installer.stop() }
     }
 
     private var stops: [String] {
-        ["Hoş geldiniz", "Yolunuzu seçin", path == .setup ? "Sunucuyu kurun" : "Sunucuya bağlanın", "Hazır"]
+        ["Hoş geldiniz", "Yolunuzu seçin", path == .setup ? "Sunucuyu kurun" : "Sunucuya bağlanın", "Ajanlar", "Hazır"]
     }
 
     private var isConnected: Bool {
@@ -75,6 +87,7 @@ struct OnboardingView: View {
         switch stage {
         case .connect: model.connection.state.isBusy
         case .permission: permission == .checking
+        case .agents: savingKeys
         case .setupProgress: installer.isRunning || installer.waitingForTerminal
         default: false
         }
@@ -86,7 +99,12 @@ struct OnboardingView: View {
 
     private func finish(startSession: Bool) {
         withAnimation(Motion.pick(Motion.smooth, reduce: reduceMotion)) { model.showOnboarding = false }
-        if startSession { model.newSession() }
+        if startSession { model.newSession(agent: readyAgents.first?.id) }
+    }
+
+    /// Agents that can work now: signed in, or ones the server can't check (added by hand).
+    private var readyAgents: [AgentConfig] {
+        model.store.agentConfigs.filter { $0.available && $0.signedIn != false }
     }
 
     private func install() {
@@ -107,6 +125,7 @@ struct OnboardingView: View {
         case .setupForm: setupForm
         case .permission: permissionStep
         case .setupProgress: setupProgress
+        case .agents: agentsStep
         case .done: done
         }
     }
@@ -384,8 +403,81 @@ struct OnboardingView: View {
         }
     }
 
+    /// The adapters came with the server; what each still needs is a key. They are saved on the server
+    /// as the agent's own environment, one at a time, and the server tries each agent before keeping it.
+    private var agentsStep: some View {
+        let configs = model.store.agentConfigs
+        let offered = AgentSignIn.all.filter { sign in configs.contains { $0.id == sign.id } }
+        let typed = offered.contains { !(keys[$0.id] ?? "").trimmed.isEmpty }
+        return VStack(alignment: .leading, spacing: 28) {
+            Heading(
+                title: "Ajanlarınızı hazırlayalım",
+                lead: "Claude Code, Codex ve Gemini sunucunuza kuruldu. Kullanmak istediklerinize anahtarını verin; anahtarlar yalnızca sunucunuzda saklanır."
+            )
+            if configs.isEmpty {
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    Text("Sunucudaki ajanlara bakılıyor…").foregroundStyle(.secondary)
+                }
+            } else {
+                VStack(spacing: 12) {
+                    ForEach(offered) { sign in
+                        let config = configs.first { $0.id == sign.id }
+                        AgentKeyCard(
+                            sign: sign,
+                            ready: config?.signedIn == true,
+                            changing: changing.contains(sign.id),
+                            key: Binding(get: { keys[sign.id] ?? "" }, set: { keys[sign.id] = $0 }),
+                            error: keyErrors[sign.id],
+                            change: { changing.insert(sign.id) }
+                        )
+                        .disabled(savingKeys)
+                    }
+                }
+                Text("Sonra da ekleyebilir ya da değiştirebilirsiniz: Ayarlar › Ajanlar.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            Actions {
+                Button("Şimdilik geç") { go(.done) }
+                    .buttonStyle(QuietStyle())
+                    .disabled(savingKeys)
+                Spacer()
+                if typed || savingKeys {
+                    Button(savingKeys ? "Ajanlar deneniyor…" : "Kaydet ve devam") { saveKeys(offered) }
+                        .buttonStyle(PrimaryStyle())
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(savingKeys)
+                } else if !readyAgents.isEmpty {
+                    Button("Devam") { go(.done) }
+                        .buttonStyle(PrimaryStyle())
+                        .keyboardShortcut(.defaultAction)
+                }
+            }
+        }
+    }
+
+    private func saveKeys(_ offered: [AgentSignIn]) {
+        savingKeys = true
+        keyErrors = [:]
+        Task {
+            for sign in offered {
+                guard let input = sign.input(key: keys[sign.id] ?? "") else { continue }
+                await model.store.saveAgent(input)
+                if let error = model.store.agentSaveError {
+                    keyErrors[sign.id] = error
+                } else {
+                    keys[sign.id] = nil
+                    changing.remove(sign.id)
+                }
+            }
+            savingKeys = false
+            if keyErrors.isEmpty { go(.done) }
+        }
+    }
+
     private var done: some View {
-        let agents = model.store.agents
+        let agents = readyAgents
         return VStack(alignment: .leading, spacing: 28) {
             Heading(
                 title: "Hazırsınız",
@@ -395,8 +487,8 @@ struct OnboardingView: View {
                 if agents.isEmpty {
                     Promise(
                         symbol: "person.badge.key",
-                        title: "Henüz giriş yapmış bir ajan yok",
-                        text: "Ayarlar › Ajanlar'dan bir ajanın API anahtarını ekleyince burada görünür."
+                        title: "Henüz anahtarı olan bir ajan yok",
+                        text: "Ayarlar › Ajanlar'dan bir ajana anahtarını verdiğinizde ilk oturumu başlatabilirsiniz."
                     )
                 } else {
                     Text(agents.count == 1 ? "Sunucuda bir ajan hazır" : "Sunucuda \(agents.count) ajan hazır")
@@ -415,6 +507,63 @@ struct OnboardingView: View {
                 }
             }
         }
+    }
+}
+
+/// One builtin agent on the agents step: what it is, whether it is ready, and a field for its key.
+private struct AgentKeyCard: View {
+    let sign: AgentSignIn
+    let ready: Bool
+    let changing: Bool
+    @Binding var key: String
+    let error: String?
+    let change: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(sign.name).font(.headline)
+                    Text(sign.blurb).font(.callout).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if ready {
+                    HStack(spacing: 6) {
+                        StatusDot(color: .kervanOasis, size: 6)
+                        Text("Hazır").font(.callout.weight(.medium))
+                    }
+                    .foregroundStyle(Color.kervanOasis)
+                }
+            }
+            if ready && !changing {
+                Button("Anahtarı değiştir", action: change)
+                    .buttonStyle(.link)
+                    .font(.callout)
+            } else {
+                HStack(spacing: 10) {
+                    SecureField(sign.keyName, text: $key, prompt: Text(sign.placeholder))
+                        .textFieldStyle(.plain)
+                        .font(.body.monospaced())
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 9)
+                        .background(Color.kervanWell, in: RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
+                    Link("Anahtar al", destination: sign.keyURL)
+                        .font(.callout)
+                }
+                if let alternative = sign.alternative {
+                    Text(alternative).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            if let error {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout)
+                    .foregroundStyle(.kervanCoral)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .softSurface(radius: Radius.panel)
     }
 }
 

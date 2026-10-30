@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { stringify } from "yaml";
-import { type AgentDefinition, type AgentRegistry, isRunnable, parseAgents } from "./agents.ts";
+import { type AgentDefinition, type AgentRegistry, isRunnable, isSignedIn, parseAgents } from "./agents.ts";
 import { KervanError } from "./protocol.ts";
 
 /** An agent added from the app. `node` says where it runs; only this server ("local") until M13. */
@@ -33,6 +33,8 @@ export interface AgentSummary {
   /** "app" agents can be edited from the app; the others come with the server or agents.yaml. */
   source: "builtin" | "app";
   available: boolean;
+  /** Builtin agents on this server: whether a key or login is there, so the app can ask for one. */
+  signedIn?: boolean;
 }
 
 export const NODES = ["local"];
@@ -87,6 +89,7 @@ export class AgentCatalog {
         node: "local",
         source: "builtin",
         available: true,
+        ...signedIn(id, d.env),
       }));
     const fromApp = [...this.managed.values()].map((agent): AgentSummary => ({
       id: agent.id,
@@ -101,6 +104,8 @@ export class AgentCatalog {
       node: agent.node,
       source: "app",
       available: this.live.has(agent.id),
+      // A builtin adapter saved from the app (to give it a key) is checked like the others; nodes check their own.
+      ...(agent.command === "builtin" && agent.node === "local" ? signedIn(agent.id, agent.env) : {}),
     }));
     return [...fromServer, ...fromApp];
   }
@@ -183,6 +188,11 @@ export class AgentCatalog {
     writeFileSync(temp, JSON.stringify([...this.managed.values()], null, 2), { mode: 0o600 });
     renameSync(temp, this.file);
   }
+}
+
+function signedIn(id: string, env: Record<string, string> | undefined): { signedIn?: boolean } {
+  const answer = isSignedIn(id, env);
+  return answer === undefined ? {} : { signedIn: answer };
 }
 
 function mergeEnv(input: unknown, previous: Record<string, string> | undefined): Record<string, string> | undefined {

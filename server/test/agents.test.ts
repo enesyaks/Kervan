@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
-import { isRunnable, loadAgents, parseAgents } from "../src/agents.ts";
+import { isRunnable, isSignedIn, loadAgents, parseAgents } from "../src/agents.ts";
 
 describe("agents.yaml", () => {
   it("resolves builtin adapters and keeps the file's order", () => {
@@ -97,5 +97,23 @@ describe("agent auth", () => {
 
   it("fails clearly when the agent doesn't offer the method", async () => {
     await assert.rejects(start("oauth-personal"), /does not offer auth method 'oauth-personal'/);
+  });
+});
+
+describe("builtin agent sign-in", () => {
+  const home = mkdtempSync(join(tmpdir(), "kervan-home-"));
+
+  it("counts a key in the agent's env or the server's, and a saved login", () => {
+    assert.equal(isSignedIn("claude", {}, {}, home), false);
+    assert.equal(isSignedIn("claude", { ANTHROPIC_API_KEY: "sk-ant-x" }, {}, home), true);
+    assert.equal(isSignedIn("codex", {}, { OPENAI_API_KEY: "sk-x" }, home), true);
+    assert.equal(isSignedIn("gemini", { GEMINI_API_KEY: "  " }, {}, home), false, "a blank key is no key");
+    mkdirSync(join(home, ".codex"));
+    writeFileSync(join(home, ".codex/auth.json"), "{}");
+    assert.equal(isSignedIn("codex", {}, {}, home), true);
+  });
+
+  it("says nothing about agents it doesn't know", () => {
+    assert.equal(isSignedIn("yerel", {}, {}, home), undefined);
   });
 });

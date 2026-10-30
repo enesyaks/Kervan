@@ -760,3 +760,25 @@ import Testing
         #expect(HubSetup.tailscaleLoginURL(in: "To authenticate, visit:\n\n\thttps://login.tailscale.com/a/1b2c3d\n")?.absoluteString == "https://login.tailscale.com/a/1b2c3d")
     }
 }
+
+@Suite struct AgentSignInTests {
+    @Test func keysBecomeTheBuiltinAdapterWithItsEnvironment() throws {
+        let claude = try #require(AgentSignIn.of("claude")?.input(key: "  sk-ant-api03-abc \n"))
+        #expect(claude.command == "builtin")
+        #expect(claude.env == ["ANTHROPIC_API_KEY": "sk-ant-api03-abc"])
+        #expect(claude.authMethod == nil)
+
+        let subscription = try #require(AgentSignIn.of("claude")?.input(key: "sk-ant-oat01-xyz"))
+        #expect(subscription.env == ["CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat01-xyz"])
+
+        let codex = try #require(AgentSignIn.of("codex")?.input(key: "sk-proj-1"))
+        #expect(codex.env == ["OPENAI_API_KEY": "sk-proj-1"])
+        #expect(codex.authMethod == "api-key")
+        #expect(AgentSignIn.of("gemini")?.input(key: "AIza1")?.authMethod == "gemini-api-key")
+    }
+
+    @Test func anEmptyKeyIsNothingToSave() {
+        #expect(AgentSignIn.of("codex")?.input(key: "   ") == nil)
+        #expect(AgentSignIn.of("yerel") == nil)
+    }
+}

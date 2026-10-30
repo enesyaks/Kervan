@@ -1,4 +1,5 @@
 import { accessSync, constants, existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { delimiter, dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
@@ -40,6 +41,29 @@ const BUILTIN: Record<string, AgentDefinition> = {
   // Gemini blocks on its first prompt until a method is chosen; Google account login is closed to individuals.
   gemini: { name: "Gemini", command: bin("gemini"), args: ["--acp"], authMethod: "gemini-api-key", skillsDir: ".gemini/skills" },
 };
+
+/** How each builtin agent signs in: an API key or token in its environment, or a login it saved under the home folder. */
+export const CREDENTIALS: Record<string, { env: string[]; files: string[] }> = {
+  claude: { env: ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"], files: [".claude/.credentials.json"] },
+  codex: { env: ["CODEX_API_KEY", "OPENAI_API_KEY"], files: [".codex/auth.json"] },
+  gemini: { env: ["GEMINI_API_KEY", "GOOGLE_API_KEY"], files: [] },
+};
+
+/**
+ * Whether a builtin agent has what it needs to sign in, from its own env, the server's, or a saved login;
+ * undefined for agents Kervan doesn't know how to check.
+ */
+export function isSignedIn(
+  id: string,
+  env: Record<string, string> = {},
+  serverEnv: NodeJS.ProcessEnv = process.env,
+  home = homedir(),
+): boolean | undefined {
+  const credentials = CREDENTIALS[id];
+  if (!credentials) return undefined;
+  if (credentials.env.some((name) => (env[name] ?? serverEnv[name] ?? "").trim() !== "")) return true;
+  return credentials.files.some((file) => existsSync(join(home, file)));
+}
 
 function fail(file: string, message: string): never {
   throw new Error(`${file}: ${message}`);
