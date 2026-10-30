@@ -3,7 +3,10 @@ import KervanKit
 import SwiftUI
 
 struct ConnectView: View {
+    enum Mode: Hashable { case connect, setup }
+
     @Environment(AppModel.self) private var model
+    @State private var mode: Mode = .connect
 
     private static let tokenCommand = "sudo grep KERVAN_TOKEN /etc/kervan/env"
 
@@ -24,39 +27,50 @@ struct ConnectView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                Form {
-                    LabeledContent("Sunucu") {
-                        VStack(alignment: .leading, spacing: 4) {
-                            TextField("Sunucu", text: $model.serverInput, prompt: Text("kervan"))
-                                .labelsHidden()
-                                .font(.body.monospaced())
-                                .textContentType(.URL)
-                            Text("Tailscale adı ya da IP adresi. Port yazılmazsa 7420 kullanılır.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    LabeledContent("Erişim anahtarı") {
-                        VStack(alignment: .leading, spacing: 4) {
-                            SecureField("Erişim anahtarı", text: $model.tokenInput)
-                                .labelsHidden()
-                                .font(.body.monospaced())
-                            TokenHint(command: Self.tokenCommand)
-                        }
-                    }
+                Picker("Başlangıç", selection: $mode) {
+                    Text("Sunucum var, bağlanayım").tag(Mode.connect)
+                    Text("Yeni sunucu kuralım").tag(Mode.setup)
                 }
-                .formStyle(.columns)
-                .padding(18)
-                .softSurface()
+                .pickerStyle(.segmented)
+                .labelsHidden()
                 .disabled(state.isBusy)
 
+                if mode == .setup {
+                    HubSetupView()
+                } else {
+                    Form {
+                        LabeledContent("Sunucu") {
+                            VStack(alignment: .leading, spacing: 4) {
+                                TextField("Sunucu", text: $model.serverInput, prompt: Text("kervan"))
+                                    .labelsHidden()
+                                    .font(.body.monospaced())
+                                    .textContentType(.URL)
+                                Text("Tailscale adı ya da IP adresi. Port yazılmazsa 7420 kullanılır.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        LabeledContent("Erişim anahtarı") {
+                            VStack(alignment: .leading, spacing: 4) {
+                                SecureField("Erişim anahtarı", text: $model.tokenInput)
+                                    .labelsHidden()
+                                    .font(.body.monospaced())
+                                TokenHint(command: Self.tokenCommand)
+                            }
+                        }
+                    }
+                    .formStyle(.columns)
+                    .padding(18)
+                    .softSurface()
+                    .disabled(state.isBusy)
+                }
                 VStack(alignment: .leading, spacing: 12) {
                     StatusMessage(state: state, host: model.address?.host ?? "sunucu")
                         .fixedSize(horizontal: false, vertical: true)
                     if state.isBusy {
                         Button("Vazgeç") { model.disconnect() }
                             .keyboardShortcut(.cancelAction)
-                    } else {
+                    } else if mode == .connect {
                         Button("Bağlan") { model.connect() }
                             .buttonStyle(.borderedProminent)
                             .tint(.kervanLapis)

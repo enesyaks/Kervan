@@ -739,3 +739,23 @@ import Testing
         #expect(NodeHubChoice.repairCommand(hub: "192.168.1.40:7420").contains("KERVAN_HUB_URL=ws://192.168.1.40:7420"))
     }
 }
+
+@Suite struct HubSetupTests {
+    @Test func makesAStrongTokenAndPasswordFreeCommands() {
+        let token = HubSetup.makeToken()
+        #expect(token.count == 64 && token.allSatisfy(\.isHexDigit))
+        #expect(HubSetup.makeToken() != token)
+        #expect(HubSetup.uploadArguments(user: "ubuntu", host: "192.168.1.30").contains("BatchMode=yes"))
+        #expect(HubSetup.runArguments(user: "ubuntu", host: "h", access: .both).last == "sudo -n env ACCESS=both bash /tmp/kervan-setup/hub-setup.sh")
+        #expect(HubSetup.terminalCommand(user: "ubuntu", host: "h", access: .lan) == "ssh -t ubuntu@h \"sudo env ACCESS=lan bash /tmp/kervan-setup/hub-setup.sh\"")
+    }
+
+    @Test func followsTheSetupScript() {
+        #expect(HubSetupStep.reached(in: "") == .uploading)
+        let output = "==> paketler\n==> Node.js 24\n==> kullanıcı ve klasörler\n==> Kervan kodu\n==> ayarlar\n==> Tailscale\n==> güvenlik duvarı\n"
+        #expect(HubSetupStep.reached(in: output) == .firewall)
+        #expect(HubSetupStep.reached(in: output + "==> servis\n==> Tailscale girişi\n") == .tailscaleLogin)
+        #expect(HubSetupStep.reached(in: output + "==> servis\n==> hazır\n") == .ready)
+        #expect(HubSetup.tailscaleLoginURL(in: "To authenticate, visit:\n\n\thttps://login.tailscale.com/a/1b2c3d\n")?.absoluteString == "https://login.tailscale.com/a/1b2c3d")
+    }
+}

@@ -101,3 +101,69 @@ private struct RouteNode: View {
     }
 }
 
+
+/// Mac → hub, and from the hub a branch to every node: the caravan's routes. With no nodes it is the plain RouteView.
+/// A connected node's branch is a solid sage curve; an offline one is a dashed gray curve.
+struct NetworkMap: View {
+    let state: ConnectionState
+    let host: String
+    let nodes: [NodeInfo]
+
+    var body: some View {
+        if nodes.isEmpty {
+            RouteView(state: state, host: host)
+        } else {
+            let rowHeight: CGFloat = 70
+            let height = max(110, CGFloat(nodes.count) * rowHeight)
+            GeometryReader { geometry in
+                let width = geometry.size.width
+                let mac = CGPoint(x: 34, y: height / 2)
+                let hub = CGPoint(x: width * 0.48, y: height / 2)
+                let points = nodes.indices.map { index in
+                    CGPoint(x: width - 34, y: (CGFloat(index) + 0.5) * height / CGFloat(nodes.count))
+                }
+                ZStack {
+                    Canvas { canvas, _ in
+                        let trunk = Path { path in
+                            path.move(to: CGPoint(x: mac.x + 30, y: mac.y))
+                            path.addLine(to: CGPoint(x: hub.x - 30, y: hub.y))
+                        }
+                        canvas.stroke(
+                            trunk,
+                            with: .color(state.isConnected ? .kervanLapis : .secondary.opacity(0.5)),
+                            style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: state.isConnected ? [] : [4, 5])
+                        )
+                        for (node, point) in zip(nodes, points) {
+                            let start = CGPoint(x: hub.x + 30, y: hub.y)
+                            let end = CGPoint(x: point.x - 32, y: point.y)
+                            let bend = (end.x - start.x) * 0.5
+                            let branch = Path { path in
+                                path.move(to: start)
+                                path.addCurve(to: end, control1: CGPoint(x: start.x + bend, y: start.y), control2: CGPoint(x: end.x - bend, y: end.y))
+                            }
+                            canvas.stroke(
+                                branch,
+                                with: .color(node.connected ? .kervanOasis : .secondary.opacity(0.45)),
+                                style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: node.connected ? [] : [4, 5])
+                            )
+                        }
+                    }
+                    RouteNode(title: "Mac", symbol: "laptopcomputer", color: .kervanLapis, filled: true)
+                        .position(x: mac.x, y: mac.y + 8)
+                    RouteNode(title: host.isEmpty ? "Sunucu" : host, symbol: "server.rack", color: state.tint, filled: state.isConnected)
+                        .position(x: hub.x, y: hub.y + 8)
+                    ForEach(Array(zip(nodes, points)), id: \.0.id) { node, point in
+                        RouteNode(title: node.name, symbol: "cpu", color: node.connected ? .kervanOasis : .secondary, filled: node.connected)
+                            .position(x: point.x, y: point.y + 8)
+                    }
+                }
+            }
+            .frame(height: height + 16)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(
+                "Bağlantılar: Mac, \(host) sunucusu ve " +
+                nodes.map { "\($0.name) \($0.connected ? "bağlı" : "bağlı değil")" }.joined(separator: ", ")
+            )
+        }
+    }
+}

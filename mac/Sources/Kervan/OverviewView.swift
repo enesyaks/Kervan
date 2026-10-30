@@ -31,8 +31,8 @@ struct OverviewView: View {
                         .frame(maxWidth: 440)
                 }
 
-                RouteView(state: state, host: host)
-                    .frame(maxWidth: 380)
+                NetworkMap(state: state, host: host, nodes: model.store.nodeInfos)
+                    .frame(maxWidth: model.store.nodeInfos.isEmpty ? 380 : 460)
 
                 VStack(spacing: 10) {
                     NewSessionButton()

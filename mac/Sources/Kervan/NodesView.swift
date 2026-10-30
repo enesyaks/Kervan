@@ -480,7 +480,7 @@ private struct HubConnectionCard: View {
 }
 
 /// A one-time step: what it is for, and the command to copy.
-private struct Guidance: View {
+struct Guidance: View {
     let text: String
     let command: String
     @State private var copied = false
