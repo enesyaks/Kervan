@@ -38,7 +38,7 @@ public enum SessionGroups {
     }
 
     /// The server writes `2026-10-29T10:00:00.000Z`; tolerate the variant without fractions too.
-    static func parse(_ text: String) -> Date? {
+    public static func parse(_ text: String) -> Date? {
         let withFractions = ISO8601DateFormatter()
         withFractions.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return withFractions.date(from: text) ?? ISO8601DateFormatter().date(from: text)

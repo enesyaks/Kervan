@@ -40,6 +40,9 @@ public final class SessionStore {
     public private(set) var ports: [ListeningPort]?
     private var diagnosticsReport: Diagnostics?
     private var pullRequestAnswer: PullRequestInfo?
+    private var pairingAnswer: WebPairing?
+    /// Web access as the server last told it; nil until asked for.
+    public private(set) var webAccess: WebAccessStatus?
     /// The shell open in each session's folder, by session id.
     public private(set) var terminals: [String: TerminalState] = [:]
 
@@ -160,13 +163,39 @@ public final class SessionStore {
     }
 
     /// Pushes the session's work on a branch of its own and opens a pull request; the server's refusal on failure.
-    public func pullRequest(_ sessionID: String, title: String, body: String) async -> Result<PullRequestInfo, PullRequestFailure> {
+    public func pullRequest(_ sessionID: String, title: String, body: String) async -> Result<PullRequestInfo, RequestFailure> {
         pullRequestAnswer = nil
         if let failure = await call(.sessionPullRequest(id: Self.newID(), sessionId: sessionID, title: title, body: body)) {
-            return .failure(PullRequestFailure(message: failure))
+            return .failure(RequestFailure(message: failure))
         }
-        guard let answer = pullRequestAnswer else { return .failure(PullRequestFailure(message: L("The server didn't answer.", "Sunucu yanıt vermedi."))) }
+        guard let answer = pullRequestAnswer else { return .failure(RequestFailure(message: L("The server didn't answer.", "Sunucu yanıt vermedi."))) }
         return .success(answer)
+    }
+
+    // MARK: Web access
+
+    /// Fetches whether web access is on and which browsers are paired; the answer lands in `webAccess`.
+    @discardableResult
+    public func loadWebAccess() async -> String? {
+        await call(.webStatus(id: Self.newID()))
+    }
+
+    @discardableResult
+    public func setWebAccess(_ enabled: Bool) async -> String? {
+        await call(.webEnable(id: Self.newID(), enabled: enabled))
+    }
+
+    /// A one-time code for a new browser, or the server's refusal.
+    public func pairWebDevice() async -> Result<WebPairing, RequestFailure> {
+        pairingAnswer = nil
+        if let failure = await call(.webPair(id: Self.newID())) { return .failure(RequestFailure(message: failure)) }
+        guard let answer = pairingAnswer else { return .failure(RequestFailure(message: L("The server didn't answer.", "Sunucu yanıt vermedi."))) }
+        return .success(answer)
+    }
+
+    @discardableResult
+    public func revokeWebDevice(_ deviceID: String) async -> String? {
+        await call(.webRevoke(id: Self.newID(), deviceId: deviceID))
     }
 
     // MARK: Projects and scheduled tasks
@@ -389,6 +418,10 @@ public final class SessionStore {
             diagnosticsReport = report
         case .sessionPullRequestResult(_, _, let pullRequest):
             pullRequestAnswer = pullRequest
+        case .webStatusResult(_, let web):
+            webAccess = web
+        case .webPaired(_, let code, let expiresAt):
+            pairingAnswer = WebPairing(code: code, expiresAt: SessionGroups.parse(expiresAt) ?? .now.addingTimeInterval(600))
         case .portListResult(_, let ports):
             self.ports = ports
         case .terminalOpened(_, let terminalID, let sessionID, let backlog):

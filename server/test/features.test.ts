@@ -10,6 +10,7 @@ import { isDue, localParts } from "../src/schedules.ts";
 import { parseLsof, parseSs } from "../src/tunnel.ts";
 import { redact } from "../src/diagnostics.ts";
 import { githubRepoURL, openPullRequest } from "../src/pullrequest.ts";
+import { WebAccess as WebAccessStore, type WebAccess } from "../src/webaccess.ts";
 import { log } from "../src/log.ts";
 import type { ScheduleInfo } from "../src/protocol.ts";
 import type { SessionManager } from "../src/sessions.ts";
@@ -361,38 +362,114 @@ describe("pull requests", () => {
 describe("web client", () => {
   let port = 0;
   let stop: () => Promise<void>;
-  before(async () => ({ port, stop } = await startServer()));
+  let web: WebAccess;
+  before(async () => ({ port, stop, web } = await startServer()));
   after(async () => await stop());
 
-  const key = (token: string) => `kervan.key.${Buffer.from(token).toString("base64url")}`;
+  const url = (path: string) => `http://127.0.0.1:${port}${path}`;
+  const keyProtocol = (token: string) => `kervan.key.${Buffer.from(token).toString("base64url")}`;
+  const pair = (code: string) =>
+    fetch(url("/v1/web/pair"), { method: "POST", body: JSON.stringify({ code, name: "Test phone" }) });
 
-  it("serves its page with a strict content policy, and nothing beside its own files", async () => {
-    const page = await fetch(`http://127.0.0.1:${port}/`);
+  /** The app, signed in with the server's key, asking for something. */
+  async function app(message: Record<string, unknown>, reply: string): Promise<any> {
+    const ws = openSocket(port);
+    await opened(ws);
+    const inbox = new Inbox(ws);
+    send(ws, HELLO);
+    await inbox.waitFor((m) => m.type === "welcome");
+    send(ws, { ...message, id: "a1" });
+    const answer = await inbox.waitFor((m) => m.id === "a1");
+    ws.close();
+    assert.equal(answer.type, reply, JSON.stringify(answer));
+    return answer;
+  }
+
+  it("is off until the app turns it on: no page, no files, no pairing", async () => {
+    assert.equal((await fetch(url("/"))).status, 403);
+    assert.equal((await fetch(url("/app.js"))).status, 404);
+    assert.equal((await pair("AAAA-AAAA")).status, 403);
+    const status = await app({ type: "web.enable", enabled: true }, "web.status.result");
+    assert.equal(status.web.enabled, true);
+    const page = await fetch(url("/"));
     assert.equal(page.status, 200);
-    assert.match(page.headers.get("content-type") ?? "", /text\/html/);
     assert.match(page.headers.get("content-security-policy") ?? "", /script-src 'self'/);
-    assert.match(await page.text(), /app\.js/);
-    assert.equal((await fetch(`http://127.0.0.1:${port}/app.js`)).status, 200);
-    assert.equal((await fetch(`http://127.0.0.1:${port}/../src/main.ts`)).status, 404);
-    assert.equal((await fetch(`http://127.0.0.1:${port}/index.html`)).status, 404);
+    assert.equal((await fetch(url("/../src/main.ts"))).status, 404);
   });
 
-  it("tells a wrong key apart from a right one", async () => {
-    const check = (token: string) => fetch(`http://127.0.0.1:${port}/v1/check`, { headers: { authorization: `Bearer ${token}` } });
-    assert.equal((await check(TEST_TOKEN)).status, 200);
-    assert.equal((await check("wrong")).status, 401);
+  it("pairs a browser with a one-time code and gives it a key of its own", async () => {
+    const { code } = await app({ type: "web.pair" }, "web.paired");
+    assert.match(code, /^[A-Z2-9]{4}-[A-Z2-9]{4}$/);
+    const answer = await pair(code.toLowerCase());
+    assert.equal(answer.status, 200);
+    const { token } = (await answer.json()) as { token: string };
+    assert.notEqual(token, TEST_TOKEN);
+    assert.equal((await pair(code)).status, 401, "a code works once");
+    const check = (t: string) => fetch(url("/v1/check"), { headers: { authorization: `Bearer ${t}` } });
+    assert.equal((await check(token)).status, 200);
+    assert.ok(web.status().devices.some((d) => d.name === "Test phone"));
   });
 
-  it("lets a browser sign in with the key as a subprotocol, which is never echoed back", async () => {
-    const ws = new WebSocket(`ws://127.0.0.1:${port}/v1/ws`, ["kervan", key(TEST_TOKEN)]);
+  it("lets a paired browser work with sessions but nothing else, and never takes the server's key", async () => {
+    const { code } = await app({ type: "web.pair" }, "web.paired");
+    const { token } = (await (await pair(code)).json()) as { token: string };
+    const ws = new WebSocket(url("/v1/ws").replace("http", "ws"), ["kervan", keyProtocol(token)]);
     await opened(ws);
     assert.equal(ws.protocol, "kervan");
     const inbox = new Inbox(ws);
     send(ws, HELLO);
-    assert.equal((await inbox.waitFor((m) => m.type === "welcome")).type, "welcome");
-    ws.close();
+    await inbox.waitFor((m) => m.type === "welcome");
+    send(ws, { type: "session.list", id: "l" });
+    assert.equal((await inbox.waitFor((m) => m.id === "l")).type, "session.list.result");
+    for (const type of ["web.pair", "agent.list", "node.invite"]) {
+      send(ws, { type, id: type, name: "x" });
+      assert.equal((await inbox.waitFor((m) => m.id === type)).code, "forbidden", type);
+    }
 
-    const refused = new WebSocket(`ws://127.0.0.1:${port}/v1/ws`, ["kervan", key("wrong")]);
-    await assert.rejects(opened(refused), /401/);
+    const closed = new Promise<number>((resolve) => ws.once("close", (code) => resolve(code)));
+    const device = web.status().devices.at(-1)!;
+    await app({ type: "web.revoke", deviceId: device.id }, "web.status.result");
+    assert.equal(await closed, 4001, "revoking cuts the open connection");
+
+    const master = new WebSocket(url("/v1/ws").replace("http", "ws"), ["kervan", keyProtocol(TEST_TOKEN)]);
+    await assert.rejects(opened(master), /401/);
+  });
+
+  it("stops answering an address after ten wrong tries", async () => {
+    const limited = await startServer();
+    try {
+      limited.web.setEnabled(true);
+      const tryCode = () =>
+        fetch(`http://127.0.0.1:${limited.port}/v1/web/pair`, { method: "POST", body: JSON.stringify({ code: "WRNG-CODE" }) });
+      for (let i = 0; i < 10; i++) assert.equal((await tryCode()).status, 401);
+      assert.equal((await tryCode()).status, 429);
+      const check = await fetch(`http://127.0.0.1:${limited.port}/v1/check`, { headers: { authorization: `Bearer ${TEST_TOKEN}` } });
+      assert.equal(check.status, 429, "the same address waits for the key check too");
+    } finally {
+      await limited.stop();
+    }
+  });
+});
+
+describe("web access store", () => {
+  it("lets a code lapse after ten minutes and keeps device keys only as hashes", () => {
+    let now = Date.parse("2026-10-30T12:00:00Z");
+    const file = join(mkdtempSync(join(tmpdir(), "kervan-web-")), "web.json");
+    const access = new WebAccessStore(file, () => now);
+    assert.throws(() => access.startPairing(), /turn web access on/);
+    access.setEnabled(true);
+    const late = access.startPairing();
+    now += 10 * 60_000 + 1;
+    assert.equal(access.redeem(late.code, "Late"), undefined);
+    const fresh = access.startPairing();
+    const paired = access.redeem(fresh.code, "Phone")!;
+    assert.ok(access.authenticate(paired.token));
+    assert.ok(!readFileSync(file, "utf8").includes(paired.token), "the key itself is never written");
+
+    const ended: (string | null)[] = [];
+    access.onRevoke((id) => ended.push(id));
+    access.setEnabled(false);
+    assert.equal(access.authenticate(paired.token), undefined, "off means no device gets in");
+    assert.deepEqual(ended, [null]);
   });
 });

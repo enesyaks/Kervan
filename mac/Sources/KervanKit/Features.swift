@@ -391,6 +391,25 @@ public struct UsageReport: Codable, Equatable, Sendable {
     }
 }
 
+/// A browser paired for the web client. Its key never comes back to the app, only who it is.
+public struct WebDevice: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let name: String
+    public let createdAt: String
+    public let lastSeenAt: String?
+}
+
+public struct WebAccessStatus: Codable, Equatable, Sendable {
+    public let enabled: Bool
+    public let devices: [WebDevice]
+}
+
+/// A one-time code a browser trades for its own key.
+public struct WebPairing: Equatable, Sendable {
+    public let code: String
+    public let expiresAt: Date
+}
+
 /// A session's work put up for review. `url` is the pull request, or GitHub's compare page when `created` is false.
 public struct PullRequestInfo: Codable, Equatable, Sendable {
     public let branch: String
@@ -452,6 +471,7 @@ extension ServerMessage {
     public var requestID: String? { KervanKit.requestID(of: self) }
 }
 
-public struct PullRequestFailure: Error, Equatable, Sendable {
+/// The server's refusal of a request that otherwise answers with something.
+public struct RequestFailure: Error, Equatable, Sendable {
     public let message: String
 }

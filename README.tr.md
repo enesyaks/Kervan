@@ -135,10 +135,12 @@ açık olmasa da çalışır.
 
 ### Telefondan, tarayıcıda
 
-Sunucu kendi adresinde Kervan'ın web sürümünü de sunar: `http://<sunucu>:7420`. Sunucuya erişebilen telefonunuzda
-ya da herhangi bir bilgisayarda (aynı ağ ya da Tailscale) açın, erişim anahtarını bir kez girin; oturumları
-izleyebilir, onay verebilir, mesaj gönderebilir, durdurabilir ve yeni oturum başlatabilirsiniz. Telefonda
-**Ana Ekrana Ekle** ile uygulama gibi açılır.
+Sunucu kendi adresinde Kervan'ın web sürümünü de sunabilir: `http://<sunucu>:7420`; telefonunuz ya da sunucuya
+erişebilen herhangi bir bilgisayar için (aynı ağ ya da Tailscale). **Ayarlar › Web erişimi**'nden açana kadar
+kapalıdır. Orada **Cihaz ekle** tek kullanımlık bir kod gösterir; adresi tarayıcıda açıp kodu girin. O tarayıcıya
+kendine ait bir anahtar verilir: oturumları izleyebilir, onay verebilir, mesaj gönderebilir, durdurabilir ve yeni
+oturum başlatabilir; ama ayarları, ajanları, node'ları ya da dosyaları değiştiremez. Telefon kaybolursa aynı yerden
+kaldırın, erişimi anında biter. Telefonda **Ana Ekrana Ekle** ile uygulama gibi açılır.
 
 ### Ve dahası
 
@@ -264,8 +266,10 @@ uygulamadan eklenebilir.
 - API anahtarları ve MCP sırları sunucuda `0600` izinli dosyalarda durur; istemciye yalnızca adları gider.
 - İzin isteyen araç çağrıları siz onaylayana kadar bekler.
 - Port önizleme tüneli de aynı token'ı ister ve yalnızca sunucunun kendi `localhost`'una bağlanır.
-- Web sürümü anahtarı o tarayıcının deposunda tutar ve yalnızca bağlanırken gönderir. Sayfanın kendi verisi yoktur,
-  sıkı bir içerik güvenlik politikasıyla sunulur. Ortak bir cihazda menüden çıkış yapın.
+- Web sürümü varsayılan olarak kapalıdır. Tarayıcı tek kullanımlık bir kodla (on dakika geçerli) eşleştirilir ve
+  kendine ait bir anahtar alır; anahtar sunucuda hash'lenmiş olarak durur ve uygulamadan iptal edilebilir. Sunucunun
+  anahtarı hiçbir tarayıcıya gitmez. Eşleştirilen tarayıcılar yalnızca oturumlarla çalışabilir. On başarısız
+  denemeden sonra o adres on dakika bekler. Sayfa sıkı bir içerik güvenlik politikasıyla sunulur.
 - Node'lar kendi tek kullanımlık davet koduyla katılır; node token'ı uygulamanın API'sini kullanamaz.
 
 ## Geliştirme

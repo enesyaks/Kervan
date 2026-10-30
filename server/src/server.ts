@@ -7,6 +7,7 @@ import { handleSkills, type SkillLibrary } from "./skills.ts";
 import { attachWebSocket, isAuthorized } from "./ws.ts";
 import { handleOnboarding } from "./onboarding.ts";
 import { handleWeb } from "./web.ts";
+import { AttemptLimiter, type WebAccess } from "./webaccess.ts";
 
 export { VERSION };
 
@@ -19,6 +20,22 @@ export interface ServerOptions {
   skills?: SkillLibrary;
   /** Lets `kervan-node` processes connect on /v1/node; without it nodes are refused. */
   nodeToken?: string;
+  /** The web client and its paired browsers; without it the server has no web client. */
+  web?: WebAccess;
+}
+
+const MAX_PAIR_BODY = 2048;
+
+function readBody(req: IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let body = "";
+    req.on("data", (chunk: Buffer) => {
+      body += chunk.toString("utf8");
+      if (body.length > MAX_PAIR_BODY) req.destroy(new Error("too large"));
+    });
+    req.on("end", () => resolve(body));
+    req.on("error", reject);
+  });
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -40,7 +57,10 @@ export function createKervanServer({
   maxUploadBytes = DEFAULT_MAX_UPLOAD_BYTES,
   skills,
   nodeToken,
+  web,
 }: ServerOptions): Server {
+  // One count of failed browser sign-ins, shared by the key check, pairing and the WebSocket.
+  const limiter = new AttemptLimiter();
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? "/", "http://localhost");
 
@@ -55,8 +75,42 @@ export function createKervanServer({
 
     // Lets the web client tell a wrong key from an unreachable server, which a browser WebSocket can't.
     if (req.method === "GET" && url.pathname === "/v1/check") {
-      const ok = isAuthorized(req.headers.authorization, token);
+      const remote = req.socket.remoteAddress;
+      if (limiter.blocked(remote)) return sendJson(res, 429, { error: "too_many_attempts" });
+      const bearer = req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice(7) : "";
+      const ok = isAuthorized(req.headers.authorization, token) || Boolean(web?.authenticate(bearer));
+      if (!ok) limiter.fail(remote);
       sendJson(res, ok ? 200 : 401, ok ? { status: "ok" } : { error: "unauthorized" });
+      return;
+    }
+
+    // A browser trades the one-time code the app showed for a key of its own.
+    if (req.method === "POST" && url.pathname === "/v1/web/pair") {
+      const remote = req.socket.remoteAddress;
+      if (!web?.enabled) return sendJson(res, 403, { error: "web_access_off" });
+      if (limiter.blocked(remote)) return sendJson(res, 429, { error: "too_many_attempts" });
+      void readBody(req).then(
+        (body) => {
+          let input: { code?: unknown; name?: unknown } = {};
+          try { input = JSON.parse(body); } catch { /* answered below as a wrong code */ }
+          const paired = typeof input.code === "string" ? web.redeem(input.code, typeof input.name === "string" ? input.name : "") : undefined;
+          if (!paired) {
+            limiter.fail(remote);
+            return sendJson(res, 401, { error: "bad_code" });
+          }
+          log("info", "web device paired", { remote, device: paired.device.name });
+          sendJson(res, 200, { token: paired.token, device: paired.device });
+        },
+        () => sendJson(res, 413, { error: "too_large" }),
+      );
+      return;
+    }
+
+    // The page itself only while web access is on, so a server that doesn't use it shows nothing.
+    if (url.pathname === "/" && req.method === "GET" && !web?.enabled) {
+      const text = "Kervan's web access is off. Turn it on in the Kervan app: Settings > Web access.\n";
+      res.writeHead(403, { "content-type": "text/plain; charset=utf-8", "content-length": Buffer.byteLength(text) });
+      res.end(text);
       return;
     }
 
@@ -90,13 +144,13 @@ export function createKervanServer({
       return;
     }
 
-    void handleWeb(req, res, url.pathname).then((served) => {
+    void (web?.enabled ? handleWeb(req, res, url.pathname) : Promise.resolve(false)).then((served) => {
       if (served) return;
       log("debug", "not found", { method: req.method, path: url.pathname });
       sendJson(res, 404, { error: "not_found" });
     });
   });
 
-  attachWebSocket(server, token, sessions, heartbeatMs, nodeToken);
+  attachWebSocket(server, token, sessions, heartbeatMs, nodeToken, web, limiter);
   return server;
 }

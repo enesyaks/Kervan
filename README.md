@@ -136,10 +136,12 @@ the network.
 
 ### From your phone, in the browser
 
-The server also serves a web version of Kervan at its own address, `http://<server>:7420`. Open it on your phone
-or any computer that reaches the server (the same network or Tailscale), enter the access key once, and you can
-follow sessions, answer approvals, send messages, stop a turn and start new sessions. On a phone, **Add to Home
-Screen** makes it open like an app.
+The server can also serve a web version of Kervan at its own address, `http://<server>:7420`, for your phone or
+any computer that reaches the server (the same network or Tailscale). It's off until you turn it on in
+**Settings › Web access**. There, **Add a device** shows a one-time code; open the address in the browser and enter
+it. That browser gets a key of its own: it can follow sessions, answer approvals, send messages, stop a turn and
+start new sessions, but not change settings, agents, nodes or files. Lost the phone? Remove it in the same place
+and its access ends at once. On a phone, **Add to Home Screen** makes it open like an app.
 
 ### And more
 
@@ -263,8 +265,10 @@ back to the app. Other ACP agents or command-line tools can be added with an `ag
 - API keys and MCP secrets stay on the server in files with `0600` permissions; clients only see their names.
 - Tool calls that need approval wait until you answer.
 - The port preview tunnel needs the same token and only connects to the server's own `localhost`.
-- The web version keeps the key in that browser's storage and sends it only when it connects. Its page holds no
-  data of its own and is served with a strict content security policy. Sign out from its menu on a shared device.
+- The web version is off by default. A browser is paired with a one-time code (valid ten minutes) and gets its own
+  key, stored hashed on the server and revocable from the app; the server's key never reaches a browser. Paired
+  browsers can only work with sessions. After ten failed tries an address waits ten minutes. The page is served
+  with a strict content security policy.
 - Nodes join with a single-use invite code; a node's token can't use the app's API.
 
 See [SECURITY.md](SECURITY.md) for how to report a vulnerability.

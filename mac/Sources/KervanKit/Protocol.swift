@@ -613,6 +613,11 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
     case sessionCommit(id: String, sessionId: String, message: String)
     /// Commits what is left on a branch of its own, pushes it and opens a pull request.
     case sessionPullRequest(id: String, sessionId: String, title: String, body: String)
+    /// Web access: turning it on and off, pairing browsers and removing them. The app only.
+    case webStatus(id: String)
+    case webEnable(id: String, enabled: Bool)
+    case webPair(id: String)
+    case webRevoke(id: String, deviceId: String)
     case projectList(id: String)
     case projectSave(id: String, project: ProjectInput)
     case projectDelete(id: String, projectId: String)
@@ -654,6 +659,7 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
         case type, `protocol`, client, id, agent, sessionId, text, requestId, optionId, attachments, title, archived, query
         case skills, mcpServers, server, name, agentId, role, roleId, roles, orchestrate, budgetUsd, configId, value
         case projectId, since, seq, paths, project, schedule, scheduleId, days, timeZone, terminalId, data, message, body
+        case enabled, deviceId
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -675,6 +681,20 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
             try c.encode(id, forKey: .id)
             try c.encode(sessionId, forKey: .sessionId)
             try c.encode(message, forKey: .message)
+        case .webStatus(let id):
+            try c.encode("web.status", forKey: .type)
+            try c.encode(id, forKey: .id)
+        case .webEnable(let id, let enabled):
+            try c.encode("web.enable", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(enabled, forKey: .enabled)
+        case .webPair(let id):
+            try c.encode("web.pair", forKey: .type)
+            try c.encode(id, forKey: .id)
+        case .webRevoke(let id, let deviceId):
+            try c.encode("web.revoke", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(deviceId, forKey: .deviceId)
         case .sessionPullRequest(let id, let sessionId, let title, let body):
             try c.encode("session.pullRequest", forKey: .type)
             try c.encode(id, forKey: .id)
@@ -889,13 +909,15 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
     case portListResult(id: String, ports: [ListeningPort])
     case diagnosticsResult(id: String, report: Diagnostics)
     case sessionPullRequestResult(id: String, sessionId: String, pullRequest: PullRequestInfo)
+    case webStatusResult(id: String, web: WebAccessStatus)
+    case webPaired(id: String, code: String, expiresAt: String)
     /// A type this client doesn't know yet. Ignored, so the server can add types without a version bump.
     case unknown(type: String)
 
     private enum CodingKeys: String, CodingKey {
         case type, `protocol`, server, agents, agentDetails, id, code, message, session, sessions, sessionId, events, event, hits, servers
         case nodes, roles, team, teams, name, expiresAt, hubAddresses
-        case changes, projects, schedules, report, terminalId, backlog, data, ports, pullRequest
+        case changes, projects, schedules, report, terminalId, backlog, data, ports, pullRequest, web
     }
 
     public init(from decoder: any Decoder) throws {
@@ -997,6 +1019,14 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
             self = .terminalOutput(terminalId: try c.decode(String.self, forKey: .terminalId), data: try c.decode(String.self, forKey: .data))
         case "terminal.exited":
             self = .terminalExited(terminalId: try c.decode(String.self, forKey: .terminalId))
+        case "web.status.result":
+            self = .webStatusResult(id: try c.decode(String.self, forKey: .id), web: try c.decode(WebAccessStatus.self, forKey: .web))
+        case "web.paired":
+            self = .webPaired(
+                id: try c.decode(String.self, forKey: .id),
+                code: try c.decode(String.self, forKey: .code),
+                expiresAt: try c.decode(String.self, forKey: .expiresAt)
+            )
         case "session.pullRequest.result":
             self = .sessionPullRequestResult(
                 id: try c.decode(String.self, forKey: .id),

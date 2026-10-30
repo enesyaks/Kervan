@@ -3,6 +3,7 @@ import { loadConfig } from "./config.ts";
 import { log } from "./log.ts";
 import { LocalAcpRunner } from "./runner.ts";
 import { createKervanServer, VERSION } from "./server.ts";
+import { WebAccess } from "./webaccess.ts";
 import { SessionManager } from "./sessions.ts";
 import { EventStore } from "./store.ts";
 import { McpRegistry } from "./mcp.ts";
@@ -72,6 +73,7 @@ const server = createKervanServer({
   maxUploadBytes: config.maxUploadBytes,
   skills,
   ...(config.nodeToken ? { nodeToken: config.nodeToken } : {}),
+  web: new WebAccess(join(config.dataDir, "web.json")),
 });
 
 // A daily copy of the database; the first one right after start.

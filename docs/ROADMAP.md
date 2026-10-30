@@ -100,8 +100,8 @@ Help › Report a Problem… collects versions, connection state and the server'
 
 ### Web version
 The server serves a phone-first web client at its own address: sessions, the conversation, approvals, sending,
-stopping and new sessions, in English or Turkish. It signs in with the same access key and can be added to a phone's
-home screen.
+stopping and new sessions, in English or Turkish. It's off until turned on in the app; each browser is paired with a
+one-time code, gets its own revocable key, may only work with sessions, and failed tries are rate-limited.
 
 ### Pull requests from a session
 The Changes panel pushes a session's work on its own branch and opens a pull request with `gh` on the server, or

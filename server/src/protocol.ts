@@ -201,6 +201,19 @@ export interface UsageReport {
 }
 
 /** For "Report a problem": no prompts, no keys; log lines are redacted. */
+/** A browser paired for the web client. Its key is never sent back, only who it is. */
+export interface WebDevice {
+  id: string;
+  name: string;
+  createdAt: string;
+  lastSeenAt?: string;
+}
+
+export interface WebAccessStatus {
+  enabled: boolean;
+  devices: WebDevice[];
+}
+
 /** A session's work put up for review. `url` is the pull request, or GitHub's compare page when `created` is false. */
 export interface PullRequestInfo {
   branch: string;
@@ -268,6 +281,11 @@ export type ClientMessage =
   | { type: "session.commit"; id: string; sessionId: string; message: string }
   /** Commits what is left on a branch of its own, pushes it and opens a pull request. */
   | { type: "session.pullRequest"; id: string; sessionId: string; title: string; body?: string }
+  /** Web access is managed from the app only; paired browsers can't reach these. */
+  | { type: "web.status"; id: string }
+  | { type: "web.enable"; id: string; enabled: boolean }
+  | { type: "web.pair"; id: string }
+  | { type: "web.revoke"; id: string; deviceId: string }
   | { type: "project.list"; id: string }
   | { type: "project.save"; id: string; project: Record<string, unknown> }
   | { type: "project.delete"; id: string; projectId: string }
@@ -316,7 +334,9 @@ export type ErrorCode =
   | "session_unavailable"
   | "unknown_request"
   /** The agent's node isn't connected right now. */
-  | "node_offline";
+  | "node_offline"
+  /** A paired browser asked for something only the app may do. */
+  | "forbidden";
 
 export type ServerMessage =
   | { type: "welcome"; protocol: number; server: PeerInfo; agents: string[]; agentDetails: AgentDetail[] }
@@ -354,7 +374,9 @@ export type ServerMessage =
   | { type: "terminal.exited"; terminalId: string }
   | { type: "port.list.result"; id: string; ports: ListeningPort[] }
   | { type: "diagnostics.result"; id: string; report: Diagnostics }
-  | { type: "session.pullRequest.result"; id: string; sessionId: string; pullRequest: PullRequestInfo };
+  | { type: "session.pullRequest.result"; id: string; sessionId: string; pullRequest: PullRequestInfo }
+  | { type: "web.status.result"; id: string; web: WebAccessStatus }
+  | { type: "web.paired"; id: string; code: string; expiresAt: string };
 
 export type ParseResult =
   | { ok: true; message: ClientMessage }
@@ -409,6 +431,10 @@ const STRING_FIELDS: Record<string, readonly string[]> = {
   "session.revert": ["id", "sessionId"],
   "session.commit": ["id", "sessionId", "message"],
   "session.pullRequest": ["id", "sessionId", "title"],
+  "web.status": ["id"],
+  "web.enable": ["id"],
+  "web.pair": ["id"],
+  "web.revoke": ["id", "deviceId"],
   "project.list": ["id"],
   "project.save": ["id"],
   "project.delete": ["id", "projectId"],
@@ -505,6 +531,10 @@ export function parseClientMessage(raw: string): ParseResult {
   }
   if (data.type === "session.commit" && (message.message.trim() === "" || message.message.length > 5000)) {
     return fail("bad_message", "commit message must be 1–5000 characters");
+  }
+  if (data.type === "web.enable") {
+    if (typeof data.enabled !== "boolean") return fail("bad_message", "web.enable needs a boolean 'enabled'");
+    (message as Record<string, unknown>).enabled = data.enabled;
   }
   if (data.type === "session.pullRequest") {
     if (message.title.trim() === "" || message.title.length > 250) return fail("bad_message", "title must be 1–250 characters");

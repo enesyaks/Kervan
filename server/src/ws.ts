@@ -8,6 +8,7 @@ import { MAX_NODE_FRAME_BYTES, NODE_PATH } from "./node-agent.ts";
 import { NODE_NAME, LOCAL_NODE } from "./nodes.ts";
 import type { SessionManager } from "./sessions.ts";
 import { listeningPorts, pipeTunnel, TUNNEL_PATH } from "./tunnel.ts";
+import { AttemptLimiter, type WebAccess } from "./webaccess.ts";
 import { diagnostics } from "./diagnostics.ts";
 import { VERSION } from "./version.ts";
 
@@ -33,12 +34,23 @@ export function keyFromProtocols(header: string | undefined): string | undefined
   return offered ? Buffer.from(offered.slice(KEY_PROTOCOL.length), "base64url").toString("utf8") : undefined;
 }
 
-/** The app's Authorization header, or the web client's key subprotocol. */
-function isClientAuthorized(req: IncomingMessage, token: string): boolean {
-  if (isAuthorized(req.headers.authorization, token)) return true;
-  const key = keyFromProtocols(req.headers["sec-websocket-protocol"]);
-  return key !== undefined && timingSafeEqual(sha256(key), sha256(token));
-}
+/** Who is on the other end: the app with the server's key, or a paired browser with its own. */
+type Client = { kind: "app" } | { kind: "web"; deviceId: string };
+
+/** What a paired browser may ask for: working with sessions. Settings, agents, nodes, files and pairing stay with the app. */
+const WEB_ALLOWED = new Set<string>([
+  "ping",
+  "session.list",
+  "session.history",
+  "session.create",
+  "session.prompt",
+  "session.cancel",
+  "session.permission",
+  "session.rename",
+  "session.archive",
+  "session.search",
+  "session.config",
+]);
 
 function rejectUpgrade(socket: Duplex, status: number, reason: string): void {
   socket.end(`HTTP/1.1 ${status} ${reason}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
@@ -95,8 +107,23 @@ async function handleRequest(
   message: Exclude<ClientMessage, { type: "hello" }>,
   sessions: SessionManager,
   ownPorts: () => number[],
+  web: WebAccess | undefined,
 ) {
+  const requireWeb = () => {
+    if (!web) throw new KervanError("bad_message", "this server has no web client");
+    return web;
+  };
   switch (message.type) {
+    case "web.status":
+      return send(ws, { type: "web.status.result", id: message.id, web: requireWeb().status() });
+    case "web.enable":
+      requireWeb().setEnabled(message.enabled);
+      return send(ws, { type: "web.status.result", id: message.id, web: requireWeb().status() });
+    case "web.pair":
+      return send(ws, { type: "web.paired", id: message.id, ...requireWeb().startPairing() });
+    case "web.revoke":
+      requireWeb().revoke(message.deviceId);
+      return send(ws, { type: "web.status.result", id: message.id, web: requireWeb().status() });
     case "ping":
       return send(ws, { type: "pong", id: message.id });
     case "session.create":
@@ -241,7 +268,14 @@ async function handleRequest(
   }
 }
 
-function handleConnection(ws: WebSocket, req: IncomingMessage, sessions: SessionManager, ownPorts: () => number[]): void {
+function handleConnection(
+  ws: WebSocket,
+  req: IncomingMessage,
+  sessions: SessionManager,
+  ownPorts: () => number[],
+  client: Client,
+  web: WebAccess | undefined,
+): void {
   const remote = req.socket.remoteAddress;
   let greeted = false;
   let unsubscribe: (() => void) | undefined;
@@ -291,8 +325,13 @@ function handleConnection(ws: WebSocket, req: IncomingMessage, sessions: Session
       return;
     }
 
+    if (client.kind === "web" && !WEB_ALLOWED.has(message.type)) {
+      send(ws, { type: "error", code: "forbidden", message: "only the Kervan app can do that", id: message.id });
+      return;
+    }
+
     try {
-      await handleRequest(ws, message, sessions, ownPorts);
+      await handleRequest(ws, message, sessions, ownPorts, web);
     } catch (error) {
       if (!(error instanceof KervanError)) {
         log("error", "request failed", { type: message.type, error: String(error) });
@@ -314,6 +353,8 @@ export function attachWebSocket(
   sessions: SessionManager,
   heartbeatMs = HEARTBEAT_MS,
   nodeToken?: string,
+  web?: WebAccess,
+  limiter: AttemptLimiter = new AttemptLimiter(),
 ): WebSocketServer {
   const wss = new WebSocketServer({
     noServer: true,
@@ -373,18 +414,46 @@ export function attachWebSocket(
       rejectUpgrade(socket, 404, "Not Found");
       return;
     }
-    if (!isClientAuthorized(req, token)) {
-      log("warn", "ws auth rejected", { remote: req.socket.remoteAddress });
-      rejectUpgrade(socket, 401, "Unauthorized");
-      return;
+    // The app signs in with the server's key; a browser only ever with a paired device's own key.
+    let client: Client;
+    const remote = req.socket.remoteAddress;
+    if (isAuthorized(req.headers.authorization, token)) {
+      client = { kind: "app" };
+    } else {
+      const key = keyFromProtocols(req.headers["sec-websocket-protocol"]);
+      if (key !== undefined && limiter.blocked(remote)) {
+        rejectUpgrade(socket, 429, "Too Many Requests");
+        return;
+      }
+      const device = key !== undefined ? web?.authenticate(key) : undefined;
+      if (!device) {
+        if (key !== undefined) limiter.fail(remote);
+        log("warn", "ws auth rejected", { remote });
+        rejectUpgrade(socket, 401, "Unauthorized");
+        return;
+      }
+      client = { kind: "web", deviceId: device.id };
+      log("info", "web device connected", { remote, device: device.name });
     }
-    wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      if (client.kind === "web") webClients.set(ws, client.deviceId);
+      wss.emit("connection", ws, req, client);
+    });
   });
 
-  wss.on("connection", (ws: WebSocket, req: IncomingMessage) => {
+  // A revoked device (or every device, when web access is turned off) is cut off at once.
+  const webClients = new Map<WebSocket, string>();
+  web?.onRevoke((deviceId) => {
+    for (const [ws, owner] of webClients) {
+      if (deviceId === null || owner === deviceId) ws.close(4001, "web access ended");
+    }
+  });
+
+  wss.on("connection", (ws: WebSocket, req: IncomingMessage, client: Client = { kind: "app" }) => {
+    ws.on("close", () => webClients.delete(ws));
     alive.add(ws);
     ws.on("pong", () => alive.add(ws));
-    handleConnection(ws, req, sessions, ownPorts);
+    handleConnection(ws, req, sessions, ownPorts, client, web);
   });
 
   // Drop clients that missed a whole heartbeat round (sleeping laptop, dead network).

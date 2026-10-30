@@ -6,7 +6,7 @@ import SwiftUI
 /// Settings tabs by name, remembered, so a step elsewhere can open the right one.
 enum SettingsTab {
     static let key = "settingsTab"
-    static let general = "general", skills = "skills", mcp = "mcp", agents = "agents", roles = "roles", nodes = "nodes"
+    static let general = "general", skills = "skills", mcp = "mcp", agents = "agents", roles = "roles", nodes = "nodes", web = "web"
 }
 
 struct SettingsView: View {
@@ -35,6 +35,12 @@ struct SettingsView: View {
             .settingsPage()
             .tabItem { Label(L("Nodes", "Node'lar"), systemImage: "server.rack") }
                 .tag(SettingsTab.nodes)
+            ScrollView {
+                WebAccessSection().padding(20)
+            }
+            .settingsPage()
+            .tabItem { Label(L("Web access", "Web erişimi"), systemImage: "globe") }
+                .tag(SettingsTab.web)
         }
         .frame(width: 620, height: 480)
         .fontDesign(.rounded)

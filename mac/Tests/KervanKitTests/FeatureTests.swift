@@ -255,3 +255,20 @@ import Testing
         #expect(bare.url == nil && !bare.created)
     }
 }
+
+@Suite struct WebAccessTests {
+    @Test func requestsSayWhatTheyChange() throws {
+        #expect(try ClientMessage.webEnable(id: "r", enabled: true).jsonString().contains(#""enabled":true"#))
+        #expect(try ClientMessage.webRevoke(id: "r", deviceId: "d1").jsonString().contains(#""deviceId":"d1""#))
+        #expect(try ClientMessage.webPair(id: "r").jsonString().contains(#""type":"web.pair""#))
+    }
+
+    @Test func statusAndCodeDecode() throws {
+        let status = try ServerMessage.decode(#"{"type":"web.status.result","id":"r","web":{"enabled":true,"devices":[{"id":"d1","name":"iPhone · Safari","createdAt":"2026-10-30T12:00:00Z"}]}}"#)
+        guard case .webStatusResult(_, let web) = status else { Issue.record("not a status"); return }
+        #expect(web.enabled && web.devices.first?.name == "iPhone · Safari" && web.devices.first?.lastSeenAt == nil)
+        let paired = try ServerMessage.decode(#"{"type":"web.paired","id":"p","code":"ABCD-EFGH","expiresAt":"2026-10-30T12:10:00Z"}"#)
+        guard case .webPaired(let id, let code, _) = paired else { Issue.record("not a pairing"); return }
+        #expect(id == "p" && code == "ABCD-EFGH")
+    }
+}

@@ -1,3 +1,4 @@
+import { WebAccess } from "../src/webaccess.ts";
 import type { Server } from "node:http";
 import { mkdtempSync } from "node:fs";
 import type { AddressInfo } from "node:net";
@@ -24,7 +25,7 @@ export const fakeAgent = { name: "Fake", command: process.execPath, args: [join(
 
 export async function startServer(
   options: { maxUploadBytes?: number; limits?: Partial<Limits>; nodeToken?: string } = {},
-): Promise<{ server: Server; port: number; sessions: SessionManager; dataDir: string; stop: () => Promise<void> }> {
+): Promise<{ server: Server; port: number; sessions: SessionManager; dataDir: string; web: WebAccess; stop: () => Promise<void> }> {
   const workspaces = mkdtempSync(join(tmpdir(), "kervan-test-"));
   const dataDir = mkdtempSync(join(tmpdir(), "kervan-data-"));
   const skills = new SkillLibrary(join(dataDir, "skills"));
@@ -64,10 +65,12 @@ export async function startServer(
   });
   sessions!.scheduler = scheduler;
   scheduler.start((task) => sessions!.runTask({ agent: task.agent, title: task.title, prompt: task.prompt, scheduleId: task.id }), 60_000);
+  const web = new WebAccess(join(dataDir, "web.json"));
   const server = createKervanServer({
     token: TEST_TOKEN,
     sessions,
     skills,
+    web,
     maxUploadBytes: options.maxUploadBytes,
     ...(options.nodeToken ? { nodeToken: options.nodeToken } : {}),
   });
@@ -81,7 +84,7 @@ export async function startServer(
       nodes.close();
       server.close(() => resolve());
     });
-  return { server, port, sessions: sessions!, dataDir, stop };
+  return { server, port, sessions: sessions!, dataDir, web, stop };
 }
 
 export function openSocket(port: number, token: string | null = TEST_TOKEN, path = "/v1/ws"): WebSocket {

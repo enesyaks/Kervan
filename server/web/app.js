@@ -2,7 +2,8 @@
 // It speaks the same WebSocket protocol as the Mac app (protocol/v1.md); there is no build step.
 
 const PROTOCOL = 1;
-const KEY_STORE = "kervan.key";
+// This browser's own key, from pairing; never the server's key.
+const KEY_STORE = "kervan.device";
 const LANG_STORE = "kervan.lang";
 
 // MARK: Storage and language
@@ -51,16 +52,35 @@ const base64url = (text) =>
   btoa(String.fromCharCode(...new TextEncoder().encode(text))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
 /** Checks the key over HTTP first: a browser WebSocket can't tell a wrong key from a server that's down. */
-async function signIn(key) {
+/** "iPhone · Safari", so the device list in the app says which browser is which. */
+function deviceName() {
+  const agent = navigator.userAgent;
+  const system = /iPhone/.test(agent) ? "iPhone" : /iPad/.test(agent) ? "iPad" : /Android/.test(agent) ? "Android"
+    : /Mac OS X/.test(agent) ? "Mac" : /Windows/.test(agent) ? "Windows" : /Linux/.test(agent) ? "Linux" : "Browser";
+  const browser = /Edg\//.test(agent) ? "Edge" : /Firefox\//.test(agent) ? "Firefox" : /Chrome\//.test(agent) ? "Chrome"
+    : /Safari\//.test(agent) ? "Safari" : "";
+  return browser ? `${system} · ${browser}` : system;
+}
+
+/** Trades the one-time code from the app for this browser's own key. */
+async function signIn(code) {
   state.checking = true;
   state.signInError = null;
   render();
   try {
-    const response = await fetch("/v1/check", { headers: { authorization: `Bearer ${key}` }, cache: "no-store" });
-    if (response.status === 401) throw new Error(L("That key isn't right. Check it on the server and try again.", "Anahtar yanlış. Sunucuda kontrol edip tekrar deneyin."));
+    const response = await fetch("/v1/web/pair", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code, name: deviceName() }),
+      cache: "no-store",
+    });
+    if (response.status === 401) throw new Error(L("That code is wrong or has expired. Make a new one in the app.", "Kod yanlış ya da süresi dolmuş. Uygulamada yenisini oluşturun."));
+    if (response.status === 403) throw new Error(L("Web access is off. Turn it on in the app first.", "Web erişimi kapalı. Önce uygulamadan açın."));
+    if (response.status === 429) throw new Error(L("Too many tries. Wait a few minutes, then try again.", "Çok fazla deneme. Birkaç dakika bekleyip tekrar deneyin."));
     if (!response.ok) throw new Error(L(`The server answered ${response.status}.`, `Sunucu ${response.status} yanıtı verdi.`));
-    state.key = key;
-    stored.set(KEY_STORE, key);
+    const { token } = await response.json();
+    state.key = token;
+    stored.set(KEY_STORE, token);
     connect();
   } catch (error) {
     state.signInError = error instanceof TypeError ? L("Can't reach the server.", "Sunucuya ulaşılamıyor.") : error.message;
@@ -102,19 +122,24 @@ function connect() {
     try { message = JSON.parse(frame.data); } catch { return; }
     receive(message);
   };
-  ws.onclose = () => {
+  ws.onclose = (event) => {
     if (socket !== ws) return;
+    if (event.code === 4001) {
+      state.signInError = L("This browser's access was removed in the Kervan app. Pair it again to come back.", "Bu tarayıcının erişimi Kervan uygulamasından kaldırıldı. Geri dönmek için yeniden eşleştirin.");
+      signOut();
+      return;
+    }
     socket = null;
     state.connection = "offline";
     for (const { reject } of pending.values()) reject(new Error(L("The connection dropped.", "Bağlantı koptu.")));
     pending.clear();
     render();
-    // The key can stop working (it was changed on the server); check before trying again.
+    // The key can stop working (the device was removed, or web access turned off); check before trying again.
     const delay = Math.min(30, 2 ** retry++) * 1000;
     retryTimer = setTimeout(async () => {
       const check = await fetch("/v1/check", { headers: { authorization: `Bearer ${state.key}` }, cache: "no-store" }).catch(() => null);
       if (check?.status === 401) {
-        state.signInError = L("The server no longer accepts this key.", "Sunucu bu anahtarı artık kabul etmiyor.");
+        state.signInError = L("This browser is no longer paired, or web access was turned off. Pair it again.", "Bu tarayıcının eşleşmesi kaldırılmış ya da web erişimi kapatılmış. Yeniden eşleştirin.");
         signOut();
         return;
       }
@@ -566,27 +591,36 @@ function render(toEnd = false) {
 }
 
 function signInScreen() {
-  const input = h("input", { type: "password", name: "key", autocomplete: "current-password", required: true, spellcheck: "false", autocapitalize: "off" });
+  const input = h("input", {
+    type: "text",
+    name: "code",
+    autocomplete: "one-time-code",
+    placeholder: "ABCD-EFGH",
+    required: true,
+    spellcheck: "false",
+    autocapitalize: "characters",
+    maxlength: "12",
+  });
   return h("div", { class: "sign-in" },
     h("form", {
       onsubmit: (event) => {
         event.preventDefault();
-        const key = input.value.trim();
-        if (key) void signIn(key);
+        const code = input.value.trim();
+        if (code) void signIn(code);
       },
     },
       h("img", { src: "icon.svg", alt: "" }),
       h("h1", {}, L("Kervan on the web", "Web'de Kervan")),
-      h("p", { html: escapeHTML(L(
-        "Enter the server's access key, the same one the Mac app uses. On the server: ",
-        "Sunucunun erişim anahtarını girin; Mac uygulamasının kullandığıyla aynı. Sunucuda: ",
-      )) + "<code>sudo grep KERVAN_TOKEN /etc/kervan/env</code>" }),
-      h("label", { class: "field" }, h("span", {}, L("Access key", "Erişim anahtarı")), input),
+      h("p", {}, L(
+        "In the Kervan app on your Mac, open Settings › Web access and choose Add a device. Enter the code it shows; it works once, for ten minutes.",
+        "Mac'teki Kervan uygulamasında Ayarlar › Web erişimi'ni açıp Cihaz ekle'yi seçin. Gösterdiği kodu girin; kod bir kez ve on dakika geçerlidir.",
+      )),
+      h("label", { class: "field" }, h("span", {}, L("Pairing code", "Eşleştirme kodu")), input),
       state.signInError ? h("p", { class: "error-text", role: "alert" }, state.signInError) : null,
       h("div", { class: "row" },
         h("button", { type: "button", class: "quiet", onclick: () => { lang = lang === "tr" ? "en" : "tr"; stored.set(LANG_STORE, lang); render(); } }, lang === "tr" ? "English" : "Türkçe"),
         h("span", { class: "spacer" }),
-        h("button", { type: "submit", class: "primary", disabled: state.checking }, state.checking ? L("Checking…", "Kontrol ediliyor…") : L("Connect", "Bağlan")))));
+        h("button", { type: "submit", class: "primary", disabled: state.checking }, state.checking ? L("Pairing…", "Eşleştiriliyor…") : L("Pair this browser", "Bu tarayıcıyı eşleştir")))));
 }
 
 function listPane() {
@@ -631,7 +665,7 @@ function menu() {
     state.menu
       ? h("div", { class: "menu-list", role: "menu" },
           h("button", { role: "menuitem", onclick: () => { lang = lang === "tr" ? "en" : "tr"; stored.set(LANG_STORE, lang); state.menu = false; render(); } }, lang === "tr" ? "English" : "Türkçe"),
-          h("button", { role: "menuitem", onclick: signOut }, L("Sign out", "Çıkış yap")))
+          h("button", { role: "menuitem", onclick: signOut, title: L("Forgets this browser's key here; remove the device in the app to end it there too.", "Bu tarayıcıdaki anahtarı siler; tamamen kaldırmak için cihazı uygulamadan da silin.") }, L("Sign out", "Çıkış yap")))
       : null);
 }
 
