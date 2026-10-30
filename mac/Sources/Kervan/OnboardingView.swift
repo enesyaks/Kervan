@@ -28,8 +28,9 @@ struct OnboardingView: View {
 
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// KERVAN_ONBOARDING=agents opens on the agents step, for checking it against a running server.
-    @State private var stage: Stage = ProcessInfo.processInfo.environment["KERVAN_ONBOARDING"] == "agents" ? .agents : .welcome
+    /// KERVAN_ONBOARDING=agents opens on the agents step, for checking it against a running server. Any step
+    /// can be named the same way (welcome, choose, connect, setup, permission, progress, agents, done).
+    @State private var stage: Stage = Self.startStage
     @State private var path: Path = .connect
     @State private var host = ""
     @State private var user = "ubuntu"
@@ -41,6 +42,31 @@ struct OnboardingView: View {
     @State private var changing: Set<String> = []
     @State private var keyErrors: [String: String] = [:]
     @State private var savingKeys = false
+    /// The first field of a form step gets the cursor, so you can type right away and press Return.
+    @FocusState private var focusedField: FieldID?
+    /// VoiceOver moves to the new step's heading instead of staying on the button that was pressed.
+    @AccessibilityFocusState private var headingFocused: Bool
+
+    enum FieldID: Hashable { case server, token, host, user }
+
+    private static var startStage: Stage {
+        switch ProcessInfo.processInfo.environment["KERVAN_ONBOARDING"] {
+        case "choose": .choose
+        case "connect": .connect
+        case "setup": .setupForm
+        case "permission": .permission
+        case "progress": .setupProgress
+        case "agents": .agents
+        case "done": .done
+        default: .welcome
+        }
+    }
+
+    init(stage: Stage? = nil) {
+        if let stage {
+            _stage = State(initialValue: stage)
+        }
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -54,7 +80,7 @@ struct OnboardingView: View {
                 }
                 .frame(maxWidth: 520, alignment: .leading)
                 .padding(.horizontal, 56)
-                .padding(.top, 72)
+                .padding(.top, 60)
                 .padding(.bottom, 40)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -70,6 +96,22 @@ struct OnboardingView: View {
                 Task { await model.store.loadAgentConfigs() }
                 if stage != .agents { go(.agents) }
             }
+        }
+        .onChange(of: stage, initial: true) { _, stage in
+            headingFocused = false
+            Task { @MainActor in
+                // After the new step has arrived, so the field and heading exist.
+                try? await Task.sleep(for: .milliseconds(120))
+                headingFocused = true
+                switch stage {
+                case .connect: focusedField = model.serverInput.trimmed.isEmpty ? .server : .token
+                case .setupForm: focusedField = .host
+                default: focusedField = nil
+                }
+            }
+        }
+        .onAppear {
+            SnapshotRunner.checkAndRun(model: model)
         }
         .onDisappear { installer.stop() }
     }
@@ -97,9 +139,23 @@ struct OnboardingView: View {
         withAnimation(Motion.pick(Motion.smooth, reduce: reduceMotion)) { stage = next }
     }
 
+    /// Hands over to the app: the first-use tour comes next (once), and the first session opens after it,
+    /// so the new-session sheet and the tour never stack.
     private func finish(startSession: Bool) {
+        let agent = startSession ? readyAgents.first?.id : nil
+        let model = model
         withAnimation(Motion.pick(Motion.smooth, reduce: reduceMotion)) { model.showOnboarding = false }
-        if startSession { model.newSession(agent: readyAgents.first?.id) }
+        WelcomeTour.showIfNew(after: reduceMotion ? 0.2 : 0.45) {
+            if let agent { model.newSession(agent: agent) }
+        }
+    }
+
+    /// Heading of every step: one VoiceOver element, marked as a header, and where VoiceOver lands on arrival.
+    private func heading(_ title: String, _ lead: String) -> some View {
+        Heading(title: title, lead: lead)
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityFocused($headingFocused)
     }
 
     /// Agents that can work now: signed in, or ones the server can't check (added by hand).
@@ -134,19 +190,19 @@ struct OnboardingView: View {
 
     private var welcome: some View {
         VStack(alignment: .leading, spacing: 28) {
-            Heading(
-                title: L("Run your agents on your own server", "Ajanlarınız kendi sunucunuzda çalışsın"),
-                lead: L("Kervan runs agents like Claude, Codex and Gemini on your own machine, and you manage them all from this Mac.", "Kervan; Claude, Codex ve Gemini gibi ajanları sizin makinenizde çalıştırır, siz de hepsini bu Mac'ten yönetirsiniz.")
+            heading(
+                L("Run your agents on your own server", "Ajanlarınız kendi sunucunuzda çalışsın"),
+                L("Kervan runs agents like Claude, Codex and Gemini on your own machine, and you manage them all from this Mac.", "Kervan; Claude, Codex ve Gemini gibi ajanları sizin makinenizde çalıştırır, siz de hepsini bu Mac'ten yönetirsiniz.")
             )
             VStack(alignment: .leading, spacing: 18) {
-                Promise(symbol: "moon.stars", title: L("Work goes on when the Mac sleeps", "Mac kapansa da iş sürer"), text: L("Agents run on the server; when you come back, you pick up where they are.", "Ajanlar sunucuda çalışır; döndüğünüzde kaldıkları yerden görürsünüz."))
+                Promise(symbol: "moon.stars", title: L("Work goes on when the Mac sleeps", "Mac uyusa da iş sürer"), text: L("Agents run on the server, so when you come back you see how far they got.", "Ajanlar sunucuda çalışır; döndüğünüzde ne kadar ilerlediklerini görürsünüz."))
                 Promise(symbol: "lock", title: L("Everything stays with you", "Her şey sizde kalır"), text: L("Your code and API keys stay on your own server and go nowhere else.", "Kodunuz ve API anahtarlarınız kendi sunucunuzda durur, başka bir yere gitmez."))
                 Promise(symbol: "clock", title: L("Ready in minutes", "Birkaç dakikada hazır"), text: L("A minute if you have a server; setting one up together takes 3–5 minutes.", "Sunucunuz varsa bir dakika, yoksa birlikte kurmak 3–5 dakika."))
             }
             Actions {
                 Spacer()
                 Button(L("Get started", "Başlayalım")) { go(.choose) }
-                    .buttonStyle(PrimaryStyle())
+                    .buttonStyle(PrimaryPillStyle())
                     .keyboardShortcut(.defaultAction)
             }
         }
@@ -154,7 +210,7 @@ struct OnboardingView: View {
 
     private var choose: some View {
         VStack(alignment: .leading, spacing: 28) {
-            Heading(title: L("Do you have a server?", "Sunucunuz hazır mı?"), lead: L("Kervan needs a machine to run on: a home server, a virtual machine or a server in the cloud.", "Kervan'ın çalışacağı bir makine gerekiyor: ev sunucusu, bir sanal makine ya da buluttaki bir sunucu olabilir."))
+            heading(L("Do you have a server?", "Sunucunuz hazır mı?"), L("Kervan needs a machine to run on: a home server, a virtual machine or a server in the cloud.", "Kervan'ın çalışacağı bir makine gerekiyor: ev sunucusu, bir sanal makine ya da buluttaki bir sunucu olabilir."))
             VStack(spacing: 12) {
                 ChoiceTile(
                     symbol: "server.rack",
@@ -170,10 +226,12 @@ struct OnboardingView: View {
                 ) { path = .setup }
             }
             Actions {
-                Button(L("Back", "Geri")) { go(.welcome) }.buttonStyle(QuietStyle())
+                Button(L("Back", "Geri")) { go(.welcome) }
+                    .buttonStyle(QuietPillStyle())
+                    .keyboardShortcut(.cancelAction)
                 Spacer()
                 Button(L("Continue", "Devam")) { go(path == .setup ? .setupForm : .connect) }
-                    .buttonStyle(PrimaryStyle())
+                    .buttonStyle(PrimaryPillStyle())
                     .keyboardShortcut(.defaultAction)
             }
         }
@@ -183,14 +241,16 @@ struct OnboardingView: View {
         @Bindable var model = model
         let state = model.connection.state
         return VStack(alignment: .leading, spacing: 28) {
-            Heading(title: L("Connect to your server", "Sunucunuza bağlanalım"), lead: L("You're asked for these once. The access key is kept in your Mac's Keychain.", "Bu bilgiler bir kez sorulur. Erişim anahtarı Mac'inizin Keychain'inde saklanır."))
+            heading(L("Connect to your server", "Sunucunuza bağlanalım"), L("You only need to enter these once. The access key is kept in your Mac's Keychain.", "Bunları yalnızca bir kez girmeniz yeterli. Erişim anahtarı Mac'inizin Anahtar Zinciri'nde saklanır."))
             VStack(alignment: .leading, spacing: 18) {
                 Field(title: L("Server address", "Sunucu adresi"), hint: L("IP address, Tailscale name or network name. Port 7420 is used if you leave it out.", "IP adresi, Tailscale adı ya da ağdaki adı. Port yazmazsanız 7420 kullanılır.")) {
                     TextField(L("Server address", "Sunucu adresi"), text: $model.serverInput, prompt: Text(L("e.g. 192.168.1.21", "ör. 192.168.1.21")))
                         .textContentType(.URL)
+                        .focused($focusedField, equals: .server)
                 }
                 Field(title: L("Access key", "Erişim anahtarı"), hint: nil) {
                     SecureField(L("Access key", "Erişim anahtarı"), text: $model.tokenInput, prompt: Text(L("The KERVAN_TOKEN value on the server", "Sunucudaki KERVAN_TOKEN değeri")))
+                        .focused($focusedField, equals: .token)
                 }
                 Guidance(text: L("To see the key on the server, run:", "Anahtarı sunucuda şu komutla görebilirsiniz:"), command: "sudo grep KERVAN_TOKEN /etc/kervan/env")
             }
@@ -201,19 +261,26 @@ struct OnboardingView: View {
             ConnectStatus(state: state, host: model.address?.host ?? L("the server", "sunucu"))
 
             Actions {
-                Button(L("Back", "Geri")) {
-                    if state.isBusy { model.disconnect() }
-                    go(.choose)
+                // While connecting, Escape cancels the attempt (below); otherwise it goes back.
+                if state.isBusy {
+                    Button(L("Back", "Geri")) {
+                        model.disconnect()
+                        go(.choose)
+                    }
+                    .buttonStyle(QuietPillStyle())
+                } else {
+                    Button(L("Back", "Geri")) { go(.choose) }
+                        .buttonStyle(QuietPillStyle())
+                        .keyboardShortcut(.cancelAction)
                 }
-                .buttonStyle(QuietStyle())
                 Spacer()
                 if state.isBusy {
                     Button(L("Cancel", "Vazgeç")) { model.disconnect() }
-                        .buttonStyle(QuietStyle())
+                        .buttonStyle(QuietPillStyle())
                         .keyboardShortcut(.cancelAction)
                 } else {
                     Button(L("Connect", "Bağlan")) { model.connect() }
-                        .buttonStyle(PrimaryStyle())
+                        .buttonStyle(PrimaryPillStyle())
                         .keyboardShortcut(.defaultAction)
                         .disabled(!model.canConnect)
                 }
@@ -223,14 +290,16 @@ struct OnboardingView: View {
 
     private var setupForm: some View {
         VStack(alignment: .leading, spacing: 28) {
-            Heading(title: L("Which machine should we set up?", "Hangi makineye kuralım?"), lead: L("Any Ubuntu or Debian machine your Mac can reach over SSH will do.", "Ubuntu ya da Debian çalışan, Mac'inizin SSH ile girebildiği bir makine yeterli."))
+            heading(L("Which machine should we set up?", "Hangi makineye kuralım?"), L("Any Ubuntu or Debian machine your Mac can reach over SSH will do.", "Ubuntu ya da Debian çalışan, Mac'inizin SSH ile girebildiği bir makine yeterli."))
             VStack(alignment: .leading, spacing: 18) {
                 HStack(alignment: .top, spacing: 14) {
                     Field(title: L("Machine address", "Makinenin adresi"), hint: nil) {
                         TextField(L("Machine address", "Makinenin adresi"), text: $host, prompt: Text(L("e.g. 192.168.1.30", "ör. 192.168.1.30")))
+                            .focused($focusedField, equals: .host)
                     }
                     Field(title: L("User", "Kullanıcı"), hint: nil) {
                         TextField(L("User", "Kullanıcı"), text: $user)
+                            .focused($focusedField, equals: .user)
                     }
                     .frame(width: 150)
                 }
@@ -245,6 +314,7 @@ struct OnboardingView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text(L("Where will you connect from?", "Nereden bağlanacaksınız?"))
                     .font(.headline)
+                    .accessibilityAddTraits(.isHeader)
                 HStack(alignment: .top, spacing: 12) {
                     ChoiceTile(symbol: "wifi", title: L("This network", "Bu ağdan"), text: L("The port is open only to devices on this local network.", "Port yalnızca bu yerel ağdaki cihazlara açılır."), selected: access == .lan, compact: true) { access = .lan }
                     ChoiceTile(symbol: "globe", title: L("Anywhere", "Her yerden"), text: L("Tailscale is installed too, so you can connect when you're away.", "Tailscale de kurulur; evden uzaktayken de bağlanırsınız."), selected: access == .both, compact: true) { access = .both }
@@ -252,13 +322,15 @@ struct OnboardingView: View {
             }
 
             Actions {
-                Button(L("Back", "Geri")) { go(.choose) }.buttonStyle(QuietStyle())
+                Button(L("Back", "Geri")) { go(.choose) }
+                    .buttonStyle(QuietPillStyle())
+                    .keyboardShortcut(.cancelAction)
                 Spacer()
                 Button(L("Start setup", "Kurulumu başlat")) {
                     permission = .ask
                     go(.permission)
                 }
-                .buttonStyle(PrimaryStyle())
+                .buttonStyle(PrimaryPillStyle())
                 .keyboardShortcut(.defaultAction)
                 .disabled(host.trimmed.isEmpty || user.trimmed.isEmpty)
             }
@@ -269,11 +341,11 @@ struct OnboardingView: View {
     /// This step says why before the system asks, so the answer is an informed yes.
     private var permissionStep: some View {
         VStack(alignment: .leading, spacing: 28) {
-            Heading(
-                title: permission == .denied ? L("Local network access is off", "Yerel ağ izni kapalı") : L("Local network access", "Yerel ağa erişim izni"),
-                lead: permission == .denied
+            heading(
+                permission == .denied ? L("Local network access is off", "Yerel ağ izni kapalı") : L("Local network access", "Yerel ağa erişim izni"),
+                permission == .denied
                     ? L("macOS isn't letting Kervan reach machines on your network. Turning it on once in Settings is enough.", "macOS şu an Kervan'ın ağdaki makinelere ulaşmasına izin vermiyor. Ayarlarda bir kez açmanız yeterli.")
-                    : L("macOS will ask you once to let Kervan connect to \(host.trimmed).", "Kervan'ın \(host.trimmed) makinesine bağlanabilmesi için macOS sizden bir kez izin isteyecek.")
+                    : L("macOS will ask you once to let Kervan connect to \(host.trimmed.isEmpty ? L("the machine", "makineye") : host.trimmed).", "Kervan'ın \(host.trimmed.isEmpty ? L("makineye", "makineye") : host.trimmed) bağlanabilmesi için macOS sizden bir kez izin isteyecek.")
             )
             VStack(alignment: .leading, spacing: 18) {
                 if permission == .denied {
@@ -284,7 +356,7 @@ struct OnboardingView: View {
                     Promise(symbol: "macwindow", title: L("What you'll see", "Ne göreceksiniz"), text: L("Choose Allow when macOS says \"Kervan would like to find and connect to devices on your local network\".", "\"Kervan yerel ağınızdaki cihazları bulmak ve bunlara bağlanmak istiyor\" penceresinde İzin Ver'i seçin."))
                 }
                 if permission == .unreachable {
-                    Label(L("\(host.trimmed) didn't answer. Check that the machine is on, on this network, and that the address is right.", "\(host.trimmed) yanıt vermedi. Makinenin açık ve bu ağda olduğunu, adresin doğru olduğunu kontrol edin."), systemImage: "exclamationmark.triangle.fill")
+                    Label(unreachableText, systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.kervanCoral)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -294,21 +366,27 @@ struct OnboardingView: View {
 
             Actions {
                 Button(L("Back", "Geri")) { go(.setupForm) }
-                    .buttonStyle(QuietStyle())
+                    .buttonStyle(QuietPillStyle())
+                    .keyboardShortcut(.cancelAction)
                     .disabled(permission == .checking)
                 Spacer()
                 if permission == .denied {
                     Button(L("Open Settings", "Ayarları aç")) { NSWorkspace.shared.open(LocalNetwork.settingsURL) }
-                        .buttonStyle(QuietStyle())
+                        .buttonStyle(QuietPillStyle())
                 }
                 Button(permission == .checking ? L("Waiting for an answer…", "Yanıt bekleniyor…") : permission == .ask ? L("Allow", "İzin ver") : L("Check again", "Yeniden kontrol et")) {
                     askPermission()
                 }
-                .buttonStyle(PrimaryStyle())
+                .buttonStyle(PrimaryPillStyle())
                 .keyboardShortcut(.defaultAction)
                 .disabled(permission == .checking)
             }
         }
+    }
+
+    private var unreachableText: String {
+        let name = host.trimmed.isEmpty ? L("The machine", "Makine") : host.trimmed
+        return L("\(name) didn't answer. Check that the machine is on, on this network, and that the address is right.", "\(name) yanıt vermedi. Makinenin açık ve bu ağda olduğunu, adresin doğru olduğunu kontrol edin.")
     }
 
     private func askPermission() {
@@ -320,8 +398,10 @@ struct OnboardingView: View {
                 go(.setupProgress)
             case false?:
                 withAnimation(Motion.pick(Motion.smooth, reduce: reduceMotion)) { permission = .denied }
+                AccessibilityNotification.Announcement(L("Local network access is off", "Yerel ağ izni kapalı")).post()
             case nil:
                 withAnimation(Motion.pick(Motion.smooth, reduce: reduceMotion)) { permission = .unreachable }
+                AccessibilityNotification.Announcement(unreachableText).post()
             }
         }
     }
@@ -329,12 +409,13 @@ struct OnboardingView: View {
     private var setupProgress: some View {
         let steps = HubSetupStep.allCases.filter { $0 != .tailscaleLogin || access == .both }
         let failed = installer.failure != nil
+        let target = host.trimmed.isEmpty ? L("your server", "sunucunuz") : host.trimmed
         return VStack(alignment: .leading, spacing: 28) {
-            Heading(
-                title: failed ? L("Setup stopped", "Kurulum yarıda kaldı") : (installer.step == .ready ? L("Server ready, connecting", "Sunucu hazır, bağlanılıyor") : L("Setting up your server", "Sunucunuz kuruluyor")),
-                lead: failed
+            heading(
+                failed ? L("Setup stopped", "Kurulum yarıda kaldı") : (installer.step == .ready ? L("Server ready, connecting", "Sunucu hazır, bağlanılıyor") : L("Setting up your server", "Sunucunuz kuruluyor")),
+                failed
                     ? L("Fix the problem and try again; setup runs from the start without breaking what's already done.", "Sorunu giderdikten sonra yeniden deneyin; kurulum yarım kalan yerleri bozmadan baştan çalışır.")
-                    : L("On \(host.trimmed). It usually takes 3–5 minutes; feel free to do something else, it shows up here when done.", "\(host.trimmed) üzerinde. Genelde 3–5 dakika sürer; bu sırada başka işinize bakabilirsiniz, bitince burada görünür.")
+                    : L("Setting up \(target) usually takes 3–5 minutes. You can do something else meanwhile; this screen moves on by itself when it's done.", "\(target) kurulumu genelde 3–5 dakika sürer. Bu sırada başka işinize bakabilirsiniz; bitince bu ekran kendiliğinden ilerler.")
             )
             VStack(alignment: .leading, spacing: 16) {
                 StepList(
@@ -346,7 +427,7 @@ struct OnboardingView: View {
                 )
                 if let url = installer.tailscaleURL {
                     Button(L("Sign in to Tailscale", "Tailscale'e giriş yap")) { NSWorkspace.shared.open(url) }
-                        .buttonStyle(PrimaryStyle())
+                        .buttonStyle(PrimaryPillStyle())
                 }
                 if installer.waitingForTerminal {
                     Guidance(
@@ -361,7 +442,7 @@ struct OnboardingView: View {
                 }
                 if installer.localNetworkBlocked {
                     Button(L("Open Settings", "Ayarları aç")) { NSWorkspace.shared.open(LocalNetwork.settingsURL) }
-                        .buttonStyle(PrimaryStyle())
+                        .buttonStyle(PrimaryPillStyle())
                 }
                 if !installer.output.isEmpty {
                     DisclosureGroup(L("Detailed output", "Ayrıntılı çıktı")) {
@@ -379,6 +460,9 @@ struct OnboardingView: View {
             }
             .padding(20)
             .softSurface(radius: Radius.panel)
+            .onChange(of: installer.failure) { _, failure in
+                if let failure { AccessibilityNotification.Announcement(failure).post() }
+            }
 
             Actions {
                 if failed {
@@ -386,10 +470,11 @@ struct OnboardingView: View {
                         installer.reset()
                         go(.setupForm)
                     }
-                    .buttonStyle(QuietStyle())
+                    .buttonStyle(QuietPillStyle())
+                    .keyboardShortcut(.cancelAction)
                     Spacer()
                     Button(L("Try again", "Yeniden dene")) { install() }
-                        .buttonStyle(PrimaryStyle())
+                        .buttonStyle(PrimaryPillStyle())
                         .keyboardShortcut(.defaultAction)
                 } else {
                     Spacer()
@@ -397,7 +482,7 @@ struct OnboardingView: View {
                         installer.reset()
                         go(.setupForm)
                     }
-                    .buttonStyle(QuietStyle())
+                    .buttonStyle(QuietPillStyle())
                 }
             }
         }
@@ -410,9 +495,9 @@ struct OnboardingView: View {
         let offered = AgentSignIn.all.filter { sign in configs.contains { $0.id == sign.id } }
         let typed = offered.contains { !(keys[$0.id] ?? "").trimmed.isEmpty }
         return VStack(alignment: .leading, spacing: 28) {
-            Heading(
-                title: L("Let's get your agents ready", "Ajanlarınızı hazırlayalım"),
-                lead: L("Claude Code, Codex and Gemini are installed on your server. Give a key to the ones you want to use; keys are stored only on your server.", "Claude Code, Codex ve Gemini sunucunuza kuruldu. Kullanmak istediklerinize anahtarını verin; anahtarlar yalnızca sunucunuzda saklanır.")
+            heading(
+                L("Let's get your agents ready", "Ajanlarınızı hazırlayalım"),
+                L("Claude Code, Codex and Gemini are installed on your server. Give a key to the ones you want to use; keys are stored only on your server.", "Claude Code, Codex ve Gemini sunucunuza kuruldu. Kullanmak istediklerinize anahtarını verin; anahtarlar yalnızca sunucunuzda saklanır.")
             )
             if configs.isEmpty {
                 HStack(spacing: 10) {
@@ -440,17 +525,18 @@ struct OnboardingView: View {
             }
             Actions {
                 Button(L("Skip for now", "Şimdilik geç")) { go(.done) }
-                    .buttonStyle(QuietStyle())
+                    .buttonStyle(QuietPillStyle())
+                    .keyboardShortcut(.cancelAction)
                     .disabled(savingKeys)
                 Spacer()
                 if typed || savingKeys {
                     Button(savingKeys ? L("Trying the agents…", "Ajanlar deneniyor…") : L("Save and continue", "Kaydet ve devam")) { saveKeys(offered) }
-                        .buttonStyle(PrimaryStyle())
+                        .buttonStyle(PrimaryPillStyle())
                         .keyboardShortcut(.defaultAction)
                         .disabled(savingKeys)
                 } else if !readyAgents.isEmpty {
                     Button(L("Continue", "Devam")) { go(.done) }
-                        .buttonStyle(PrimaryStyle())
+                        .buttonStyle(PrimaryPillStyle())
                         .keyboardShortcut(.defaultAction)
                 }
             }
@@ -479,9 +565,9 @@ struct OnboardingView: View {
     private var done: some View {
         let agents = readyAgents
         return VStack(alignment: .leading, spacing: 28) {
-            Heading(
-                title: L("You're all set", "Hazırsınız"),
-                lead: L("Kervan is running on \(model.address?.host ?? "your server"). Your agents work there, and keep working when you close the Mac.", "Kervan \(model.address?.host ?? "sunucunuz") üzerinde çalışıyor. Ajanlarınız orada çalışır; Mac'i kapatsanız da işleri sürer.")
+            heading(
+                L("You're all set", "Hazırsınız"),
+                L("Kervan is running on \(model.address?.host ?? "your server"). Your agents work there, and keep working when you close the Mac.", "Kervan \(model.address?.host ?? "sunucunuz") üzerinde çalışıyor. Ajanlarınız orada çalışır; Mac'i kapatsanız da işleri sürer.")
             )
             VStack(alignment: .leading, spacing: 12) {
                 if agents.isEmpty {
@@ -498,11 +584,12 @@ struct OnboardingView: View {
             }
             Actions {
                 Button(L("Go to Kervan", "Kervan'a geç")) { finish(startSession: false) }
-                    .buttonStyle(QuietStyle())
+                    .buttonStyle(QuietPillStyle())
+                    .keyboardShortcut(agents.isEmpty ? .defaultAction : .cancelAction)
                 Spacer()
                 if !agents.isEmpty {
                     Button(L("Start the first session", "İlk oturumu başlat")) { finish(startSession: true) }
-                        .buttonStyle(PrimaryStyle())
+                        .buttonStyle(PrimaryPillStyle())
                         .keyboardShortcut(.defaultAction)
                 }
             }
@@ -624,7 +711,7 @@ private struct RouteRail: View {
             Capsule().fill(Self.gold).frame(width: 3, height: CGFloat(current) * Self.spacing)
                 .frame(height: length, alignment: .top)
                 .animation(Motion.pick(Motion.gentle, reduce: reduceMotion), value: current)
-            if travelling && current < stops.count - 1 && !reduceMotion {
+            if travelling && current < stops.count - 1 {
                 RailCaravan(top: CGFloat(current) * Self.spacing, leg: Self.spacing)
                     .frame(height: length, alignment: .top)
             }
@@ -663,19 +750,32 @@ private struct RouteRail: View {
 }
 
 /// Three small lights walking down the leg from the current stop to the next, fading in and out at the ends.
+/// When Reduce Motion is enabled, they sit calmly midway along the leg without motion.
 private struct RailCaravan: View {
     let top: CGFloat
     let leg: CGFloat
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        TimelineView(.animation) { context in
+        TimelineView(.animation(paused: reduceMotion)) { context in
             let time = context.date.timeIntervalSinceReferenceDate
             ZStack(alignment: .top) {
                 ForEach(0..<3, id: \.self) { index in
-                    light(phase: CGFloat((time / 2.4 + Double(index) * 0.18).truncatingRemainder(dividingBy: 1)))
+                    if reduceMotion {
+                        let y: CGFloat = top + 12 + (0.32 + CGFloat(index) * 0.18) * (leg - 24) - 3.5
+                        Circle()
+                            .fill(Color(light: 0xF5C76A, dark: 0xF5C76A))
+                            .frame(width: 7, height: 7)
+                            .shadow(color: Color(light: 0xE8B65A, dark: 0xE8B65A).opacity(0.7), radius: 4)
+                            .opacity(0.8)
+                            .offset(y: y)
+                    } else {
+                        light(phase: CGFloat((time / 2.4 + Double(index) * 0.18).truncatingRemainder(dividingBy: 1)))
+                    }
                 }
             }
         }
+        .accessibilityHidden(true)
     }
 
     private func light(phase: CGFloat) -> some View {
@@ -816,7 +916,7 @@ private struct Actions<Content: View>: View {
     }
 }
 
-private struct PrimaryStyle: ButtonStyle {
+struct PrimaryPillStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -834,7 +934,9 @@ private struct PrimaryStyle: ButtonStyle {
     }
 }
 
-private struct QuietStyle: ButtonStyle {
+typealias PrimaryStyle = PrimaryPillStyle
+
+struct QuietPillStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(.body, design: .rounded))
@@ -845,6 +947,8 @@ private struct QuietStyle: ButtonStyle {
             .contentShape(Capsule())
     }
 }
+
+typealias QuietStyle = QuietPillStyle
 
 /// Agent names as small soft chips that wrap.
 private struct AgentChips: View {
