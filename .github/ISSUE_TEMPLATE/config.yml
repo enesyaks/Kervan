@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Güvenlik açığı bildir
+    url: https://github.com/enesyaks/Kervan/security/advisories/new
+    about: Güvenlik açıklarını lütfen herkese açık issue yerine buradan, gizli olarak bildirin.

@@ -1,0 +1,21 @@
+name: Öneri
+description: Kervan'da olmasını istediğiniz bir şey.
+labels: [öneri]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Hangi sorunu çözüyor?
+      description: Şu an neyi yapamıyorsunuz ya da ne zor geliyor?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Nasıl olsun?
+      description: Aklınızdaki çözüm; varsa taslak ya da ekran görüntüsü.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Başka yollar
+      description: Şimdilik nasıl idare ediyorsunuz, başka hangi çözümleri düşündünüz?

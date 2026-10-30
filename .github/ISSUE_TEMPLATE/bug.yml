@@ -1,0 +1,43 @@
+name: Hata bildirimi
+description: Bir şey beklediğiniz gibi çalışmıyor.
+labels: [hata]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: Ne oldu?
+      description: Ne yaptınız, ne bekliyordunuz, ne oldu?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Nasıl tekrarlanır?
+      placeholder: |
+        1. Yeni oturum açın…
+        2. …
+    validations:
+      required: true
+  - type: dropdown
+    id: part
+    attributes:
+      label: Nerede?
+      options:
+        - Mac uygulaması
+        - Sunucu
+        - Kurulum (ilk açılış, hub-setup.sh)
+        - Node (kervan-node)
+        - Bilmiyorum
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Sürümler
+      placeholder: "macOS 15.5, sunucu 0.1.0 (Ubuntu 24.04), ajan: Claude Code"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Loglar
+      description: "Sunucuda `journalctl -u kervan -n 100`. Token ve API anahtarlarını silmeyi unutmayın."
+      render: text

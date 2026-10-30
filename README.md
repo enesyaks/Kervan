@@ -14,7 +14,9 @@ Mac uyusa da kapansa da iş sürer; döndüğünüzde kaldığı yerden görürs
 ![Swift 6](https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white)
 ![Node 24](https://img.shields.io/badge/Node-24-5FA04E?logo=node.js&logoColor=white)
 ![ACP](https://img.shields.io/badge/Agent%20Client%20Protocol-v1-C9953A)
-![Testler](https://img.shields.io/badge/testler-210%20ge%C3%A7iyor-5E9C7E)
+[![CI](https://github.com/enesyaks/Kervan/actions/workflows/ci.yml/badge.svg)](https://github.com/enesyaks/Kervan/actions/workflows/ci.yml)
+[![Lisans: MIT](https://img.shields.io/badge/lisans-MIT-5E9C7E)](LICENSE)
+[![Son sürüm](https://img.shields.io/github/v/release/enesyaks/Kervan?label=s%C3%BCr%C3%BCm&color=4A6FA5)](https://github.com/enesyaks/Kervan/releases/latest)
 
 <img src="docs/media/demo.gif" width="860" alt="Kervan'da bir ajanın projede plan yapıp dosyaları düzenlemesi, farkın Değişiklikler panelinde görünmesi ve commit">
 
@@ -34,6 +36,7 @@ Mac uyusa da kapansa da iş sürer; döndüğünüzde kaldığı yerden görürs
 - [Güvenlik](#güvenlik)
 - [Geliştirme](#geliştirme)
 - [Proje yapısı](#proje-yapısı)
+- [Katkı ve lisans](#katkı-ve-lisans)
 
 ## Neden Kervan
 
@@ -177,6 +180,10 @@ flowchart LR
 
 ### 1. Uygulama
 
+Hazır derlenmiş uygulamayı [son sürümden](https://github.com/enesyaks/Kervan/releases/latest) indirebilirsiniz.
+Uygulama Apple tarafından imzalanmadığı için ilk açılışta macOS uyarır: Finder'da **sağ tık → Aç** deyin.
+Kaynaktan derlemek için:
+
 ```bash
 git clone https://github.com/enesyaks/Kervan.git
 cd Kervan/mac
@@ -292,3 +299,10 @@ docs/       Yol haritası ve görseller
 ```
 
 Yol haritası: [`docs/ROADMAP.md`](docs/ROADMAP.md).
+
+## Katkı ve lisans
+
+Hata bildirimleri, öneriler ve pull request'ler açık; nasıl başlanacağı [CONTRIBUTING.md](CONTRIBUTING.md)'de.
+Güvenlik açıklarını lütfen [SECURITY.md](SECURITY.md)'de anlatıldığı gibi gizli bildirin.
+
+Kervan [MIT lisansı](LICENSE) ile yayımlanır.
