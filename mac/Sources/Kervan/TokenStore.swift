@@ -3,7 +3,8 @@ import Security
 
 /// The server token lives in the login Keychain, never in UserDefaults.
 enum TokenStore {
-    private static let service = "com.enes.kervan"
+    /// Per app identity, so a second copy (e.g. a first-run test build) starts without the first one's token.
+    private static let service = Bundle.main.bundleIdentifier ?? "com.enes.kervan"
     private static let account = "server-token"
 
     private static var baseQuery: [String: Any] {

@@ -44,7 +44,7 @@ final class AppModel {
         let store = SessionStore { try await connection.send($0) }
         self.connection = connection
         self.store = store
-        serverInput = environment["KERVAN_SERVER"] ?? UserDefaults.standard.string(forKey: Self.serverKey) ?? "kervan"
+        serverInput = environment["KERVAN_SERVER"] ?? UserDefaults.standard.string(forKey: Self.serverKey) ?? ""
 
         connection.onMessage = { store.handle($0) }
         connection.onConnected = { [weak self] agents in

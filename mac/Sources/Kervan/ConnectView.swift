@@ -41,7 +41,7 @@ struct ConnectView: View {
                     Form {
                         LabeledContent("Sunucu") {
                             VStack(alignment: .leading, spacing: 4) {
-                                TextField("Sunucu", text: $model.serverInput, prompt: Text("kervan"))
+                                TextField("Sunucu", text: $model.serverInput, prompt: Text("ör. 192.168.1.21 ya da kervan"))
                                     .labelsHidden()
                                     .font(.body.monospaced())
                                     .textContentType(.URL)
