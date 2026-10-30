@@ -30,9 +30,11 @@ struct RootView: View {
                     OverviewView()
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            // A page's content never sets the window's minimum size; long pages scroll instead.
+            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
             .background(Color.kervanCanvas)
         }
+        .frame(minWidth: 820, minHeight: 540)
         // Under the first run the app is not there yet: no clicks, no VoiceOver.
         .allowsHitTesting(!model.showOnboarding)
         .accessibilityHidden(model.showOnboarding)

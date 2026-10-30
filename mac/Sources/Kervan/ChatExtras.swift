@@ -115,7 +115,6 @@ struct PlanCard: View {
                                 .strikethrough(entry.status == "completed", color: .secondary)
                                 .foregroundStyle(entry.status == "completed" ? .secondary : .primary)
                                 .fontWeight(entry.status == "in_progress" ? .medium : .regular)
-                                .fixedSize(horizontal: false, vertical: true)
                         }
                         .accessibilityElement(children: .combine)
                     }

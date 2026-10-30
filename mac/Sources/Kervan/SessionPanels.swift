@@ -63,7 +63,6 @@ private struct PanelMessage: View {
         }
         .font(.callout)
         .foregroundStyle(tint)
-        .fixedSize(horizontal: false, vertical: true)
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -409,7 +408,6 @@ struct PreviewPanel: View {
             Text("Ajanın sunucuda başlattığı geliştirme sunucularını bu Mac'te localhost olarak açar.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
                 .padding(12)
             if let error {
                 PanelMessage(text: error, symbol: "exclamationmark.triangle", tint: .kervanCoral)
@@ -420,7 +418,6 @@ struct PreviewPanel: View {
                         Text("Sunucuda dinleyen port yok. Ajandan geliştirme sunucusunu başlatmasını isteyin.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
                     } else if ports == nil {
                         ProgressView().frame(maxWidth: .infinity)
                     }

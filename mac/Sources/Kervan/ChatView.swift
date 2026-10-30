@@ -58,6 +58,8 @@ struct ChatView: View {
                     .frame(maxWidth: .infinity)
                     .animation(Motion.pick(Motion.smooth, reduce: reduceMotion), value: items.count)
                 }
+                // The transcript scrolls; it never asks the window to be taller.
+                .frame(minHeight: 120, maxHeight: .infinity)
                 .background(Color.kervanCanvas)
                 .onAppear { proxy.scrollTo(Self.bottom, anchor: .bottom) }
                 .task(id: model.focus?.seq) {
