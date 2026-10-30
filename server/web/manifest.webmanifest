@@ -1,0 +1,10 @@
+{
+  "name": "Kervan",
+  "short_name": "Kervan",
+  "description": "Your coding agents, on your own server.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#131B27",
+  "theme_color": "#131B27",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

@@ -133,6 +133,13 @@ açık olmasa da çalışır.
 </tr>
 </table>
 
+### Telefondan, tarayıcıda
+
+Sunucu kendi adresinde Kervan'ın web sürümünü de sunar: `http://<sunucu>:7420`. Sunucuya erişebilen telefonunuzda
+ya da herhangi bir bilgisayarda (aynı ağ ya da Tailscale) açın, erişim anahtarını bir kez girin; oturumları
+izleyebilir, onay verebilir, mesaj gönderebilir, durdurabilir ve yeni oturum başlatabilirsiniz. Telefonda
+**Ana Ekrana Ekle** ile uygulama gibi açılır.
+
 ### Ve dahası
 
 | | |
@@ -144,6 +151,7 @@ açık olmasa da çalışır.
 | **Node'lar** | Ajanları başka makinelerde de çalıştırın (ör. GPU'lu bir kutu); hub hepsini tek uygulamada toplar. |
 | **Model seçici** | Ajanın sunduğu model, düşünme seviyesi ve mod yazma kutusunun altında. |
 | **Arama ve arşiv** | Bütün konuşmalarda tam metin arama; eski oturumları arşivleyin. |
+| **Pull request** | Değişiklikler panelinden oturumun işini kendi branch'inde push edip pull request açın (sunucuda `gh` oturum açmışsa doğrudan; değilse GitHub hazır hâliyle açılır). |
 | **Dayanıklılık** | Her olay önce SQLite'a yazılır. Sunucu yeniden başlarsa oturumlar kurtarılır, ajan konuşmaya kaldığı yerden devam eder. |
 
 ## Nasıl çalışır
@@ -256,6 +264,8 @@ uygulamadan eklenebilir.
 - API anahtarları ve MCP sırları sunucuda `0600` izinli dosyalarda durur; istemciye yalnızca adları gider.
 - İzin isteyen araç çağrıları siz onaylayana kadar bekler.
 - Port önizleme tüneli de aynı token'ı ister ve yalnızca sunucunun kendi `localhost`'una bağlanır.
+- Web sürümü anahtarı o tarayıcının deposunda tutar ve yalnızca bağlanırken gönderir. Sayfanın kendi verisi yoktur,
+  sıkı bir içerik güvenlik politikasıyla sunulur. Ortak bir cihazda menüden çıkış yapın.
 - Node'lar kendi tek kullanımlık davet koduyla katılır; node token'ı uygulamanın API'sini kullanamaz.
 
 ## Geliştirme

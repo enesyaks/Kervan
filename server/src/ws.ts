@@ -23,6 +23,23 @@ export function isAuthorized(header: string | undefined, token: string): boolean
   return timingSafeEqual(sha256(header.slice("Bearer ".length)), sha256(token));
 }
 
+/** Browsers can't set headers on a WebSocket, so the web client offers the key as a subprotocol instead. */
+export const WEB_PROTOCOL = "kervan";
+const KEY_PROTOCOL = "kervan.key.";
+
+/** The key a browser offered in Sec-WebSocket-Protocol, base64url-encoded after `kervan.key.`. */
+export function keyFromProtocols(header: string | undefined): string | undefined {
+  const offered = header?.split(",").map((p) => p.trim()).find((p) => p.startsWith(KEY_PROTOCOL));
+  return offered ? Buffer.from(offered.slice(KEY_PROTOCOL.length), "base64url").toString("utf8") : undefined;
+}
+
+/** The app's Authorization header, or the web client's key subprotocol. */
+function isClientAuthorized(req: IncomingMessage, token: string): boolean {
+  if (isAuthorized(req.headers.authorization, token)) return true;
+  const key = keyFromProtocols(req.headers["sec-websocket-protocol"]);
+  return key !== undefined && timingSafeEqual(sha256(key), sha256(token));
+}
+
 function rejectUpgrade(socket: Duplex, status: number, reason: string): void {
   socket.end(`HTTP/1.1 ${status} ${reason}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
 }
@@ -298,7 +315,12 @@ export function attachWebSocket(
   heartbeatMs = HEARTBEAT_MS,
   nodeToken?: string,
 ): WebSocketServer {
-  const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES });
+  const wss = new WebSocketServer({
+    noServer: true,
+    maxPayload: MAX_FRAME_BYTES,
+    // Answer with the plain protocol name only; the key one is never echoed back.
+    handleProtocols: (protocols) => (protocols.has(WEB_PROTOCOL) ? WEB_PROTOCOL : false),
+  });
   const nodeServer = new WebSocketServer({ noServer: true, maxPayload: MAX_NODE_FRAME_BYTES });
   const tunnels = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 * 1024 });
   const ownPorts = () => {
@@ -351,7 +373,7 @@ export function attachWebSocket(
       rejectUpgrade(socket, 404, "Not Found");
       return;
     }
-    if (!isAuthorized(req.headers.authorization, token)) {
+    if (!isClientAuthorized(req, token)) {
       log("warn", "ws auth rejected", { remote: req.socket.remoteAddress });
       rejectUpgrade(socket, 401, "Unauthorized");
       return;

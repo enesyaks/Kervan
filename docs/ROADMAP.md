@@ -98,6 +98,15 @@ The Mac app checks GitHub releases, verifies the download against its `.sha256` 
 ### Report a problem
 Help › Report a Problem… collects versions, connection state and the server's recent log, with API keys, tokens and secrets removed, and opens a prefilled GitHub issue you can edit before sending.
 
+### Web version
+The server serves a phone-first web client at its own address: sessions, the conversation, approvals, sending,
+stopping and new sessions, in English or Turkish. It signs in with the same access key and can be added to a phone's
+home screen.
+
+### Pull requests from a session
+The Changes panel pushes a session's work on its own branch and opens a pull request with `gh` on the server, or
+opens GitHub's compare page ready to send.
+
 ### First-use tour
 After the onboarding, six short cards walk through sessions, projects, approvals, the side panel, scheduled tasks and usage, and where to get help. Shown once; Help › Welcome Tour plays it again.
 

@@ -134,6 +134,13 @@ the network.
 </tr>
 </table>
 
+### From your phone, in the browser
+
+The server also serves a web version of Kervan at its own address, `http://<server>:7420`. Open it on your phone
+or any computer that reaches the server (the same network or Tailscale), enter the access key once, and you can
+follow sessions, answer approvals, send messages, stop a turn and start new sessions. On a phone, **Add to Home
+Screen** makes it open like an app.
+
 ### And more
 
 | | |
@@ -145,6 +152,7 @@ the network.
 | **Nodes** | Run agents on other machines too (a GPU box, say); the hub brings them all into one app. |
 | **Model picker** | The agent's models, thinking level and modes sit under the composer. |
 | **Search and archive** | Full-text search across every conversation; archive old sessions. |
+| **Pull requests** | From the Changes panel, push a session's work on its own branch and open a pull request (with `gh` signed in on the server; otherwise GitHub opens with it ready). |
 | **Resilience** | Every event is written to SQLite first. If the server restarts, sessions are recovered and the agent continues the conversation where it left off. |
 
 ## How it works
@@ -255,6 +263,8 @@ back to the app. Other ACP agents or command-line tools can be added with an `ag
 - API keys and MCP secrets stay on the server in files with `0600` permissions; clients only see their names.
 - Tool calls that need approval wait until you answer.
 - The port preview tunnel needs the same token and only connects to the server's own `localhost`.
+- The web version keeps the key in that browser's storage and sends it only when it connects. Its page holds no
+  data of its own and is served with a strict content security policy. Sign out from its menu on a shared device.
 - Nodes join with a single-use invite code; a node's token can't use the app's API.
 
 See [SECURITY.md](SECURITY.md) for how to report a vulnerability.

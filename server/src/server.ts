@@ -6,6 +6,7 @@ import { handleFiles } from "./files.ts";
 import { handleSkills, type SkillLibrary } from "./skills.ts";
 import { attachWebSocket, isAuthorized } from "./ws.ts";
 import { handleOnboarding } from "./onboarding.ts";
+import { handleWeb } from "./web.ts";
 
 export { VERSION };
 
@@ -52,6 +53,13 @@ export function createKervanServer({
       return;
     }
 
+    // Lets the web client tell a wrong key from an unreachable server, which a browser WebSocket can't.
+    if (req.method === "GET" && url.pathname === "/v1/check") {
+      const ok = isAuthorized(req.headers.authorization, token);
+      sendJson(res, ok ? 200 : 401, ok ? { status: "ok" } : { error: "unauthorized" });
+      return;
+    }
+
     // Node setup: the invite code in the request is the credential (see onboarding.ts).
     if (url.pathname.startsWith("/v1/node/") && sessions.nodes) {
       void handleOnboarding(req, res, sessions.nodes);
@@ -82,8 +90,11 @@ export function createKervanServer({
       return;
     }
 
-    log("debug", "not found", { method: req.method, path: url.pathname });
-    sendJson(res, 404, { error: "not_found" });
+    void handleWeb(req, res, url.pathname).then((served) => {
+      if (served) return;
+      log("debug", "not found", { method: req.method, path: url.pathname });
+      sendJson(res, 404, { error: "not_found" });
+    });
   });
 
   attachWebSocket(server, token, sessions, heartbeatMs, nodeToken);

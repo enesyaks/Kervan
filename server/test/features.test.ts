@@ -357,3 +357,42 @@ describe("pull requests", () => {
     await assert.rejects(openPullRequest(work, { title: "Nothing", body: "", sessionId: "s1" }), /nothing to propose/);
   });
 });
+
+describe("web client", () => {
+  let port = 0;
+  let stop: () => Promise<void>;
+  before(async () => ({ port, stop } = await startServer()));
+  after(async () => await stop());
+
+  const key = (token: string) => `kervan.key.${Buffer.from(token).toString("base64url")}`;
+
+  it("serves its page with a strict content policy, and nothing beside its own files", async () => {
+    const page = await fetch(`http://127.0.0.1:${port}/`);
+    assert.equal(page.status, 200);
+    assert.match(page.headers.get("content-type") ?? "", /text\/html/);
+    assert.match(page.headers.get("content-security-policy") ?? "", /script-src 'self'/);
+    assert.match(await page.text(), /app\.js/);
+    assert.equal((await fetch(`http://127.0.0.1:${port}/app.js`)).status, 200);
+    assert.equal((await fetch(`http://127.0.0.1:${port}/../src/main.ts`)).status, 404);
+    assert.equal((await fetch(`http://127.0.0.1:${port}/index.html`)).status, 404);
+  });
+
+  it("tells a wrong key apart from a right one", async () => {
+    const check = (token: string) => fetch(`http://127.0.0.1:${port}/v1/check`, { headers: { authorization: `Bearer ${token}` } });
+    assert.equal((await check(TEST_TOKEN)).status, 200);
+    assert.equal((await check("wrong")).status, 401);
+  });
+
+  it("lets a browser sign in with the key as a subprotocol, which is never echoed back", async () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/v1/ws`, ["kervan", key(TEST_TOKEN)]);
+    await opened(ws);
+    assert.equal(ws.protocol, "kervan");
+    const inbox = new Inbox(ws);
+    send(ws, HELLO);
+    assert.equal((await inbox.waitFor((m) => m.type === "welcome")).type, "welcome");
+    ws.close();
+
+    const refused = new WebSocket(`ws://127.0.0.1:${port}/v1/ws`, ["kervan", key("wrong")]);
+    await assert.rejects(opened(refused), /401/);
+  });
+});
