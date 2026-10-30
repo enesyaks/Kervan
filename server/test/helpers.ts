@@ -61,6 +61,7 @@ export async function startServer(
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const port = (server.address() as AddressInfo).port;
+  nodes.port = port;
   const stop = () =>
     new Promise<void>((resolve) => {
       sessions!.closeAll();

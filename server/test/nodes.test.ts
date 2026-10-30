@@ -23,7 +23,7 @@ describe("agents on another node", () => {
   let sessionId = "";
 
   const startNode = () => {
-    node = new NodeAgent({ hubUrl: `ws://127.0.0.1:${port}`, token: NODE_TOKEN, name: "kutu", workspacesDir: nodeDir, runner: new LocalAcpRunner() });
+    node = new NodeAgent({ hubUrls: [`ws://127.0.0.1:${port}`], token: NODE_TOKEN, name: "kutu", workspacesDir: nodeDir, runner: new LocalAcpRunner() });
     node.start();
   };
   const connected = (value: boolean) =>
@@ -156,5 +156,48 @@ describe("hub addresses offered to new nodes", () => {
       { address: "100.66.121.56:7420", kind: "tailscale" },
       { address: "192.168.1.21:7420", kind: "lan", network: "192.168.1.0/24" },
     ]);
+  });
+});
+
+describe("finding a hub whose address changed", () => {
+  it("tries the next address, then remembers every address the hub gave it", async () => {
+    const { mkdtempSync, readFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { NodeAgent } = await import("../src/node-agent.ts");
+    const { LocalAcpRunner } = await import("../src/runner.ts");
+    const { startServer } = await import("./helpers.ts");
+
+    const { port, sessions, stop } = await startServer({ nodeToken: "node-token-0123456789" });
+    const dir = mkdtempSync(join(tmpdir(), "kervan-hubs-"));
+    const stateFile = join(dir, "hub.json");
+    const good = `ws://127.0.0.1:${port}`;
+    const make = (hubUrls: string[]) =>
+      new NodeAgent({ hubUrls, stateFile, token: "node-token-0123456789", name: "gezgin", workspacesDir: join(dir, "ws"), runner: new LocalAcpRunner() });
+    const until = async (check: () => boolean) => {
+      for (let i = 0; i < 200 && !check(); i++) await new Promise((resolve) => setTimeout(resolve, 25));
+      assert.ok(check(), "timed out");
+    };
+    try {
+      // The first address answers nothing (the hub moved); the second works.
+      const first = make(["ws://127.0.0.1:1", good]);
+      first.start();
+      await until(() => sessions.nodes!.isConnected("gezgin"));
+      await until(() => first.knownHubs[0] === good);
+      const saved = JSON.parse(readFileSync(stateFile, "utf8")).hubs as string[];
+      assert.equal(saved[0], good, "the address that worked comes first");
+      assert.ok(saved.some((url) => url.endsWith(".local:" + port)), "the hub's mDNS name is learned too");
+      assert.equal(sessions.nodes!.list().find((n) => n.name === "gezgin")?.via, `127.0.0.1:${port}`);
+      first.stop();
+      await until(() => !sessions.nodes!.isConnected("gezgin"));
+
+      // Restarted with only a dead address configured, it still finds the hub from what it learned.
+      const second = make(["ws://127.0.0.1:1"]);
+      second.start();
+      await until(() => sessions.nodes!.isConnected("gezgin"));
+      second.stop();
+    } finally {
+      await stop();
+    }
   });
 });

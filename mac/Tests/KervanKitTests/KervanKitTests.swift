@@ -717,3 +717,25 @@ import Testing
         #expect(InstallStep.reached(in: "npm warn: packages\n") == .connecting, "only ==> lines count")
     }
 }
+
+@Suite struct NodeHubChoiceTests {
+    let addresses = [
+        HubAddress(address: "100.66.121.56:7420", kind: .tailscale),
+        HubAddress(address: "192.168.1.40:7420", kind: .lan, network: "192.168.1.0/24"),
+    ]
+
+    @Test func followsTheHubWhenItsAddressChanges() {
+        #expect(NodeHubChoice.resolve("", appHub: "kervan:7420", addresses: addresses) == "kervan:7420")
+        #expect(NodeHubChoice.resolve("lan", appHub: "kervan:7420", addresses: addresses) == "192.168.1.40:7420", "today's LAN IP, not a saved one")
+        #expect(NodeHubChoice.resolve("tailscale", appHub: "kervan:7420", addresses: addresses) == "100.66.121.56:7420")
+        #expect(NodeHubChoice.resolve("lan", appHub: "kervan:7420", addresses: []) == "kervan:7420", "no LAN address: fall back to the app's")
+        #expect(NodeHubChoice.resolve("10.0.0.9:7420", appHub: "kervan:7420", addresses: addresses) == "10.0.0.9:7420")
+    }
+
+    @Test func turnsASavedIpIntoItsKind() {
+        #expect(NodeHubChoice.migrate("192.168.1.40:7420", addresses: addresses) == "lan")
+        #expect(NodeHubChoice.migrate("100.66.121.56:7420", addresses: addresses) == "tailscale")
+        #expect(NodeHubChoice.migrate("10.0.0.9:7420", addresses: addresses) == "10.0.0.9:7420")
+        #expect(NodeHubChoice.repairCommand(hub: "192.168.1.40:7420").contains("KERVAN_HUB_URL=ws://192.168.1.40:7420"))
+    }
+}

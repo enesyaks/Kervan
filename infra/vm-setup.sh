@@ -14,7 +14,8 @@ fi
 
 echo "==> packages"
 apt-get update
-apt-get install -y ca-certificates curl gnupg git build-essential sqlite3 ufw rsync
+# avahi: nodes on the LAN find the hub as <hostname>.local, whatever IP it gets.
+apt-get install -y ca-certificates curl gnupg git build-essential sqlite3 ufw rsync avahi-daemon
 
 echo "==> node ${NODE_MAJOR}"
 if ! command -v node >/dev/null || [[ "$(node -v)" != v${NODE_MAJOR}.* ]]; then

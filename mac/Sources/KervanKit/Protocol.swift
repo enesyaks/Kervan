@@ -65,13 +65,16 @@ public struct NodeInfo: Codable, Equatable, Sendable, Identifiable {
     public let connected: Bool
     public let version: String?
     public let lastSeen: String?
+    /// host:port the node last reached the hub at.
+    public let via: String?
     public var id: String { name }
 
-    public init(name: String, connected: Bool, version: String? = nil, lastSeen: String? = nil) {
+    public init(name: String, connected: Bool, version: String? = nil, lastSeen: String? = nil, via: String? = nil) {
         self.name = name
         self.connected = connected
         self.version = version
         self.lastSeen = lastSeen
+        self.via = via
     }
 }
 

@@ -1,3 +1,4 @@
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
@@ -16,8 +17,10 @@ export const MAX_NODE_FILE_BYTES = 50 * 1024 * 1024;
 export const MAX_NODE_FRAME_BYTES = Math.ceil((MAX_NODE_FILE_BYTES * 4) / 3) + 64 * 1024;
 
 export interface NodeAgentOptions {
-  /** ws(s)://hub:7420 — the hub's address; the path is added. */
-  hubUrl: string;
+  /** ws(s)://hub:7420 — the hub's addresses, tried in turn; the path is added. */
+  hubUrls: string[];
+  /** Where addresses the hub tells us about are kept, so a hub whose IP changed is still found. */
+  stateFile?: string;
   token: string;
   name: string;
   workspacesDir: string;
@@ -37,9 +40,21 @@ export class NodeAgent {
   private ws?: WebSocket;
   private stopped = false;
   private retryMs = 1000;
+  /** Every address we know for the hub, the one that last worked first. */
+  private hubs: string[];
+  private next = 0;
 
   constructor(options: NodeAgentOptions) {
     this.options = options;
+    const remembered = options.stateFile && existsSync(options.stateFile)
+      ? ((JSON.parse(readFileSync(options.stateFile, "utf8")) as { hubs?: string[] }).hubs ?? [])
+      : [];
+    this.hubs = unique([...remembered, ...options.hubUrls]);
+  }
+
+  /** The addresses this node will try, in order (for logs and tests). */
+  get knownHubs(): string[] {
+    return [...this.hubs];
   }
 
   start(): void {
@@ -54,7 +69,9 @@ export class NodeAgent {
   }
 
   private connect(): void {
-    const { hubUrl, token, name } = this.options;
+    const { token, name } = this.options;
+    const hubUrl = this.hubs[this.next % this.hubs.length];
+    let opened = false;
     const ws = new WebSocket(new URL(NODE_PATH, hubUrl), {
       headers: { authorization: `Bearer ${token}`, "x-kervan-node": name },
       maxPayload: MAX_NODE_FRAME_BYTES,
@@ -64,19 +81,42 @@ export class NodeAgent {
     this.serve(rpc);
 
     ws.on("open", () => {
+      opened = true;
       this.retryMs = 1000;
       log("info", "connected to hub", { hub: hubUrl, node: name });
-      void rpc.call("hello", { version: VERSION }).catch(() => {});
+      void rpc
+        .call<{ hubs?: string[] } | null>("hello", { version: VERSION })
+        .then((answer) => this.learn(hubUrl, answer?.hubs ?? []))
+        .catch(() => {});
     });
     ws.on("unexpected-response", (_req, res) => log("error", "hub refused the node", { status: res.statusCode }));
     ws.on("error", (error) => log("warn", "hub connection error", { error: error.message }));
     ws.on("close", () => {
       this.closeAll();
       if (this.stopped) return;
-      log("info", "hub connection closed; retrying", { inMs: this.retryMs });
-      setTimeout(() => this.connect(), this.retryMs).unref();
-      this.retryMs = Math.min(this.retryMs * 2, 30_000);
+      // A connection that worked is tried again first; an address that never answered gives way to the next.
+      // The pause grows only once every address has been tried.
+      if (!opened) this.next += 1;
+      const wrapped = !opened && this.next % this.hubs.length === 0;
+      const delay = opened || wrapped ? this.retryMs : 500;
+      log("info", "hub connection closed; retrying", { inMs: delay, next: this.hubs[this.next % this.hubs.length] });
+      setTimeout(() => this.connect(), delay).unref();
+      if (opened || wrapped) this.retryMs = Math.min(this.retryMs * 2, 30_000);
     });
+  }
+
+  /** Keeps the address that worked first, then everything the hub says it can be reached at, on disk. */
+  private learn(worked: string, fromHub: string[]): void {
+    this.hubs = unique([worked, ...fromHub, ...this.hubs]);
+    this.next = 0;
+    const file = this.options.stateFile;
+    if (!file) return;
+    try {
+      writeFileSync(`${file}.tmp`, JSON.stringify({ hubs: this.hubs }, null, 2), { mode: 0o600 });
+      renameSync(`${file}.tmp`, file);
+    } catch (error) {
+      log("warn", "couldn't save the hub's addresses", { error: String(error) });
+    }
   }
 
   private closeAll(): void {
@@ -167,3 +207,5 @@ export class NodeAgent {
       });
   }
 }
+
+const unique = (urls: string[]) => [...new Set(urls.map((url) => url.trim()).filter((url) => /^wss?:\/\//.test(url)))];

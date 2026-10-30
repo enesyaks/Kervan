@@ -50,7 +50,7 @@ describe("adding a node from the app", () => {
     assert.ok(Date.parse(expiresAt) > Date.now());
 
     const script = await (await fetch(url(`/v1/node/install?code=${code}`))).text();
-    assert.match(script, new RegExp(`HUB_WS='ws://127.0.0.1:${port}'`));
+    assert.match(script, new RegExp(`HUB_WS='ws://127.0.0.1:${port},.*\\.local:${port}'`), "every hub address, the one used first");
     assert.match(script, /NAME='gpu'/);
     assert.equal((await fetch(url("/v1/node/install?code=nope"))).status, 403);
 
@@ -80,7 +80,7 @@ describe("adding a node from the app", () => {
     assert.equal(await rejectedStatus(openSocket(port, joined.token, "/v1/node")), 401, "without the node's name the token is useless");
 
     const nodeDir = mkdtempSync(join(tmpdir(), "kervan-joined-"));
-    node = new NodeAgent({ hubUrl: `ws://127.0.0.1:${port}`, token: joined.token, name: "gpu", workspacesDir: nodeDir, runner: new LocalAcpRunner() });
+    node = new NodeAgent({ hubUrls: [`ws://127.0.0.1:${port}`], token: joined.token, name: "gpu", workspacesDir: nodeDir, runner: new LocalAcpRunner() });
     node.start();
     await inbox.waitFor((m) => m.type === "nodes.updated" && m.nodes.some((x: any) => x.name === "gpu" && x.connected));
     assert.ok(sessions.nodes?.isConnected("gpu"));

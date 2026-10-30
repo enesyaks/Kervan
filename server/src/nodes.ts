@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { networkInterfaces } from "node:os";
+import { hostname, networkInterfaces } from "node:os";
 import { isAbsolute } from "node:path";
 import type * as acp from "@agentclientprotocol/sdk";
 import type { WebSocket } from "ws";
@@ -62,6 +62,8 @@ export interface NodeInfo {
   version?: string;
   /** ISO time the node last connected or disconnected. */
   lastSeen?: string;
+  /** host:port the node last reached this hub at; if the hub no longer has it, the node may be lost. */
+  via?: string;
 }
 
 interface RemoteProcess {
@@ -105,6 +107,20 @@ export class NodeHub {
   /** Where a new node could reach this hub. */
   addresses(): HubAddress[] {
     return hubAddresses(this.port);
+  }
+
+  /**
+   * Every ws:// address a node could use for this hub, `first` (what it used just now) first, then the
+   * Tailscale and LAN IPs and the mDNS name (<host>.local, answered when avahi runs here). Nodes keep this
+   * list, so when the hub's IP changes they still find it by one of the others.
+   */
+  hubUrls(first?: string): string[] {
+    const hosts = [
+      ...(first ? [first] : []),
+      ...this.addresses().map((a) => a.address),
+      `${hostname().split(".")[0].toLowerCase()}.local:${this.port}`,
+    ];
+    return [...new Set(hosts.map((host) => `ws://${host}`))];
   }
 
   isConnected(name: string): boolean {
@@ -166,7 +182,7 @@ export class NodeHub {
   }
 
   /** A node connected (its token already checked by the upgrade handler). A second connection replaces the first. */
-  accept(name: string, ws: WebSocket): void {
+  accept(name: string, ws: WebSocket, via?: string): void {
     this.connections.get(name)?.ws.terminate();
     const rpc = new Rpc(ws);
     const connection: Connection = { rpc, ws, processes: new Map() };
@@ -180,9 +196,11 @@ export class NodeHub {
           name,
           connected: true,
           ...(params.version ? { version: params.version } : {}),
+          ...(via ? { via } : {}),
           lastSeen: new Date().toISOString(),
         });
-        log("info", "node connected", { node: name, version: params.version });
+        log("info", "node connected", { node: name, version: params.version, via });
+        return { hubs: this.hubUrls(via) };
       })
       .on("event", (params: { processId: string; event: SessionEventBody }) => find(params.processId)?.options.onEvent(params.event))
       .on("usage", (params: { processId: string; usage: { used: number; size: number; costUsd?: number } }) =>

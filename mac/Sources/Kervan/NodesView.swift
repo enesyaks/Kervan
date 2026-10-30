@@ -5,6 +5,7 @@ import SwiftUI
 /// Settings › Ajanlar: the machines running kervan-node for this server, adding and removing them.
 struct NodesSection: View {
     @Environment(AppModel.self) private var model
+    @AppStorage(NodeHubChoice.key) private var storedHub = ""
     @State private var adding = false
     @State private var removing: NodeInfo?
 
@@ -41,6 +42,11 @@ struct NodesSection: View {
                 }
                 .padding(12)
                 .softSurface(radius: Radius.chip)
+                if let via = node.via, !node.connected, let address = model.activeAddress,
+                   !Self.stillServes(via, appHub: NodeSetup.hub(of: address), addresses: model.store.hubAddresses) {
+                    let hub = NodeHubChoice.resolve(storedHub, appHub: NodeSetup.hub(of: address), addresses: model.store.hubAddresses)
+                    LostNodeHint(via: via, hub: hub)
+                }
             }
             if !model.store.nodeInfos.isEmpty {
                 Text("Bir ajanı node'da çalıştırmak için düzenleyip Node alanından seçin.")
@@ -72,6 +78,11 @@ struct NodesSection: View {
         return parts.joined(separator: ", ")
     }
 
+    /// Whether the hub still answers at the address a node last used (its name, or one of its current IPs).
+    private static func stillServes(_ via: String, appHub: String, addresses: [HubAddress]) -> Bool {
+        via == appHub || addresses.contains { $0.address == via } || via.contains(".local:")
+    }
+
     private static func parse(_ text: String) -> Date? {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -98,7 +109,9 @@ private struct AddNodeSheet: View {
     var body: some View {
         let invite = model.store.nodeInvite.flatMap { $0.name == name ? $0 : nil }
         let connected = model.store.nodeInfos.contains { $0.name == name && $0.connected }
-        let hub = model.activeAddress.map { NodeHubChoice.resolve(storedHub, appHub: NodeSetup.hub(of: $0)) } ?? ""
+        let hub = model.activeAddress.map {
+            NodeHubChoice.resolve(storedHub, appHub: NodeSetup.hub(of: $0), addresses: model.store.hubAddresses)
+        } ?? ""
 
         VStack(alignment: .leading, spacing: 0) {
             Form {
@@ -171,7 +184,7 @@ private struct AddNodeSheet: View {
                                         .font(.callout)
                                         .foregroundStyle(Color.kervanSaffron)
                                         .fixedSize(horizontal: false, vertical: true)
-                                    Button("Yerel ağ adresini kullan") { storedHub = suggestion.address }
+                                    Button("Yerel ağ adresini kullan") { storedHub = suggestion.kind == .lan ? NodeHubChoice.lan : NodeHubChoice.tailscale }
                                 }
                             }
                             if let lan = model.store.hubAddresses.first(where: { $0.address == hub && $0.kind == .lan }) {
@@ -403,16 +416,6 @@ final class SSHInstaller {
     }
 }
 
-/// Which hub address new nodes are given: the app's own (usually the Tailscale name) unless the user picks another.
-enum NodeHubChoice {
-    static let key = "nodeHub"
-
-    static func resolve(_ stored: String, appHub: String) -> String {
-        let trimmed = stored.trimmingCharacters(in: .whitespaces)
-        return trimmed.isEmpty ? appHub : trimmed
-    }
-}
-
 /// Settings › Ajanlar: how new nodes reach the hub, with what each way needs done once.
 private struct HubConnectionCard: View {
     let appHub: String
@@ -422,11 +425,16 @@ private struct HubConnectionCard: View {
 
     var body: some View {
         let addresses = model.store.hubAddresses
-        let hub = NodeHubChoice.resolve(stored, appHub: appHub)
+        let hub = NodeHubChoice.resolve(stored, appHub: appHub, addresses: addresses)
         let lan = addresses.first { $0.address == hub && $0.kind == .lan }
-        let known = stored.isEmpty || addresses.contains { $0.address == stored }
+        let lanNow = addresses.first { $0.kind == .lan }
+        let tailscaleNow = addresses.first { $0.kind == .tailscale }
+        let known = [NodeHubChoice.lan, NodeHubChoice.tailscale, ""].contains(stored)
 
-        SettingsCard(title: "Node'lar hub'a nasıl bağlansın?") {
+        SettingsCard(
+            title: "Node'lar hub'a nasıl bağlansın?",
+            footer: "Seçim adres türü olarak saklanır; hub'ın IP'si değişirse yeni adresi kullanılır. Kurulan node'lar hub'ın bütün adreslerini bilir ve biri değişirse diğerlerini dener."
+        ) {
             Picker("Adres", selection: Binding(
                 get: { custom || !known ? "custom" : stored },
                 set: { value in
@@ -435,13 +443,18 @@ private struct HubConnectionCard: View {
                 }
             )) {
                 Text("Tailscale adıyla: \(appHub) (önerilen)").tag("")
-                ForEach(addresses) { address in
-                    Text(address.kind == .lan ? "Yerel ağdan: \(address.address)" : "Tailscale IP'siyle: \(address.address)").tag(address.address)
+                if let tailscaleNow {
+                    Text("Tailscale IP'siyle (şu an \(tailscaleNow.address))").tag(NodeHubChoice.tailscale)
+                }
+                if let lanNow {
+                    Text("Yerel ağdan (şu an \(lanNow.address))").tag(NodeHubChoice.lan)
                 }
                 Text("Başka bir adres").tag("custom")
             }
             .pickerStyle(.radioGroup)
             .labelsHidden()
+            .onAppear { stored = NodeHubChoice.migrate(stored, addresses: addresses) }
+            .onChange(of: addresses) { stored = NodeHubChoice.migrate(stored, addresses: addresses) }
 
             if custom || !known {
                 TextField("host:port", text: $stored, prompt: Text("ör. 192.168.1.21:7420"))
@@ -452,7 +465,7 @@ private struct HubConnectionCard: View {
 
             if let lan {
                 LanCheck(hub: lan)
-            } else if stored.isEmpty || addresses.contains(where: { $0.address == hub && $0.kind == .tailscale }) {
+            } else if stored.isEmpty || stored == NodeHubChoice.tailscale {
                 Guidance(
                     text: "Yeni makinenin de aynı Tailscale ağında olması gerekir. Değilse o makinede bir kez şunu çalıştırın ve açılan bağlantıdan giriş yapın:",
                     command: NodeSetup.tailscaleCommand
@@ -529,5 +542,26 @@ private struct LanCheck: View {
             reachable = nil
             reachable = await NodeSetup.isReachable(hub.address)
         }
+    }
+}
+
+/// Shown under an offline node whose last route to the hub is gone, e.g. after the hub got a new IP.
+private struct LostNodeHint: View {
+    let via: String
+    let hub: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Bu node hub'a \(via) adresinden bağlanıyordu; hub artık o adreste değil.", systemImage: "arrow.triangle.branch")
+                .font(.callout.weight(.medium))
+                .foregroundStyle(Color.kervanSaffron)
+                .fixedSize(horizontal: false, vertical: true)
+            Guidance(
+                text: "Node, hub'ın bildiği diğer adreslerini kendisi dener. Birkaç dakika içinde bağlanmazsa node'da şunu çalıştırın:",
+                command: NodeHubChoice.repairCommand(hub: hub)
+            )
+        }
+        .padding(12)
+        .background(Color.kervanSaffron.opacity(0.08), in: RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
     }
 }

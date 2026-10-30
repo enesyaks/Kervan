@@ -242,7 +242,7 @@ export function attachWebSocket(
       nodeServer.handleUpgrade(req, socket, head, (ws) => {
         alive.add(ws);
         ws.on("pong", () => alive.add(ws));
-        sessions.nodes!.accept(name, ws);
+        sessions.nodes!.accept(name, ws, req.headers.host);
       });
       return;
     }

@@ -138,3 +138,33 @@ public enum Backoff {
         min(30, pow(2, Double(max(attempt, 1) - 1)))
     }
 }
+
+/// Which way new nodes reach the hub, stored as a kind so it follows the hub when its IP changes:
+/// "" the name the app uses (Tailscale), "lan" / "tailscale" the hub's current address of that kind,
+/// anything else an address the user typed.
+public enum NodeHubChoice {
+    public static let key = "nodeHub"
+    public static let lan = "lan"
+    public static let tailscale = "tailscale"
+
+    public static func resolve(_ stored: String, appHub: String, addresses: [HubAddress]) -> String {
+        let trimmed = stored.trimmingCharacters(in: .whitespaces)
+        switch trimmed {
+        case "": return appHub
+        case lan: return addresses.first { $0.kind == .lan }?.address ?? appHub
+        case tailscale: return addresses.first { $0.kind == .tailscale }?.address ?? appHub
+        default: return trimmed
+        }
+    }
+
+    /// An address saved by an earlier version becomes its kind, so it no longer pins an old IP.
+    public static func migrate(_ stored: String, addresses: [HubAddress]) -> String {
+        guard let match = addresses.first(where: { $0.address == stored }) else { return stored }
+        return match.kind == .lan ? lan : tailscale
+    }
+
+    /// The fix to run on a node that can't find the hub: point it at `hub` and restart it.
+    public static func repairCommand(hub: String) -> String {
+        "sudo sed -i 's#^KERVAN_HUB_URL=.*#KERVAN_HUB_URL=ws://\(hub)#' /etc/kervan/node.env && sudo systemctl restart kervan-node"
+    }
+}

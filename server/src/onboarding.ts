@@ -27,7 +27,7 @@ export async function handleOnboarding(req: IncomingMessage, res: ServerResponse
       // The address the node used to reach us is the one it should keep using.
       const host = req.headers.host ?? "kervan:7420";
       res.writeHead(200, { "content-type": "text/x-shellscript; charset=utf-8" });
-      res.end(installScript({ hubHttp: `http://${host}`, hubWs: `ws://${host}`, code, name }));
+      res.end(installScript({ hubHttp: `http://${host}`, hubWs: nodes.hubUrls(host).join(","), code, name }));
     } else if (req.method === "GET" && url.pathname === "/v1/node/bundle.tar.gz") {
       nodes.invited(url.searchParams.get("code") ?? "");
       res.writeHead(200, { "content-type": "application/gzip" });
@@ -98,6 +98,7 @@ WantedBy=multi-user.target
 `;
 
 /** The node's setup, for Debian/Ubuntu. Safe to run again: it updates the code and keeps going. */
+/** `hubWs`: the hub's ws:// addresses, comma separated, the one the script came from first. */
 export function installScript({ hubHttp, hubWs, code, name }: { hubHttp: string; hubWs: string; code: string; name: string }): string {
   return `#!/usr/bin/env bash
 # Kervan node setup, served by the hub at ${hubHttp}.
@@ -121,7 +122,8 @@ fi
 echo "==> paketler"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq ca-certificates curl gnupg python3 tar >/dev/null
+# libnss-mdns + avahi: lets the node find the hub as <host>.local even after the hub's IP changes.
+apt-get install -y -qq ca-certificates curl gnupg python3 tar avahi-daemon libnss-mdns >/dev/null
 
 echo "==> Node.js $NODE_MAJOR"
 if ! command -v node >/dev/null || [[ "$(node -v)" != v$NODE_MAJOR.* ]]; then
