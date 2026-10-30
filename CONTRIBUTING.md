@@ -43,4 +43,16 @@ To work on the UI without spending a real agent's quota: `node server/scripts/de
 2. Make sure `npm test` and `swift test` pass locally; CI runs the same.
 3. In the PR, say what changed, why, and how you tried it; add a screenshot if the UI changed.
 
+## Releases
+
+The app, its `Info.plist` and the server (`server/src/version.ts`) share one version number; a test keeps them in
+step. To release, bump all three, then:
+
+```bash
+mac/scripts/release.sh     # mac/build/Kervan-<version>-macOS.zip and .sha256
+gh release create v<version> mac/build/Kervan-<version>-macOS.zip mac/build/Kervan-<version>-macOS.zip.sha256
+```
+
+The app's updater installs a release only when its `.sha256` file is attached and matches.
+
 Contributions are released under the [MIT license](LICENSE).

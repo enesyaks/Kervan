@@ -20,6 +20,10 @@ struct KervanApp: App {
             CommandGroup(replacing: .newItem) {
                 NewSessionCommands(model: model)
             }
+            CommandGroup(replacing: .help) {
+                Button(L("Report a Problem…", "Sorun Bildir…")) { model.showReportProblem = true }
+                Link(L("Kervan on GitHub", "GitHub'da Kervan"), destination: URL(string: "https://github.com/enesyaks/Kervan")!)
+            }
         }
 
         Settings {

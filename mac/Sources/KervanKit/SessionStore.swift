@@ -38,6 +38,7 @@ public final class SessionStore {
     public private(set) var usage: UsageReport?
     /// Ports something listens on, on the server.
     public private(set) var ports: [ListeningPort]?
+    private var diagnosticsReport: Diagnostics?
     /// The shell open in each session's folder, by session id.
     public private(set) var terminals: [String: TerminalState] = [:]
 
@@ -197,6 +198,13 @@ public final class SessionStore {
 
     public func loadUsage(days: Int, timeZone: TimeZone = .current) async {
         await request(.usageReport(id: Self.newID(), days: days, timeZone: timeZone.identifier))
+    }
+
+    /// The server's part of a bug report; nil when it couldn't be fetched (older server, no connection).
+    public func diagnostics() async -> Diagnostics? {
+        diagnosticsReport = nil
+        guard await call(.diagnostics(id: Self.newID())) == nil else { return nil }
+        return diagnosticsReport
     }
 
     public func loadPorts() async {
@@ -366,6 +374,8 @@ public final class SessionStore {
             self.schedules = schedules
         case .usageReportResult(_, let report):
             usage = report
+        case .diagnosticsResult(_, let report):
+            diagnosticsReport = report
         case .portListResult(_, let ports):
             self.ports = ports
         case .terminalOpened(_, let terminalID, let sessionID, let backlog):

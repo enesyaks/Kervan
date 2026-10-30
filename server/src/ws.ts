@@ -8,6 +8,7 @@ import { MAX_NODE_FRAME_BYTES, NODE_PATH } from "./node-agent.ts";
 import { NODE_NAME, LOCAL_NODE } from "./nodes.ts";
 import type { SessionManager } from "./sessions.ts";
 import { listeningPorts, pipeTunnel, TUNNEL_PATH } from "./tunnel.ts";
+import { diagnostics } from "./diagnostics.ts";
 import { VERSION } from "./version.ts";
 
 export const WS_PATH = "/v1/ws";
@@ -137,6 +138,8 @@ async function handleRequest(
     case "terminal.close":
       sessions.terminals.close(message.terminalId);
       return send(ws, { type: "ok", id: message.id });
+    case "diagnostics":
+      return send(ws, { type: "diagnostics.result", id: message.id, report: diagnostics(sessions) });
     case "port.list":
       return send(ws, { type: "port.list.result", id: message.id, ports: await listeningPorts(ownPorts()) });
     case "session.config":

@@ -623,6 +623,7 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
     case terminalInput(id: String, terminalId: String, data: String)
     case terminalClose(id: String, terminalId: String)
     case portList(id: String)
+    case diagnostics(id: String)
     case sessionList(id: String)
     case nodeList(id: String)
     case nodeInvite(id: String, name: String)
@@ -718,6 +719,9 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
             try c.encode(terminalId, forKey: .terminalId)
         case .portList(let id):
             try c.encode("port.list", forKey: .type)
+            try c.encode(id, forKey: .id)
+        case .diagnostics(let id):
+            try c.encode("diagnostics", forKey: .type)
             try c.encode(id, forKey: .id)
         case .hello(let client):
             try c.encode("hello", forKey: .type)
@@ -875,6 +879,7 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
     case terminalOutput(terminalId: String, data: String)
     case terminalExited(terminalId: String)
     case portListResult(id: String, ports: [ListeningPort])
+    case diagnosticsResult(id: String, report: Diagnostics)
     /// A type this client doesn't know yet. Ignored, so the server can add types without a version bump.
     case unknown(type: String)
 
@@ -983,6 +988,8 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
             self = .terminalOutput(terminalId: try c.decode(String.self, forKey: .terminalId), data: try c.decode(String.self, forKey: .data))
         case "terminal.exited":
             self = .terminalExited(terminalId: try c.decode(String.self, forKey: .terminalId))
+        case "diagnostics.result":
+            self = .diagnosticsResult(id: try c.decode(String.self, forKey: .id), report: try c.decode(Diagnostics.self, forKey: .report))
         case "port.list.result":
             self = .portListResult(id: try c.decode(String.self, forKey: .id), ports: try c.decode([ListeningPort].self, forKey: .ports))
         default:

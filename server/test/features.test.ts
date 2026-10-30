@@ -8,8 +8,11 @@ import { after, before, describe, it } from "node:test";
 import WebSocket from "ws";
 import { isDue, localParts } from "../src/schedules.ts";
 import { parseLsof, parseSs } from "../src/tunnel.ts";
+import { redact } from "../src/diagnostics.ts";
+import { log } from "../src/log.ts";
 import type { ScheduleInfo } from "../src/protocol.ts";
 import type { SessionManager } from "../src/sessions.ts";
+import { VERSION } from "../src/version.ts";
 import { HELLO, Inbox, openSocket, opened, send, startServer, TEST_TOKEN } from "./helpers.ts";
 
 describe("changes, projects, schedules, terminals, ports, usage", () => {
@@ -286,5 +289,24 @@ describe("changes, projects, schedules, terminals, ports, usage", () => {
       parseLsof("COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME\nnode 123 me 20u IPv4 0x1 0t0 TCP *:8080 (LISTEN)\n"),
       [{ port: 8080, process: "node" }],
     );
+  });
+
+  it("gives a redacted report for Report a problem", async () => {
+    const { ws, inbox } = await client();
+    log("warn", "test line", { key: "ANTHROPIC_API_KEY=sk-ant-abcdefghijklmnop", token: "0123456789abcdef0123456789abcdef" });
+    const { report } = await ask(ws, inbox, { type: "diagnostics" });
+    assert.equal(report.version, VERSION);
+    assert.ok(report.agents.some((a: any) => a.id === "fake" && a.available));
+    const line = report.logs.find((l: string) => l.includes("test line"));
+    assert.ok(line, "recent warnings are included");
+    assert.doesNotMatch(line, /sk-ant-abc|0123456789abcdef0123/);
+  });
+
+  it("redacts keys, tokens and bearer headers", () => {
+    assert.equal(redact("OPENAI_API_KEY=sk-proj-abcdefghijklmnopqrstu"), "OPENAI_API_KEY=…");
+    assert.equal(redact("Authorization: Bearer abc.def"), "Authorization: Bearer …");
+    assert.equal(redact("gemini AIzaSyA1234567890abcdefghijklmno ok"), "gemini AIza… ok");
+    assert.equal(redact("token 25d3e6141117cbb29e47c47fc151382a9376c63f74422893 end"), "token … end");
+    assert.equal(redact("nothing secret here"), "nothing secret here");
   });
 });

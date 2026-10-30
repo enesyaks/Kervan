@@ -5,7 +5,7 @@ import Observation
 @MainActor
 @Observable
 final class AppModel {
-    static let appVersion = "0.1.0"
+    static let appVersion = KervanVersion.current
     private static let serverKey = "serverAddress"
     private static let onboardedKey = "onboarded"
 
@@ -22,6 +22,12 @@ final class AppModel {
     var panel: SessionPanel = .files
     /// Server ports forwarded to this Mac, for the Preview panel.
     let forwarder = PortForwarder()
+    /// New app releases from GitHub.
+    let updater = AppUpdater()
+    /// Updates the connected hub over SSH when it runs an older version than this app carries.
+    let serverUpdater = HubInstaller()
+    var showServerUpdate = false
+    var showReportProblem = false
     /// The selected session's whole team (or lead and helpers) side by side, instead of its chat alone.
     var showCrew = false
     var showNewTeam = false
@@ -38,7 +44,8 @@ final class AppModel {
     let connection: KervanConnection
     let store: SessionStore
     private(set) var activeAddress: ServerAddress?
-    private var activeToken: String?
+    /// The token the connection uses; a server update keeps it.
+    private(set) var activeToken: String?
     /// True from the first handshake until the user disconnects; brief drops keep the chat on screen.
     private(set) var isLinked = false
 
@@ -74,9 +81,19 @@ final class AppModel {
             store.onAlert = { [weak self] alert in notifier.post(alert, selected: self?.selectedSessionID) }
         }
         Task { await restoreToken() }
+        updater.checkIfDue()
     }
 
     var address: ServerAddress? { ServerAddress(serverInput) }
+
+    /// The connected server's version when it is older than the server this app carries.
+    var outdatedServer: String? {
+        guard case .connected(let server) = connection.state,
+              let theirs = SemanticVersion(server.version), let mine = SemanticVersion(KervanVersion.current),
+              theirs < mine
+        else { return nil }
+        return server.version
+    }
 
     var canConnect: Bool { address != nil && !trimmedToken.isEmpty }
 

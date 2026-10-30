@@ -3,10 +3,11 @@
 # folder to /tmp/kervan-setup over SSH (with server.tar.gz, kervan.service and the access token it
 # generated) and runs:  sudo env ACCESS=lan|tailscale|both bash /tmp/kervan-setup/hub-setup.sh
 # Safe to run again: it updates the code and keeps going. Prints "==> step" lines the app follows.
+# ACCESS=update only replaces the code and the service: settings, firewall and Tailscale stay as they are.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-ACCESS="${ACCESS:-lan}"          # lan: this network only; tailscale: Tailscale only; both
+ACCESS="${ACCESS:-lan}"          # lan: this network only; tailscale: Tailscale only; both; update
 PORT=7420
 NODE_MAJOR=24
 OWNER="${SUDO_USER:-root}"
@@ -46,6 +47,7 @@ tar -xzf "$HERE/server.tar.gz" -C /opt/kervan/server
 chown -R "$OWNER":kervan /opt/kervan/server
 (cd /opt/kervan/server && sudo -u "$OWNER" npm ci --omit=dev --no-audit --no-fund --loglevel=error)
 
+if [[ "$ACCESS" != update ]]; then
 echo "==> settings"
 umask 077
 {
@@ -81,6 +83,7 @@ if [[ "$ACCESS" != tailscale ]]; then
   echo "Kervan: devices on $NET can connect to port $PORT."
 fi
 ufw --force enable >/dev/null
+fi
 
 echo "==> service"
 install -m 644 "$HERE/kervan.service" /etc/systemd/system/kervan.service
@@ -93,7 +96,7 @@ for _ in $(seq 1 30); do
 done
 curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null || { echo "Kervan: the service didn't start; see journalctl -u kervan." >&2; exit 1; }
 
-if [[ "$ACCESS" != lan ]] && ! tailscale status >/dev/null 2>&1; then
+if [[ "$ACCESS" != lan && "$ACCESS" != update ]] && ! tailscale status >/dev/null 2>&1; then
   echo "==> Tailscale sign-in"
   echo "Kervan: sign in with your Tailscale account at the link below."
   tailscale up

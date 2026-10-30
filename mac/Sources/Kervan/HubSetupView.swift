@@ -71,7 +71,8 @@ final class HubInstaller {
     private var task: Task<Void, Never>?
     private var process: Process?
 
-    func run(user: String, host: String, access: HubSetup.Access, connect: @escaping (String) -> Void) {
+    /// `token`: the hub's existing token when updating it; a new one is made for a fresh hub.
+    func run(user: String, host: String, access: HubSetup.Access, token existing: String? = nil, connect: @escaping (String) -> Void) {
         reset()
         startedAt = Date()
         isRunning = true
@@ -82,7 +83,7 @@ final class HubInstaller {
                     self.localNetworkBlocked = true
                     throw SetupError(message: L("macOS isn't letting Kervan reach machines on the local network. Turn Kervan on in Local Network settings, then try again.", "macOS, Kervan'ın yerel ağdaki makinelere ulaşmasına izin vermiyor. Yerel Ağ ayarlarında Kervan'ı açın, sonra yeniden deneyin."))
                 }
-                let token = HubSetup.makeToken()
+                let token = existing ?? HubSetup.makeToken()
                 let payload = try Self.payload(token: token)
                 defer { try? FileManager.default.removeItem(at: payload.deletingLastPathComponent()) }
                 try await self.ssh(HubSetup.uploadArguments(user: user, host: host), stdin: payload)

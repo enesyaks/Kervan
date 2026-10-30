@@ -19,6 +19,11 @@ public enum ConnectionState: Equatable, Sendable {
     case connected(server: PeerInfo)
     case retrying(at: Date, attempt: Int, reason: ConnectionFailure)
     case failed(ConnectionFailure)
+
+    /// The server's name and version while connected.
+    public var server: PeerInfo? {
+        if case .connected(let server) = self { server } else { nil }
+    }
 }
 
 /// Owns one WebSocket to the server: handshake, keep-alive pings, and reconnect with backoff.

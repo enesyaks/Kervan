@@ -46,6 +46,7 @@ private struct GeneralSettings: View {
     @Environment(AppModel.self) private var model
     @AppStorage(Appearance.key) private var appearance = Appearance.light.rawValue
     @AppStorage(AppModel.introKey) private var showIntro = true
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         ScrollView {
@@ -78,6 +79,19 @@ private struct GeneralSettings: View {
                     Toggle(L("Show the intro at launch", "Açılışta introyu göster"), isOn: $showIntro)
                     Button(L("Play the intro now", "Introyu şimdi oynat")) { model.showIntro = true }
                         .buttonStyle(.link)
+                }
+
+                UpdatesCard()
+
+                SettingsCard(
+                    title: L("Help", "Yardım"),
+                    footer: L("Opens a GitHub issue with versions and recent errors filled in; you read and edit it first.", "Sürümler ve son hatalarla doldurulmuş bir GitHub issue'su açar; önce okuyup düzenlersiniz.")
+                ) {
+                    Button(L("Report a problem…", "Sorun bildir…")) {
+                        // The report opens over the main window; this one would hide it.
+                        dismiss()
+                        model.showReportProblem = true
+                    }
                 }
 
                 SettingsCard(title: L("Server", "Sunucu")) {

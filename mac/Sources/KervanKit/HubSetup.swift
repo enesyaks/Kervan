@@ -8,6 +8,8 @@ public enum HubSetup {
         case lan
         /// This network and Tailscale, for reaching it from anywhere.
         case both
+        /// An existing hub: only its code and service are replaced; settings, firewall and Tailscale stay.
+        case update
     }
 
     public static let remoteFolder = "/tmp/kervan-setup"

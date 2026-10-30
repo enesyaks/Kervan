@@ -55,6 +55,12 @@ struct RootView: View {
                 .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 1.04)))
             }
         }
+        .sheet(isPresented: Bindable(model).showServerUpdate) {
+            ServerUpdateSheet().environment(model)
+        }
+        .sheet(isPresented: Bindable(model).showReportProblem) {
+            ReportProblemSheet().environment(model)
+        }
         .sheet(isPresented: Bindable(model).showNewTeam) {
             NewTeamSheet().environment(model)
         }
@@ -189,7 +195,10 @@ private struct SidebarView: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            SidebarStatus(state: model.connection.state, host: model.activeAddress?.host ?? model.serverInput)
+            VStack(spacing: 4) {
+                SidebarNotices()
+                SidebarStatus(state: model.connection.state, host: model.activeAddress?.host ?? model.serverInput)
+            }
         }
     }
 

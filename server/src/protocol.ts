@@ -200,6 +200,19 @@ export interface UsageReport {
   sessions: { sessionId: string; costUsd: number }[];
 }
 
+/** For "Report a problem": no prompts, no keys; log lines are redacted. */
+export interface Diagnostics {
+  version: string;
+  node: string;
+  os: string;
+  uptimeSec: number;
+  agents: { id: string; available: boolean; signedIn?: boolean; node: string }[];
+  nodes: { name: string; connected: boolean; version?: string }[];
+  /** Sessions by status. */
+  sessions: Record<string, number>;
+  logs: string[];
+}
+
 export interface ListeningPort {
   port: number;
   /** The program listening, when the server may see it. */
@@ -257,6 +270,7 @@ export type ClientMessage =
   | { type: "terminal.input"; id: string; terminalId: string; data: string }
   | { type: "terminal.close"; id: string; terminalId: string }
   | { type: "port.list"; id: string }
+  | { type: "diagnostics"; id: string }
   | { type: "session.list"; id: string }
   | { type: "node.list"; id: string }
   | { type: "node.invite"; id: string; name: string }
@@ -328,7 +342,8 @@ export type ServerMessage =
   | { type: "terminal.opened"; id: string; terminalId: string; sessionId: string; backlog: string }
   | { type: "terminal.output"; terminalId: string; data: string }
   | { type: "terminal.exited"; terminalId: string }
-  | { type: "port.list.result"; id: string; ports: ListeningPort[] };
+  | { type: "port.list.result"; id: string; ports: ListeningPort[] }
+  | { type: "diagnostics.result"; id: string; report: Diagnostics };
 
 export type ParseResult =
   | { ok: true; message: ClientMessage }
@@ -394,6 +409,7 @@ const STRING_FIELDS: Record<string, readonly string[]> = {
   "terminal.input": ["id", "terminalId", "data"],
   "terminal.close": ["id", "terminalId"],
   "port.list": ["id"],
+  diagnostics: ["id"],
 };
 
 const MAX_TEAM = 8;

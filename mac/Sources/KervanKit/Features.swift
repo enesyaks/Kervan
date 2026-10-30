@@ -391,6 +391,31 @@ public struct UsageReport: Codable, Equatable, Sendable {
     }
 }
 
+/// The server's part of a bug report: versions, what runs, and recent log lines it already redacted.
+public struct Diagnostics: Codable, Equatable, Sendable {
+    public struct Agent: Codable, Equatable, Sendable {
+        public let id: String
+        public let available: Bool
+        public let signedIn: Bool?
+        public let node: String
+    }
+
+    public struct Node: Codable, Equatable, Sendable {
+        public let name: String
+        public let connected: Bool
+        public let version: String?
+    }
+
+    public let version: String
+    public let node: String
+    public let os: String
+    public let uptimeSec: Int
+    public let agents: [Agent]
+    public let nodes: [Node]
+    public let sessions: [String: Int]
+    public let logs: [String]
+}
+
 public struct ListeningPort: Codable, Equatable, Sendable, Identifiable {
     public let port: Int
     public let process: String?

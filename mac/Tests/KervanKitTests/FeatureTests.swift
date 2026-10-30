@@ -166,3 +166,71 @@ import Testing
         #expect(InstallStep.reached(in: "==> Kervan: checking the hub (http://x)\n==> packages\n==> joining the hub as 'gpu'\n") == .joining)
     }
 }
+
+@Suite struct UpdateTests {
+    @Test func comparesVersions() {
+        #expect(SemanticVersion("0.2.0")! < SemanticVersion("v0.10.0")!)
+        #expect(SemanticVersion("1.0")! == SemanticVersion("1.0.0")!)
+        #expect(!(SemanticVersion("0.2.1")! < SemanticVersion("0.2.0")!))
+        #expect(SemanticVersion("0.3.0-beta.1")!.description == "0.3.0")
+        #expect(SemanticVersion("next") == nil)
+    }
+
+    @Test func readsTheLatestRelease() throws {
+        let json = #"""
+        {"tag_name":"v0.3.0","body":"Notes","html_url":"https://github.com/enesyaks/Kervan/releases/tag/v0.3.0","draft":false,"prerelease":false,
+         "assets":[{"name":"Kervan-0.3.0-macOS.zip","browser_download_url":"https://example.com/k.zip"},
+                   {"name":"Kervan-0.3.0-macOS.zip.sha256","browser_download_url":"https://example.com/k.zip.sha256"}]}
+        """#
+        let release = try #require(AppRelease.parse(Data(json.utf8)))
+        #expect(release.version == "0.3.0")
+        #expect(release.checksum?.absoluteString == "https://example.com/k.zip.sha256")
+        #expect(release.isNewer(than: "0.2.0"))
+        #expect(!release.isNewer(than: "0.3.0"))
+        #expect(AppRelease.parse(Data(#"{"tag_name":"v1","html_url":"https://x.y","assets":[]}"#.utf8)) == nil)
+        let digest = String(repeating: "ab", count: 32)
+        #expect(AppRelease.digest(inChecksumFile: "\(digest)  Kervan-0.3.0-macOS.zip\n") == digest)
+        #expect(AppRelease.digest(inChecksumFile: "not a digest") == nil)
+    }
+
+    @Test func keepsTheVersionsInStep() throws {
+        // mac/Tests/KervanKitTests/FeatureTests.swift → repository root
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let plist = try PropertyListSerialization.propertyList(from: Data(contentsOf: root.appendingPathComponent("mac/Resources/Info.plist")), format: nil) as? [String: Any]
+        #expect(plist?["CFBundleShortVersionString"] as? String == KervanVersion.current)
+        let server = try String(contentsOf: root.appendingPathComponent("server/src/version.ts"), encoding: .utf8)
+        #expect(server.contains("\"\(KervanVersion.current)\""))
+    }
+
+    @Test func updatesAHubWithoutTouchingItsSettings() {
+        #expect(HubSetup.runArguments(user: "ubuntu", host: "kervan", access: .update).last == "sudo -n env ACCESS=update bash /tmp/kervan-setup/hub-setup.sh")
+    }
+}
+
+@Suite struct ReportTests {
+    @Test func redactsSecrets() {
+        #expect(Redact.text("ANTHROPIC_API_KEY=sk-ant-abcdefghijk") == "ANTHROPIC_API_KEY=…")
+        #expect(Redact.text("Bearer 25d3e6141117cbb29e47c47fc151382a9376c63f74422893") == "Bearer …")
+        #expect(Redact.text("key AIzaSyA1234567890abcdefghijklmno") == "key AIza…")
+        #expect(Redact.text("plain text") == "plain text")
+    }
+
+    @Test func buildsAShortEnoughIssueLink() throws {
+        let server = Diagnostics(
+            version: "0.2.0", node: "v24.1.0", os: "linux", uptimeSec: 600,
+            agents: [.init(id: "claude", available: true, signedIn: false, node: "local")],
+            nodes: [], sessions: ["idle": 3],
+            logs: (1...400).map { "{\"level\":\"warn\",\"msg\":\"line \($0) token=abc\"}" }
+        )
+        var report = BugReport.make(app: "0.2.0", macOS: "15.5", language: "English UI", connection: "Connected", server: server, errors: ["agent crashed"])
+        report.title = "Terminal stays empty"
+        #expect(report.versions.contains("server 0.2.0"))
+        #expect(report.logs.contains("claude=ok, not signed in"))
+        #expect(!report.logs.contains("token=abc"))
+        let url = report.issueURL.absoluteString
+        #expect(url.count <= BugReport.maxURLLength)
+        #expect(url.contains("template=bug.yml"))
+        // The newest lines survive the cut.
+        #expect(url.contains("line%20400") || url.contains("line+400"))
+    }
+}
