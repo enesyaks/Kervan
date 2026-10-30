@@ -3,10 +3,7 @@ import KervanKit
 import SwiftUI
 
 struct ConnectView: View {
-    enum Mode: Hashable { case connect, setup }
-
     @Environment(AppModel.self) private var model
-    @State private var mode: Mode = .connect
 
     private static let tokenCommand = "sudo grep KERVAN_TOKEN /etc/kervan/env"
 
@@ -20,63 +17,58 @@ struct ConnectView: View {
                     .frame(maxWidth: 460)
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Hoş geldiniz")
+                    Text("Sunucunuza bağlanalım")
                         .font(.system(size: 28, weight: .semibold, design: .rounded))
-                    Text("Kervan'ı kendi sunucunuza bağlayalım. Ajanlarınız orada çalışır; Mac kapansa da işleriniz sürer.")
+                    Text("Kayıtlı sunucuya şu an ulaşılamıyor ya da bilgiler eksik. Adresi ve anahtarı kontrol edip yeniden bağlanın.")
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                Picker("Başlangıç", selection: $mode) {
-                    Text("Sunucum var, bağlanayım").tag(Mode.connect)
-                    Text("Yeni sunucu kuralım").tag(Mode.setup)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .disabled(state.isBusy)
-
-                if mode == .setup {
-                    HubSetupView()
-                } else {
-                    Form {
-                        LabeledContent("Sunucu") {
-                            VStack(alignment: .leading, spacing: 4) {
-                                TextField("Sunucu", text: $model.serverInput, prompt: Text("ör. 192.168.1.21 ya da kervan"))
-                                    .labelsHidden()
-                                    .font(.body.monospaced())
-                                    .textContentType(.URL)
-                                Text("Tailscale adı ya da IP adresi. Port yazılmazsa 7420 kullanılır.")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        LabeledContent("Erişim anahtarı") {
-                            VStack(alignment: .leading, spacing: 4) {
-                                SecureField("Erişim anahtarı", text: $model.tokenInput)
-                                    .labelsHidden()
-                                    .font(.body.monospaced())
-                                TokenHint(command: Self.tokenCommand)
-                            }
+                Form {
+                    LabeledContent("Sunucu") {
+                        VStack(alignment: .leading, spacing: 4) {
+                            TextField("Sunucu", text: $model.serverInput, prompt: Text("ör. 192.168.1.21 ya da kervan"))
+                                .labelsHidden()
+                                .font(.body.monospaced())
+                                .textContentType(.URL)
+                            Text("Tailscale adı ya da IP adresi. Port yazılmazsa 7420 kullanılır.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                     }
-                    .formStyle(.columns)
-                    .padding(18)
-                    .softSurface()
-                    .disabled(state.isBusy)
+                    LabeledContent("Erişim anahtarı") {
+                        VStack(alignment: .leading, spacing: 4) {
+                            SecureField("Erişim anahtarı", text: $model.tokenInput)
+                                .labelsHidden()
+                                .font(.body.monospaced())
+                            TokenHint(command: Self.tokenCommand)
+                        }
+                    }
                 }
+                .formStyle(.columns)
+                .padding(18)
+                .softSurface()
+                .disabled(state.isBusy)
                 VStack(alignment: .leading, spacing: 12) {
-                    StatusMessage(state: state, host: model.address?.host ?? "sunucu")
+                    ConnectStatus(state: state, host: model.address?.host ?? "sunucu")
                         .fixedSize(horizontal: false, vertical: true)
-                    if state.isBusy {
-                        Button("Vazgeç") { model.disconnect() }
-                            .keyboardShortcut(.cancelAction)
-                    } else if mode == .connect {
-                        Button("Bağlan") { model.connect() }
-                            .buttonStyle(.borderedProminent)
-                            .tint(.kervanLapis)
-                            .controlSize(.large)
-                            .keyboardShortcut(.defaultAction)
-                            .disabled(!model.canConnect)
+                    HStack {
+                        if state.isBusy {
+                            Button("Vazgeç") { model.disconnect() }
+                                .keyboardShortcut(.cancelAction)
+                        } else {
+                            Button("Yeni sunucu kur…") {
+                                withAnimation(Motion.smooth) { model.showOnboarding = true }
+                            }
+                            .buttonStyle(.link)
+                            Spacer()
+                            Button("Bağlan") { model.connect() }
+                                .buttonStyle(.borderedProminent)
+                                .tint(.kervanLapis)
+                                .controlSize(.large)
+                                .keyboardShortcut(.defaultAction)
+                                .disabled(!model.canConnect)
+                        }
                     }
                 }
             }
@@ -108,40 +100,5 @@ private struct TokenHint: View {
         }
         .font(.caption)
         .foregroundStyle(.secondary)
-    }
-}
-
-private struct StatusMessage: View {
-    let state: ConnectionState
-    let host: String
-
-    var body: some View {
-        switch state {
-        case .disconnected, .connected:
-            EmptyView()
-        case .connecting(let attempt):
-            Text(attempt > 1 ? "\(host) adresine yeniden bağlanılıyor (\(attempt). deneme)…" : "\(host) adresine bağlanılıyor…")
-                .foregroundStyle(.secondary)
-        case .retrying(let at, _, _):
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                let seconds = max(0, Int(at.timeIntervalSince(context.date).rounded(.up)))
-                Text("\(host) adresine ulaşılamadı. Tailscale'in açık olduğunu kontrol edin. \(seconds) sn sonra yeniden denenecek.")
-                    .foregroundStyle(.secondary)
-            }
-        case .failed(let failure):
-            Label(Self.text(for: failure), systemImage: "exclamationmark.triangle.fill")
-                .foregroundStyle(.kervanCoral)
-        }
-    }
-
-    private static func text(for failure: ConnectionFailure) -> String {
-        switch failure {
-        case .unauthorized:
-            "Sunucu bu anahtarı tanımadı. Sunucudaki değerle karşılaştırıp yeniden girmeyi deneyin."
-        case .unsupportedProtocol:
-            "Sunucu ile uygulama farklı protokol sürümleri kullanıyor. İkisini de güncelleyin."
-        case .unreachable(let reason):
-            "Sunucuya ulaşılamadı: \(reason)"
-        }
     }
 }

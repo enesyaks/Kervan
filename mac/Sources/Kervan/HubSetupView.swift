@@ -2,116 +2,6 @@ import AppKit
 import KervanKit
 import SwiftUI
 
-/// First run without a server: set one up on a Debian/Ubuntu machine over SSH. The app sends the server
-/// code it carries, runs the setup with the token it generated, waits until the server answers and connects.
-/// It never asks for a password: if sudo needs one, the user runs one command in their own Terminal.
-struct HubSetupView: View {
-    @Environment(AppModel.self) private var model
-    @State private var host = ""
-    @State private var user = "ubuntu"
-    @State private var access: HubSetup.Access = .lan
-    @State private var installer = HubInstaller()
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            if !installer.started {
-                SettingsCard(title: "Neler olacak") {
-                    Label("Seçtiğiniz makineye Node.js ve Kervan sunucusu kurulur; servis olarak hep açık kalır.", systemImage: "shippingbox")
-                    Label("Erişim anahtarını uygulama üretir, Mac'inizin Keychain'ine kaydeder ve kendisi bağlanır.", systemImage: "key")
-                    Label("Genelde 3–5 dakika sürer. Parolanız uygulamaya hiç girilmez.", systemImage: "lock")
-                }
-                .labelStyle(SetupLabelStyle())
-
-                SettingsCard(title: "Hangi makine?", footer: "Ubuntu ya da Debian olmalı ve Mac'iniz ona SSH anahtarıyla bağlanabilmeli (ssh-copy-id ile eklenir).") {
-                    LabeledContent("Adres") {
-                        TextField("Adres", text: $host, prompt: Text("ör. 192.168.1.30"))
-                            .labelsHidden()
-                            .font(.body.monospaced())
-                    }
-                    LabeledContent("Kullanıcı") {
-                        TextField("Kullanıcı", text: $user)
-                            .labelsHidden()
-                            .font(.body.monospaced())
-                    }
-                }
-
-                SettingsCard(title: "Nereden bağlanacaksınız?") {
-                    Picker("Erişim", selection: $access) {
-                        Text("Bu yerel ağdan (önerilen)").tag(HubSetup.Access.lan)
-                        Text("Yerel ağdan ve evden uzaktayken Tailscale ile").tag(HubSetup.Access.both)
-                    }
-                    .pickerStyle(.radioGroup)
-                    .labelsHidden()
-                    Text(access == .lan
-                         ? "Sunucunun portu yalnızca bu ağdaki cihazlara açılır."
-                         : "Tailscale de kurulur; kurulum sırasında giriş bağlantısı burada çıkar.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Button("Sunucuyu kur") {
-                    installer.run(user: user.trimmed, host: host.trimmed, access: access) { token in
-                        model.serverInput = host.trimmed
-                        model.tokenInput = token
-                        model.connect()
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.kervanLapis)
-                .controlSize(.large)
-                .disabled(host.trimmed.isEmpty || user.trimmed.isEmpty)
-            } else {
-                let steps = HubSetupStep.allCases.filter { $0 != .tailscaleLogin || access == .both }
-                SettingsCard(title: "\(host.trimmed) üzerinde kurulum") {
-                    StepList(
-                        steps: steps.map { ($0.title, $0.detail) },
-                        reached: steps.firstIndex(of: installer.step) ?? steps.count - 1,
-                        running: installer.isRunning || installer.waitingForTerminal,
-                        failed: installer.failure != nil,
-                        startedAt: installer.startedAt
-                    )
-                    if let url = installer.tailscaleURL {
-                        Button("Tailscale'e giriş yap") { NSWorkspace.shared.open(url) }
-                            .buttonStyle(.borderedProminent)
-                    }
-                    if installer.waitingForTerminal {
-                        Guidance(
-                            text: "Bu makinede sudo parola istiyor. Mac'inizde Terminal'i açıp şunu çalıştırın; parolanız orada sorulur. Kurulum bitince bu ekran kendiliğinden bağlanır.",
-                            command: HubSetup.terminalCommand(user: user.trimmed, host: host.trimmed, access: access)
-                        )
-                    }
-                    if let failure = installer.failure {
-                        Label(failure, systemImage: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.kervanCoral)
-                            .fixedSize(horizontal: false, vertical: true)
-                        HStack {
-                            Button("Yeniden dene") { installer.reset() }
-                            Spacer()
-                        }
-                    }
-                    if !installer.output.isEmpty {
-                        DisclosureGroup("Ayrıntılı çıktı") {
-                            ScrollView {
-                                Text(installer.output)
-                                    .font(.caption.monospaced())
-                                    .textSelection(.enabled)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                            .frame(height: 140)
-                            .defaultScrollAnchor(.bottom)
-                        }
-                    }
-                }
-            }
-        }
-        .onDisappear { installer.stop() }
-    }
-}
-
-private extension String {
-    var trimmed: String { trimmingCharacters(in: .whitespacesAndNewlines) }
-}
-
 /// Numbered stages with done / in progress (with elapsed time) / failed / to come.
 struct StepList: View {
     let steps: [(title: String, detail: String)]
@@ -159,15 +49,6 @@ struct StepList: View {
                 }
                 .accessibilityElement(children: .combine)
             }
-        }
-    }
-}
-
-private struct SetupLabelStyle: LabelStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            configuration.icon.foregroundStyle(Color.kervanLapis).frame(width: 18)
-            configuration.title.fixedSize(horizontal: false, vertical: true)
         }
     }
 }

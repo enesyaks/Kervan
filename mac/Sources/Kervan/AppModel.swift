@@ -7,6 +7,7 @@ import Observation
 final class AppModel {
     static let appVersion = "0.1.0"
     private static let serverKey = "serverAddress"
+    private static let onboardedKey = "onboarded"
 
     var serverInput: String {
         didSet { UserDefaults.standard.set(serverInput, forKey: Self.serverKey) }
@@ -20,6 +21,9 @@ final class AppModel {
     /// The selected session's whole team (or lead and helpers) side by side, instead of its chat alone.
     var showCrew = false
     var showNewTeam = false
+    /// The guided first run, over the whole window: shown until a server has answered once.
+    /// KERVAN_ONBOARDING=1 shows it anyway, for checking the flow.
+    var showOnboarding = false
     /// The opening animation, once per launch; KERVAN_NO_INTRO=1 skips it for development.
     var showIntro = ProcessInfo.processInfo.environment["KERVAN_NO_INTRO"] == nil
         && (UserDefaults.standard.object(forKey: AppModel.introKey) as? Bool ?? true)
@@ -47,8 +51,13 @@ final class AppModel {
         serverInput = environment["KERVAN_SERVER"] ?? UserDefaults.standard.string(forKey: Self.serverKey) ?? ""
 
         connection.onMessage = { store.handle($0) }
+        showOnboarding = environment["KERVAN_ONBOARDING"] != nil
+            || (!UserDefaults.standard.bool(forKey: Self.onboardedKey) && environment["KERVAN_SERVER"] == nil
+                && UserDefaults.standard.string(forKey: Self.serverKey) == nil)
+
         connection.onConnected = { [weak self] agents in
             self?.isLinked = true
+            UserDefaults.standard.set(true, forKey: Self.onboardedKey)
             Task { await store.connected(agents: agents) }
         }
         // A bare `swift run` binary has no bundle id, and notifications need one.

@@ -27,9 +27,18 @@ struct RootView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(Color.kervanCanvas)
         }
+        // Under the first run the app is not there yet: no clicks, no VoiceOver.
+        .allowsHitTesting(!model.showOnboarding)
+        .accessibilityHidden(model.showOnboarding)
         .fontDesign(.rounded)
         // The intro fills the whole window; the toolbar comes back with everything else.
-        .toolbar(model.showIntro ? .hidden : .visible, for: .windowToolbar)
+        .toolbar(model.showIntro || model.showOnboarding ? .hidden : .visible, for: .windowToolbar)
+        .overlay {
+            if model.showOnboarding {
+                OnboardingView()
+                    .transition(.opacity)
+            }
+        }
         .overlay {
             if model.showIntro {
                 IntroView {
