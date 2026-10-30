@@ -65,6 +65,8 @@ final class HubInstaller {
     private(set) var startedAt: Date?
     private(set) var step: HubSetupStep = .uploading
     private(set) var tailscaleURL: URL?
+    /// macOS keeps the app off the local network: the screen offers the settings page.
+    private(set) var localNetworkBlocked = false
     var started: Bool { startedAt != nil }
     private var task: Task<Void, Never>?
     private var process: Process?
@@ -76,6 +78,10 @@ final class HubInstaller {
         task = Task { [weak self] in
             guard let self else { return }
             do {
+                if await LocalNetwork.check(host: host) == false {
+                    self.localNetworkBlocked = true
+                    throw SetupError(message: "macOS, Kervan'ın yerel ağdaki makinelere ulaşmasına izin vermiyor. Yerel Ağ ayarlarında Kervan'ı açın, sonra yeniden deneyin.")
+                }
                 let token = HubSetup.makeToken()
                 let payload = try Self.payload(token: token)
                 defer { try? FileManager.default.removeItem(at: payload.deletingLastPathComponent()) }
@@ -100,6 +106,7 @@ final class HubInstaller {
                 self.isRunning = false
                 self.waitingForTerminal = false
                 self.failure = (error as? SetupError)?.message ?? error.localizedDescription
+                if self.output.contains("No route to host") { self.localNetworkBlocked = true }
             }
         }
     }
@@ -111,6 +118,7 @@ final class HubInstaller {
         startedAt = nil
         step = .uploading
         tailscaleURL = nil
+        localNetworkBlocked = false
         waitingForTerminal = false
         isRunning = false
     }

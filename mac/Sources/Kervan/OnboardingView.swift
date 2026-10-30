@@ -7,20 +7,23 @@ import SwiftUI
 /// right, one question at a time: hello, which way, then connect to a server or set one up, then ready.
 struct OnboardingView: View {
     enum Stage: Hashable {
-        case welcome, choose, connect, setupForm, setupProgress, done
+        case welcome, choose, connect, setupForm, permission, setupProgress, done
 
         /// Which stop on the route this stage belongs to.
         var stop: Int {
             switch self {
             case .welcome: 0
             case .choose: 1
-            case .connect, .setupForm, .setupProgress: 2
+            case .connect, .setupForm, .permission, .setupProgress: 2
             case .done: 3
             }
         }
     }
 
     enum Path: Hashable { case connect, setup }
+
+    /// The local network question: not asked yet, waiting for the answer, refused, or the machine didn't answer.
+    enum Permission: Hashable { case ask, checking, denied, unreachable }
 
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -30,6 +33,7 @@ struct OnboardingView: View {
     @State private var user = "ubuntu"
     @State private var access: HubSetup.Access = .lan
     @State private var installer = HubInstaller()
+    @State private var permission: Permission = .ask
 
     var body: some View {
         HStack(spacing: 0) {
@@ -70,6 +74,7 @@ struct OnboardingView: View {
     private var travelling: Bool {
         switch stage {
         case .connect: model.connection.state.isBusy
+        case .permission: permission == .checking
         case .setupProgress: installer.isRunning || installer.waitingForTerminal
         default: false
         }
@@ -100,6 +105,7 @@ struct OnboardingView: View {
         case .choose: choose
         case .connect: connect
         case .setupForm: setupForm
+        case .permission: permissionStep
         case .setupProgress: setupProgress
         case .done: done
         }
@@ -230,12 +236,73 @@ struct OnboardingView: View {
                 Button("Geri") { go(.choose) }.buttonStyle(QuietStyle())
                 Spacer()
                 Button("Kurulumu başlat") {
-                    install()
-                    go(.setupProgress)
+                    permission = .ask
+                    go(.permission)
                 }
                 .buttonStyle(PrimaryStyle())
                 .keyboardShortcut(.defaultAction)
                 .disabled(host.trimmed.isEmpty || user.trimmed.isEmpty)
+            }
+        }
+    }
+
+    /// macOS asks once whether Kervan may reach machines on this network; the ssh it starts can't without it.
+    /// This step says why before the system asks, so the answer is an informed yes.
+    private var permissionStep: some View {
+        VStack(alignment: .leading, spacing: 28) {
+            Heading(
+                title: permission == .denied ? "Yerel ağ izni kapalı" : "Yerel ağa erişim izni",
+                lead: permission == .denied
+                    ? "macOS şu an Kervan'ın ağdaki makinelere ulaşmasına izin vermiyor. Ayarlarda bir kez açmanız yeterli."
+                    : "Kervan'ın \(host.trimmed) makinesine bağlanabilmesi için macOS sizden bir kez izin isteyecek."
+            )
+            VStack(alignment: .leading, spacing: 18) {
+                if permission == .denied {
+                    Promise(symbol: "gearshape", title: "Sistem Ayarları › Gizlilik ve Güvenlik › Yerel Ağ", text: "Listede Kervan'ı bulun ve anahtarını açın. Sonra buraya dönüp yeniden kontrol edin.")
+                } else {
+                    Promise(symbol: "network", title: "Neden gerekiyor", text: "Kurulum, Mac'inizden bu makineye SSH ile bağlanır. Sunucunuzla konuşmak için de aynı izin kullanılır.")
+                    Promise(symbol: "hand.raised", title: "Ne paylaşılır", text: "Hiçbir şey. İzin yalnızca Kervan'ın ağınızdaki cihazlara bağlanabilmesi içindir.")
+                    Promise(symbol: "macwindow", title: "Ne göreceksiniz", text: "\"Kervan yerel ağınızdaki cihazları bulmak ve bunlara bağlanmak istiyor\" penceresinde İzin Ver'i seçin.")
+                }
+                if permission == .unreachable {
+                    Label("\(host.trimmed) yanıt vermedi. Makinenin açık ve bu ağda olduğunu, adresin doğru olduğunu kontrol edin.", systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.kervanCoral)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(20)
+            .softSurface(radius: Radius.panel)
+
+            Actions {
+                Button("Geri") { go(.setupForm) }
+                    .buttonStyle(QuietStyle())
+                    .disabled(permission == .checking)
+                Spacer()
+                if permission == .denied {
+                    Button("Ayarları aç") { NSWorkspace.shared.open(LocalNetwork.settingsURL) }
+                        .buttonStyle(QuietStyle())
+                }
+                Button(permission == .checking ? "Yanıt bekleniyor…" : permission == .ask ? "İzin ver" : "Yeniden kontrol et") {
+                    askPermission()
+                }
+                .buttonStyle(PrimaryStyle())
+                .keyboardShortcut(.defaultAction)
+                .disabled(permission == .checking)
+            }
+        }
+    }
+
+    private func askPermission() {
+        permission = .checking
+        Task {
+            switch await LocalNetwork.check(host: host.trimmed) {
+            case true?:
+                install()
+                go(.setupProgress)
+            case false?:
+                withAnimation(Motion.pick(Motion.smooth, reduce: reduceMotion)) { permission = .denied }
+            case nil:
+                withAnimation(Motion.pick(Motion.smooth, reduce: reduceMotion)) { permission = .unreachable }
             }
         }
     }
@@ -272,6 +339,10 @@ struct OnboardingView: View {
                     Label(failure, systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.kervanCoral)
                         .fixedSize(horizontal: false, vertical: true)
+                }
+                if installer.localNetworkBlocked {
+                    Button("Ayarları aç") { NSWorkspace.shared.open(LocalNetwork.settingsURL) }
+                        .buttonStyle(PrimaryStyle())
                 }
                 if !installer.output.isEmpty {
                     DisclosureGroup("Ayrıntılı çıktı") {
