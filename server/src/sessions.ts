@@ -21,6 +21,7 @@ import {
 import { commitAll, repositoryBranch, type Checkpoints } from "./checkpoints.ts";
 import { openPullRequest } from "./pullrequest.ts";
 import type { ProjectRegistry } from "./projects.ts";
+import type { Board } from "./board.ts";
 import { localParts, type Scheduler } from "./schedules.ts";
 import { TerminalHub } from "./terminals.ts";
 import type { AgentProcess, AgentRunner, PermissionDecision, PermissionRequest } from "./runner.ts";
@@ -167,6 +168,7 @@ export class SessionManager {
   private readonly checkpoints?: Checkpoints;
   /** Set once the scheduler exists (it needs this manager to start its sessions). */
   scheduler?: Scheduler;
+  board?: Board;
   /** The user's shells in session folders; their output goes to every client. */
   readonly terminals = new TerminalHub((message) => this.broadcast(message));
 
@@ -905,11 +907,11 @@ export class SessionManager {
     return result;
   }
 
-  /** A scheduled task: a new session that gets `prompt` as soon as its agent is up. Resolves with its id. */
-  async runTask(task: { agent: string; title: string; prompt: string; projectId?: string; scheduleId: string }): Promise<string> {
+  /** A scheduled task or a board card: a new session that gets `prompt` as soon as its agent is up. Resolves with its id. */
+  async runTask(task: { agent: string; title: string; prompt: string; projectId?: string; scheduleId?: string }): Promise<string> {
     const info = await this.create(task.agent, [], [], {
       title: task.title,
-      scheduleId: task.scheduleId,
+      ...(task.scheduleId ? { scheduleId: task.scheduleId } : {}),
       ...(task.projectId && this.projects?.get(task.projectId) ? { projectId: task.projectId } : {}),
     });
     const session = this.require(info.id);

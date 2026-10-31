@@ -35,6 +35,10 @@ const state = {
   sessions: new Map(),
   events: new Map(), // sessionId → Map(seq → event)
   open: null,
+  // The project whose board is showing (#/p/<id>), its projects and their cards.
+  board: null,
+  projects: [],
+  boards: new Map(),
   flash: null,
   menu: false,
   drafts: new Map(),
@@ -174,6 +178,8 @@ function receive(message) {
       state.server = message.server;
       state.agents = message.agentDetails ?? message.agents.map((id) => ({ id, name: id }));
       void loadSessions();
+      void request({ type: "project.list" }).catch(() => {});
+      if (state.board) void loadBoard(state.board);
       break;
     case "agents.updated":
       state.agents = message.agentDetails ?? state.agents;
@@ -188,6 +194,14 @@ function receive(message) {
       state.sessions.set(session.id, session);
       break;
     }
+    case "project.list.result":
+    case "projects.updated":
+      state.projects = message.projects;
+      break;
+    case "board.result":
+    case "board.updated":
+      state.boards.set(message.projectId, message.cards);
+      break;
     case "session.event": {
       const events = state.events.get(message.sessionId);
       if (events) events.set(message.event.seq, message.event);
@@ -204,6 +218,10 @@ function receive(message) {
 
 async function loadSessions() {
   try { await request({ type: "session.list" }); } catch (error) { showFlash(error.message); }
+}
+
+async function loadBoard(projectId) {
+  try { await request({ type: "board.list", projectId }); } catch (error) { showFlash(error.message); }
 }
 
 async function loadHistory(sessionId) {
@@ -262,8 +280,11 @@ async function create(agent) {
 
 function route() {
   const match = /^#\/s\/(.+)$/.exec(location.hash);
+  const board = /^#\/p\/(.+)$/.exec(location.hash);
   state.open = match ? decodeURIComponent(match[1]) : null;
+  state.board = board ? decodeURIComponent(board[1]) : null;
   state.menu = false;
+  if (state.board && state.connection === "connected") void loadBoard(state.board);
   if (state.open && !state.events.has(state.open) && state.connection === "connected") void loadHistory(state.open);
   render(true);
 }
@@ -585,7 +606,7 @@ function render(toEnd = false) {
     shell.root.append(shell.list, shell.pane);
     root.replaceChildren(shell.root);
   }
-  shell.root.classList.toggle("open", Boolean(state.open));
+  shell.root.classList.toggle("open", Boolean(state.open || state.board));
   shell.list.replaceChildren(...listPane());
   renderSessionPane();
 }
@@ -655,7 +676,50 @@ function listPane() {
             needs.map(row),
             needs.length && rest.length ? h("h3", {}, L("Sessions", "Oturumlar")) : null,
             rest.map(row),
-          ]),
+          ],
+      state.projects.length ? h("h3", {}, L("Boards", "Panolar")) : null,
+      state.projects.map((project) => h("button", {
+        class: `session-row${project.id === state.board ? " selected" : ""}`,
+        onclick: () => { location.hash = `#/p/${encodeURIComponent(project.id)}`; },
+      },
+        h("span", { class: "text" },
+          h("div", { class: "title" }, project.name),
+          h("div", { class: "meta" }, L("Task board", "Görev panosu")))))),
+  ];
+}
+
+const COLUMNS = [
+  ["todo", () => L("To do", "Yapılacak")],
+  ["working", () => L("Working", "Çalışıyor")],
+  ["needs", () => L("Needs you", "Sizi bekliyor")],
+  ["review", () => L("Review", "İncelenecek")],
+  ["done", () => L("Done", "Bitti")],
+];
+
+/** A project's board, to look at: columns of cards; a started card opens its session. Cards are moved from the app. */
+function boardPane(projectId) {
+  const project = state.projects.find((p) => p.id === projectId);
+  const cards = state.boards.get(projectId);
+  return [
+    h("header", { class: "bar" },
+      h("button", { class: "icon-button back", "aria-label": L("Back", "Geri"), onclick: () => { location.hash = "#/"; } }, icon("back")),
+      h("div", { class: "head-text" }, h("h2", {}, project?.name ?? L("Board", "Pano")), h("div", { class: "connection" }, L("Cards move here as their sessions work.", "Kartlar oturumları çalıştıkça burada ilerler.")))),
+    h("div", { class: "board" },
+      !cards
+        ? h("p", { class: "empty" }, L("Loading…", "Yükleniyor…"))
+        : COLUMNS.map(([column, title]) => {
+            const inColumn = cards.filter((c) => c.column === column);
+            return h("section", { class: "lane" },
+              h("h3", {}, h("span", { class: `dot lane-${column}` }), title(), h("span", { class: "count" }, String(inColumn.length))),
+              inColumn.length === 0 ? h("p", { class: "lane-empty" }, "—") : null,
+              inColumn.map((card) => h(card.sessionId ? "button" : "div", {
+                class: "card",
+                onclick: card.sessionId ? () => { location.hash = `#/s/${encodeURIComponent(card.sessionId)}`; } : undefined,
+              },
+                h("div", { class: "card-title" }, card.title),
+                h("div", { class: "card-prompt" }, card.prompt),
+                h("div", { class: "card-agent" }, agentName(card.agent)))));
+          })),
   ];
 }
 
@@ -686,6 +750,12 @@ let paneFor = null;
 let paneParts = null;
 
 function renderSessionPane() {
+  if (state.board && !state.open) {
+    paneFor = null;
+    paneParts = null;
+    shell.pane.replaceChildren(...boardPane(state.board));
+    return;
+  }
   const session = state.open ? state.sessions.get(state.open) : null;
   if (!session) {
     paneFor = null;

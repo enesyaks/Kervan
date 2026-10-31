@@ -155,6 +155,7 @@ and its access ends at once. On a phone, **Add to Home Screen** makes it open li
 | **Nodes** | Run agents on other machines too (a GPU box, say); the hub brings them all into one app. |
 | **Model picker** | The agent's models, thinking level and modes sit under the composer. |
 | **Search and archive** | Full-text search across every conversation; archive old sessions. |
+| **Task board** | Each project has a board: cards hold a prompt, dragging one to Working starts a session, and the card then moves by itself to Needs you, Review and Done as the session goes. The web client shows the same board. |
 | **Pull requests** | From the Changes panel, push a session's work on its own branch and open a pull request (connect the server to GitHub once in **Settings › General › GitHub**: it shows a code you approve in your browser; without it GitHub opens with the pull request ready). |
 | **Resilience** | Every event is written to SQLite first. If the server restarts, sessions are recovered and the agent continues the conversation where it left off. |
 

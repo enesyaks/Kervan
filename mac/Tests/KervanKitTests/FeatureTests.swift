@@ -296,3 +296,13 @@ import Testing
         #expect(try ClientMessage.sessionArchive(id: "a", sessionId: "s", archived: true, removeWorktree: true).jsonString().contains(#""removeWorktree":true"#))
     }
 }
+
+@Suite struct BoardTests {
+    @Test func cardsDecodeAndMovesEncode() throws {
+        let board = try ServerMessage.decode(#"{"type":"board.updated","projectId":"p","cards":[{"id":"c","projectId":"p","title":"T","prompt":"Do it","agent":"claude","column":"needs","sessionId":"s","prompted":true,"createdAt":"a","updatedAt":"b"}]}"#)
+        guard case .boardUpdated(let project, let cards) = board else { Issue.record("not a board"); return }
+        #expect(project == "p" && cards.first?.column == .needs && cards.first?.sessionId == "s")
+        let move: String = try ClientMessage.cardMove(id: "m", cardId: "c", column: .working).jsonString()
+        #expect(move.contains(#""column":"working""#) && move.contains(#""type":"card.move""#))
+    }
+}

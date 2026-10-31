@@ -419,3 +419,20 @@ dialog h2 { margin: 0 0 12px; font-size: 20px; }
 .head-text { min-width: 0; flex: 1; }
 .flash { padding: 0 16px; }
 .flash[hidden] { display: none; }
+
+/* A project's board: columns stacked on a phone, side by side on a desk. */
+.board { flex: 1; overflow-y: auto; padding: 4px 16px calc(env(safe-area-inset-bottom) + 20px); display: grid; gap: 12px; align-content: start; }
+@media (min-width: 900px) { .board { grid-template-columns: repeat(5, minmax(0, 1fr)); overflow-x: auto; } }
+.lane { background: color-mix(in srgb, var(--well) 60%, transparent); border-radius: var(--r-card); padding: 10px; display: grid; gap: 8px; align-content: start; }
+.lane h3 { margin: 0 2px 2px; font-size: 14px; display: flex; align-items: center; gap: 6px; }
+.lane .count { color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; }
+.lane-empty { margin: 0; color: var(--muted); font-size: 13px; padding: 0 2px; }
+.lane-todo { background: var(--muted); }
+.lane-working { background: var(--saffron); }
+.lane-needs { background: var(--coral); }
+.lane-review { background: var(--lapis); }
+.lane-done { background: var(--oasis); }
+.card { display: block; width: 100%; text-align: left; background: var(--surface); border-radius: var(--r-chip); box-shadow: var(--shadow); padding: 10px; }
+.card-title { font-weight: 600; font-size: 15px; }
+.card-prompt { color: var(--muted); font-size: 13px; margin-top: 2px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.card-agent { font-size: 12px; color: var(--muted); margin-top: 6px; }

@@ -159,6 +159,42 @@ public struct ProjectInfo: Codable, Equatable, Sendable, Identifiable {
 
 /// What project.save takes: an existing project by id (only name and instructions change), or a new
 /// one from a folder on the server, a repository to clone, or neither (an empty folder).
+/// A column of a project's task board.
+public enum CardColumn: String, Codable, CaseIterable, Sendable, Identifiable {
+    case todo, working, needs, review, done
+    public var id: String { rawValue }
+}
+
+/// A task on a project's board. Once moved to Working it has a session, and its column follows that session.
+public struct CardInfo: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let projectId: String
+    public let title: String
+    public let prompt: String
+    public let agent: String
+    public let column: CardColumn
+    public let sessionId: String?
+    public let createdAt: String
+    public let updatedAt: String
+}
+
+/// A new card, or new wording for one that hasn't started.
+public struct CardInput: Encodable, Equatable, Sendable {
+    public var id: String?
+    public var projectId: String
+    public var title: String
+    public var prompt: String
+    public var agent: String
+
+    public init(id: String? = nil, projectId: String, title: String, prompt: String, agent: String) {
+        self.id = id
+        self.projectId = projectId
+        self.title = title
+        self.prompt = prompt
+        self.agent = agent
+    }
+}
+
 public struct ProjectInput: Encodable, Equatable, Sendable {
     public var id: String?
     public var name: String

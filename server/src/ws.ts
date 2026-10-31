@@ -44,6 +44,9 @@ type Client = { kind: "app" } | { kind: "web"; deviceId: string };
 /** What a paired browser may ask for: working with sessions. Settings, agents, nodes, files and pairing stay with the app. */
 const WEB_ALLOWED = new Set<string>([
   "ping",
+  // Projects and their boards, to look at; cards are made and moved from the app.
+  "project.list",
+  "board.list",
   "session.list",
   "session.history",
   "session.create",
@@ -89,6 +92,11 @@ function requireMcp(sessions: SessionManager) {
   return sessions.mcp;
 }
 
+function requireBoard(sessions: SessionManager) {
+  if (!sessions.board) throw new KervanError("bad_message", "this server has no task boards");
+  return sessions.board;
+}
+
 function requireProjects(sessions: SessionManager) {
   if (!sessions.projects) throw new KervanError("bad_message", "this server has no projects");
   return sessions.projects;
@@ -118,6 +126,18 @@ async function handleRequest(
     return web;
   };
   switch (message.type) {
+    case "board.list":
+      return send(ws, { type: "board.result", id: message.id, projectId: message.projectId, cards: requireBoard(sessions).list(message.projectId) });
+    case "card.save": {
+      const card = requireBoard(sessions).save(message.card);
+      return send(ws, { type: "board.result", id: message.id, projectId: card.projectId, cards: requireBoard(sessions).list(card.projectId) });
+    }
+    case "card.move":
+      await requireBoard(sessions).move(message.cardId, message.column);
+      return send(ws, { type: "ok", id: message.id });
+    case "card.delete":
+      requireBoard(sessions).remove(message.cardId);
+      return send(ws, { type: "ok", id: message.id });
     case "github.status":
       return send(ws, { type: "github.status.result", id: message.id, github: await github.status() });
     case "github.connect": {

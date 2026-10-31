@@ -34,7 +34,10 @@ Acceptance:
 - A pull request from such a session contains only that session's work.
 - Removing an archived session's worktree leaves the project folder and other branches untouched.
 
-### Step 2. Task board
+### Step 2. Task board (done)
+
+Shipped with one change: Done follows archiving the session (or a drag), not merged pull requests yet, since that needs polling GitHub.
+
 
 Implement a board view per project with columns To do, Working, Needs you, Review and Done. A card holds a title and a
 prompt; moving it to Working starts a session (on its own worktree, from step 1) with the prompt. The card then follows

@@ -201,6 +201,23 @@ export interface UsageReport {
 }
 
 /** For "Report a problem": no prompts, no keys; log lines are redacted. */
+export type CardColumn = "todo" | "working" | "needs" | "review" | "done";
+
+/** A task on a project's board. Once moved to Working it has a session, and its column follows that session. */
+export interface CardInfo {
+  id: string;
+  projectId: string;
+  title: string;
+  prompt: string;
+  agent: string;
+  column: CardColumn;
+  sessionId?: string;
+  /** The prompt has been sent; from here the column follows the session. */
+  prompted?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /** Whether the server can push and open pull requests: gh installed, and signed in to GitHub as `account`. */
 export interface GitHubStatus {
   available: boolean;
@@ -296,6 +313,12 @@ export type ClientMessage =
   | { type: "web.enable"; id: string; enabled: boolean }
   | { type: "web.pair"; id: string }
   | { type: "web.revoke"; id: string; deviceId: string }
+  /** A project's task board. */
+  | { type: "board.list"; id: string; projectId: string }
+  | { type: "card.save"; id: string; card: Record<string, unknown> }
+  /** Moving a card that hasn't started to "working" starts its session with the card's prompt. */
+  | { type: "card.move"; id: string; cardId: string; column: string }
+  | { type: "card.delete"; id: string; cardId: string }
   /** GitHub sign-in for the server's gh, from the app only. */
   | { type: "github.status"; id: string }
   | { type: "github.connect"; id: string }
@@ -392,6 +415,9 @@ export type ServerMessage =
   | { type: "session.pullRequest.result"; id: string; sessionId: string; pullRequest: PullRequestInfo }
   | { type: "web.status.result"; id: string; web: WebAccessStatus }
   | { type: "web.paired"; id: string; code: string; expiresAt: string }
+  | { type: "board.result"; id: string; projectId: string; cards: CardInfo[] }
+  /** Sent to everyone when any card of the project changes, by hand or by following its session. */
+  | { type: "board.updated"; projectId: string; cards: CardInfo[] }
   | { type: "github.status.result"; id: string; github: GitHubStatus }
   /** The code to enter at `url`; `github.updated` follows when the sign-in ends. */
   | { type: "github.code"; id: string; code: string; url: string }
@@ -454,6 +480,10 @@ const STRING_FIELDS: Record<string, readonly string[]> = {
   "web.enable": ["id"],
   "web.pair": ["id"],
   "web.revoke": ["id", "deviceId"],
+  "board.list": ["id", "projectId"],
+  "card.save": ["id"],
+  "card.move": ["id", "cardId", "column"],
+  "card.delete": ["id", "cardId"],
   "github.status": ["id"],
   "github.connect": ["id"],
   "github.disconnect": ["id"],
@@ -569,7 +599,7 @@ export function parseClientMessage(raw: string): ParseResult {
     }
     (message as Record<string, unknown>).body = data.body ?? "";
   }
-  for (const [type, field] of [["project.save", "project"], ["schedule.save", "schedule"]] as const) {
+  for (const [type, field] of [["project.save", "project"], ["schedule.save", "schedule"], ["card.save", "card"]] as const) {
     if (data.type !== type) continue;
     if (!isRecord(data[field])) return fail("bad_message", `${type} needs a '${field}' object`);
     (message as Record<string, unknown>)[field] = data[field];

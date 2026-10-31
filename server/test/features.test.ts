@@ -11,6 +11,7 @@ import { parseLsof, parseSs } from "../src/tunnel.ts";
 import { redact } from "../src/diagnostics.ts";
 import { githubRepoURL, openPullRequest } from "../src/pullrequest.ts";
 import { accountFrom, deviceCodeFrom, GitHubAccess } from "../src/github.ts";
+import { Board } from "../src/board.ts";
 import { WebAccess as WebAccessStore, type WebAccess } from "../src/webaccess.ts";
 import { log } from "../src/log.ts";
 import type { ScheduleInfo } from "../src/protocol.ts";
@@ -21,6 +22,7 @@ import { HELLO, Inbox, openSocket, opened, send, startServer, TEST_TOKEN } from 
 describe("changes, projects, schedules, terminals, ports, usage", () => {
   let port = 0;
   let sessions: SessionManager;
+  let dataDir = "";
   let stop: () => Promise<void>;
   const sockets: WebSocket[] = [];
   let counter = 0;
@@ -68,7 +70,7 @@ describe("changes, projects, schedules, terminals, ports, usage", () => {
     inbox.received.filter((m) => m.type === "session.event" && m.sessionId === sessionId && m.event.kind === kind).map((m) => m.event);
 
   before(async () => {
-    ({ port, stop, sessions } = await startServer());
+    ({ port, stop, sessions, dataDir } = await startServer());
   });
 
   after(async () => {
@@ -132,6 +134,50 @@ describe("changes, projects, schedules, terminals, ports, usage", () => {
 
     const outside = await ask(ws, inbox, { type: "session.revert", sessionId, seq: first.messageSeq, paths: ["../x"] });
     assert.equal(outside.type, "error");
+  });
+
+  it("runs a board card as a session and moves the card with it, and keeps the board across a restart", async () => {
+    const { ws, inbox } = await client();
+    const made = await ask(ws, inbox, { type: "project.save", project: { name: "Pano" } });
+    const project = made.projects.find((p: any) => p.name === "Pano");
+    const prompt = "use the tool on the readme";
+    const saved = await ask(ws, inbox, { type: "card.save", card: { projectId: project.id, title: "README", prompt, agent: "fake" } });
+    assert.equal(saved.type, "board.result", JSON.stringify(saved));
+    const card = saved.cards[0];
+    assert.equal(card.column, "todo");
+    assert.equal((await ask(ws, inbox, { type: "card.save", card: { projectId: project.id, title: "x", prompt: "y", agent: "nobody" } })).type, "error");
+
+    // Working starts a session with the card's prompt; the approval it asks for puts the card in Needs you.
+    assert.equal((await ask(ws, inbox, { type: "card.move", cardId: card.id, column: "working" })).type, "ok");
+    const needs = await inbox.waitFor((m) => m.type === "board.updated" && m.cards.some((c: any) => c.id === card.id && c.column === "needs"));
+    const sessionId = needs.cards.find((c: any) => c.id === card.id).sessionId;
+    assert.ok(sessionId);
+    const history = await ask(ws, inbox, { type: "session.history", sessionId });
+    assert.equal(history.events.find((e: any) => e.kind === "user_message").text, prompt);
+
+    // Answering it finishes the turn: Review.
+    const request = await inbox.waitFor((m) => m.type === "session.event" && m.sessionId === sessionId && m.event.kind === "permission_request");
+    await ask(ws, inbox, { type: "session.permission", sessionId, requestId: request.event.requestId, optionId: "yes" });
+    await inbox.waitFor((m) => m.type === "board.updated" && m.cards.some((c: any) => c.id === card.id && c.column === "review"));
+    // A started card keeps its wording and can't go back to To do.
+    assert.equal((await ask(ws, inbox, { type: "card.save", card: { id: card.id, title: "z", prompt: "z", agent: "fake" } })).type, "error");
+    assert.equal((await ask(ws, inbox, { type: "card.move", cardId: card.id, column: "todo" })).type, "error");
+
+    // Archiving the session puts the card in Done.
+    await ask(ws, inbox, { type: "session.archive", sessionId, archived: true });
+    await inbox.waitFor((m) => m.type === "board.updated" && m.cards.some((c: any) => c.id === card.id && c.column === "done"));
+
+    // A server starting again reads the same board.
+    const reopened = new Board(join(dataDir, "board.json"), {
+      hasProject: () => true,
+      hasAgent: () => true,
+      start: async () => "",
+      session: () => undefined,
+      broadcast: () => {},
+    });
+    const again = reopened.list(project.id).find((c) => c.id === card.id)!;
+    assert.equal(again.column, "done");
+    assert.equal(again.sessionId, sessionId);
   });
 
   it("gives each session in a git project a worktree of its own, and keeps the work when the worktree goes", async () => {

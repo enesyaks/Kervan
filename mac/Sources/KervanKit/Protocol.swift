@@ -625,6 +625,12 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
     case projectList(id: String)
     case projectSave(id: String, project: ProjectInput)
     case projectDelete(id: String, projectId: String)
+    /// A project's task board.
+    case boardList(id: String, projectId: String)
+    case cardSave(id: String, card: CardInput)
+    /// Moving a card that hasn't started to Working starts its session.
+    case cardMove(id: String, cardId: String, column: CardColumn)
+    case cardDelete(id: String, cardId: String)
     case scheduleList(id: String)
     case scheduleSave(id: String, schedule: ScheduleInput)
     case scheduleDelete(id: String, scheduleId: String)
@@ -664,7 +670,7 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
         case type, `protocol`, client, id, agent, sessionId, text, requestId, optionId, attachments, title, archived, query
         case skills, mcpServers, server, name, agentId, role, roleId, roles, orchestrate, budgetUsd, configId, value
         case projectId, since, seq, paths, project, schedule, scheduleId, days, timeZone, terminalId, data, message, body
-        case enabled, deviceId, shared, removeWorktree
+        case enabled, deviceId, shared, removeWorktree, card, cardId, column
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -722,6 +728,23 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
             try c.encode("project.save", forKey: .type)
             try c.encode(id, forKey: .id)
             try c.encode(project, forKey: .project)
+        case .boardList(let id, let projectId):
+            try c.encode("board.list", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(projectId, forKey: .projectId)
+        case .cardSave(let id, let card):
+            try c.encode("card.save", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(card, forKey: .card)
+        case .cardMove(let id, let cardId, let column):
+            try c.encode("card.move", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(cardId, forKey: .cardId)
+            try c.encode(column.rawValue, forKey: .column)
+        case .cardDelete(let id, let cardId):
+            try c.encode("card.delete", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(cardId, forKey: .cardId)
         case .projectDelete(let id, let projectId):
             try c.encode("project.delete", forKey: .type)
             try c.encode(id, forKey: .id)
@@ -917,6 +940,8 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
     case schedulesUpdated([ScheduleInfo])
     /// Broadcast after a project was added, changed or removed.
     case projectsUpdated([ProjectInfo])
+    case boardResult(id: String, projectId: String, cards: [CardInfo])
+    case boardUpdated(projectId: String, cards: [CardInfo])
     case usageReportResult(id: String, report: UsageReport)
     /// `backlog`: what the shell printed before this client opened it.
     case terminalOpened(id: String, terminalId: String, sessionId: String, backlog: String)
@@ -937,6 +962,7 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
         case type, `protocol`, server, agents, agentDetails, id, code, message, session, sessions, sessionId, events, event, hits, servers
         case nodes, roles, team, teams, name, expiresAt, hubAddresses
         case changes, projects, schedules, report, terminalId, backlog, data, ports, pullRequest, web, github, url, error
+        case projectId, cards
     }
 
     public init(from decoder: any Decoder) throws {
@@ -1040,6 +1066,10 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
             self = .terminalExited(terminalId: try c.decode(String.self, forKey: .terminalId))
         case "web.status.result":
             self = .webStatusResult(id: try c.decode(String.self, forKey: .id), web: try c.decode(WebAccessStatus.self, forKey: .web))
+        case "board.result":
+            self = .boardResult(id: try c.decode(String.self, forKey: .id), projectId: try c.decode(String.self, forKey: .projectId), cards: try c.decode([CardInfo].self, forKey: .cards))
+        case "board.updated":
+            self = .boardUpdated(projectId: try c.decode(String.self, forKey: .projectId), cards: try c.decode([CardInfo].self, forKey: .cards))
         case "github.status.result":
             self = .githubStatusResult(id: try c.decode(String.self, forKey: .id), github: try c.decode(GitHubStatus.self, forKey: .github))
         case "github.code":

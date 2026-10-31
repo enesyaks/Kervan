@@ -42,6 +42,8 @@ public final class SessionStore {
     private var pullRequestAnswer: PullRequestInfo?
     private var pairingAnswer: WebPairing?
     private var githubCodeAnswer: GitHubDeviceCode?
+    /// Task boards by project, as last reported.
+    public private(set) var boards: [String: [CardInfo]] = [:]
     /// The server's GitHub sign-in as last reported; nil until asked for.
     public private(set) var github: GitHubStatus?
     /// Why the last GitHub sign-in didn't finish, if it didn't.
@@ -175,6 +177,29 @@ public final class SessionStore {
         }
         guard let answer = pullRequestAnswer else { return .failure(RequestFailure(message: L("The server didn't answer.", "Sunucu yanıt vermedi."))) }
         return .success(answer)
+    }
+
+    // MARK: Task boards
+
+    @discardableResult
+    public func loadBoard(_ projectID: String) async -> String? {
+        await call(.boardList(id: Self.newID(), projectId: projectID))
+    }
+
+    @discardableResult
+    public func saveCard(_ card: CardInput) async -> String? {
+        await call(.cardSave(id: Self.newID(), card: card))
+    }
+
+    /// Returns the server's refusal, if any (e.g. moving a started card back to To do).
+    @discardableResult
+    public func moveCard(_ cardID: String, to column: CardColumn) async -> String? {
+        await call(.cardMove(id: Self.newID(), cardId: cardID, column: column))
+    }
+
+    @discardableResult
+    public func deleteCard(_ cardID: String) async -> String? {
+        await call(.cardDelete(id: Self.newID(), cardId: cardID))
     }
 
     // MARK: GitHub
@@ -447,6 +472,8 @@ public final class SessionStore {
             diagnosticsReport = report
         case .sessionPullRequestResult(_, _, let pullRequest):
             pullRequestAnswer = pullRequest
+        case .boardResult(_, let projectId, let cards), .boardUpdated(let projectId, let cards):
+            boards[projectId] = cards
         case .githubStatusResult(_, let status):
             github = status
         case .githubCode(_, let code, let url):

@@ -80,6 +80,9 @@ Typing `@` in the composer brings up a fuzzy file picker of workspace paths; sel
 ### Projects
 Projects link sessions to a shared workspace on the server—from an existing path, an empty folder, or a cloned git repository. Project-level instructions (coding standards, test commands, conventions) are automatically prepended to every session started within that project. In a git repository each session gets its own worktree and branch, so parallel sessions never edit the same files; archiving can remove the worktree while keeping the branch.
 
+### Task board
+Each project has a board with To do, Working, Needs you, Review and Done. Moving a card to Working starts a session with its prompt (on its own worktree in a git project); the card then follows the session by itself, and archiving the session puts it in Done. Stored on the server, shown in the app and, read-only, in the web client.
+
 ### Scheduled tasks
 Automated tasks run on recurring daily schedules (at specific times on selected weekdays) or periodic intervals (every N minutes). When due, Kervan starts a dedicated session, executes the user prompt, records the outcome, and sends a system notification upon completion. Schedules respect the user's local Mac time zone.
 

@@ -56,6 +56,7 @@ struct ProjectView: View {
                     .disabled(!model.canCreateSession)
                 }
             } content: {
+                BoardSection(projectID: projectID)
                 SettingsCard(title: L("Instructions", "Talimatlar")) {
                     Text(project.instructions.isEmpty
                         ? L("No instructions. Agents still read CLAUDE.md or AGENTS.md in the folder themselves.", "Talimat yok. Ajanlar klasördeki CLAUDE.md ya da AGENTS.md dosyalarını yine kendileri okur.")
