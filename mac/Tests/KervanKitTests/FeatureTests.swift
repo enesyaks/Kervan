@@ -272,3 +272,16 @@ import Testing
         #expect(id == "p" && code == "ABCD-EFGH")
     }
 }
+
+@Suite struct GitHubTests {
+    @Test func codeAndUpdatesDecode() throws {
+        let code = try ServerMessage.decode(#"{"type":"github.code","id":"g","code":"AB12-CD34","url":"https://github.com/login/device"}"#)
+        guard case .githubCode(let id, let value, let url) = code else { Issue.record("not a code"); return }
+        #expect(id == "g" && value == "AB12-CD34" && url.host() == "github.com")
+        #expect(code.requestID == "g")
+        let done = try ServerMessage.decode(#"{"type":"github.updated","github":{"available":true,"signedIn":true,"signingIn":false,"account":"enesyaks"}}"#)
+        guard case .githubUpdated(let status, let error) = done else { Issue.record("not an update"); return }
+        #expect(status.account == "enesyaks" && status.signedIn && error == nil)
+        #expect(try ClientMessage.githubConnect(id: "c").jsonString().contains(#""type":"github.connect""#))
+    }
+}

@@ -30,6 +30,17 @@ struct PullRequestSheet: View {
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
 
+            // Without a GitHub sign-in the push fails; connecting here saves a trip to Settings.
+            if model.store.github?.signedIn != true {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(L("The server isn't connected to GitHub yet, so it can't push.", "Sunucu henüz GitHub'a bağlı değil, bu yüzden push edemez."))
+                        .font(.callout.weight(.medium))
+                    GitHubConnection()
+                }
+                .padding(12)
+                .softSurface(radius: Radius.card)
+            }
+
             Form {
                 TextField(L("Title", "Başlık"), text: $title, prompt: Text(L("e.g. Fix the login redirect", "ör. Giriş yönlendirmesini düzelt")))
                 VStack(alignment: .leading, spacing: 4) {

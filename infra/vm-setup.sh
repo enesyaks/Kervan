@@ -15,8 +15,7 @@ fi
 echo "==> packages"
 apt-get update
 # avahi: nodes on the LAN find the hub as <hostname>.local, whatever IP it gets.
-# gh lets the server open pull requests from a session. Sign in once as the service user:
-#   sudo -u kervan -H gh auth login && sudo -u kervan -H gh auth setup-git
+# gh lets the server open pull requests from a session; connect it from the app: Settings › General › GitHub.
 apt-get install -y ca-certificates curl gnupg git gh build-essential sqlite3 ufw rsync avahi-daemon
 
 echo "==> node ${NODE_MAJOR}"

@@ -201,6 +201,15 @@ export interface UsageReport {
 }
 
 /** For "Report a problem": no prompts, no keys; log lines are redacted. */
+/** Whether the server can push and open pull requests: gh installed, and signed in to GitHub as `account`. */
+export interface GitHubStatus {
+  available: boolean;
+  signedIn: boolean;
+  /** A sign-in is waiting for the user to enter its code. */
+  signingIn: boolean;
+  account?: string;
+}
+
 /** A browser paired for the web client. Its key is never sent back, only who it is. */
 export interface WebDevice {
   id: string;
@@ -286,6 +295,10 @@ export type ClientMessage =
   | { type: "web.enable"; id: string; enabled: boolean }
   | { type: "web.pair"; id: string }
   | { type: "web.revoke"; id: string; deviceId: string }
+  /** GitHub sign-in for the server's gh, from the app only. */
+  | { type: "github.status"; id: string }
+  | { type: "github.connect"; id: string }
+  | { type: "github.disconnect"; id: string }
   | { type: "project.list"; id: string }
   | { type: "project.save"; id: string; project: Record<string, unknown> }
   | { type: "project.delete"; id: string; projectId: string }
@@ -376,7 +389,11 @@ export type ServerMessage =
   | { type: "diagnostics.result"; id: string; report: Diagnostics }
   | { type: "session.pullRequest.result"; id: string; sessionId: string; pullRequest: PullRequestInfo }
   | { type: "web.status.result"; id: string; web: WebAccessStatus }
-  | { type: "web.paired"; id: string; code: string; expiresAt: string };
+  | { type: "web.paired"; id: string; code: string; expiresAt: string }
+  | { type: "github.status.result"; id: string; github: GitHubStatus }
+  /** The code to enter at `url`; `github.updated` follows when the sign-in ends. */
+  | { type: "github.code"; id: string; code: string; url: string }
+  | { type: "github.updated"; github: GitHubStatus; error?: string };
 
 export type ParseResult =
   | { ok: true; message: ClientMessage }
@@ -435,6 +452,9 @@ const STRING_FIELDS: Record<string, readonly string[]> = {
   "web.enable": ["id"],
   "web.pair": ["id"],
   "web.revoke": ["id", "deviceId"],
+  "github.status": ["id"],
+  "github.connect": ["id"],
+  "github.disconnect": ["id"],
   "project.list": ["id"],
   "project.save": ["id"],
   "project.delete": ["id", "projectId"],

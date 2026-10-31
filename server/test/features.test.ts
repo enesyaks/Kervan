@@ -10,6 +10,7 @@ import { isDue, localParts } from "../src/schedules.ts";
 import { parseLsof, parseSs } from "../src/tunnel.ts";
 import { redact } from "../src/diagnostics.ts";
 import { githubRepoURL, openPullRequest } from "../src/pullrequest.ts";
+import { accountFrom, deviceCodeFrom, GitHubAccess } from "../src/github.ts";
 import { WebAccess as WebAccessStore, type WebAccess } from "../src/webaccess.ts";
 import { log } from "../src/log.ts";
 import type { ScheduleInfo } from "../src/protocol.ts";
@@ -471,5 +472,51 @@ describe("web access store", () => {
     access.setEnabled(false);
     assert.equal(access.authenticate(paired.token), undefined, "off means no device gets in");
     assert.deepEqual(ended, [null]);
+  });
+});
+
+describe("GitHub sign-in", () => {
+  it("reads the account from either wording of gh auth status, and the code gh prints", () => {
+    assert.equal(accountFrom("github.com\n  ✓ Logged in to github.com account enesyaks (keyring)"), "enesyaks");
+    assert.equal(accountFrom("✓ Logged in to github.com as octo-cat (oauth_token)"), "octo-cat");
+    assert.equal(accountFrom("You are not logged into any GitHub hosts."), undefined);
+    assert.deepEqual(deviceCodeFrom("! First copy your one-time code: AB12-CD34\nOpen this URL to continue in your web browser: https://github.com/login/device"), {
+      code: "AB12-CD34",
+      url: "https://github.com/login/device",
+    });
+  });
+
+  it("shows the code, then reports the account once the stand-in gh finishes", async () => {
+    // A stand-in gh: login prints a code and succeeds; status says who is signed in once a login has finished.
+    const bin = mkdtempSync(join(tmpdir(), "kervan-gh-"));
+    const state = join(bin, "signed-in");
+    writeFileSync(
+      join(bin, "gh"),
+      `#!/bin/sh
+case "$1 $2" in
+  "--version "*) echo "gh version 9" ;;
+  "auth login") echo "! First copy your one-time code: WXYZ-2345" >&2; echo "Open this URL to continue in your web browser: https://github.com/login/device" >&2; sleep 0.2; touch "${state}" ;;
+  "auth status") if [ -f "${state}" ]; then echo "  ✓ Logged in to github.com account tester (keyring)"; else echo "You are not logged into any GitHub hosts." >&2; exit 1; fi ;;
+  "auth setup-git") ;;
+  "auth logout") rm -f "${state}" ;;
+esac
+`,
+      { mode: 0o755 },
+    );
+    const path = process.env.PATH;
+    process.env.PATH = `${bin}:${path}`;
+    try {
+      const access = new GitHubAccess();
+      assert.deepEqual(await access.status(), { available: true, signedIn: false, signingIn: false });
+      const done = new Promise<string | undefined>((resolve) => {
+        void access.connect(resolve).then((device) => assert.equal(device.code, "WXYZ-2345"));
+      });
+      assert.equal(await done, undefined);
+      assert.deepEqual(await access.status(), { available: true, signedIn: true, signingIn: false, account: "tester" });
+      await access.disconnect();
+      assert.equal((await access.status()).signedIn, false);
+    } finally {
+      process.env.PATH = path;
+    }
   });
 });

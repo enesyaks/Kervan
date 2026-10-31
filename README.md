@@ -154,7 +154,7 @@ and its access ends at once. On a phone, **Add to Home Screen** makes it open li
 | **Nodes** | Run agents on other machines too (a GPU box, say); the hub brings them all into one app. |
 | **Model picker** | The agent's models, thinking level and modes sit under the composer. |
 | **Search and archive** | Full-text search across every conversation; archive old sessions. |
-| **Pull requests** | From the Changes panel, push a session's work on its own branch and open a pull request (with `gh` signed in on the server as the service user: `sudo -u kervan -H gh auth login`, then `sudo -u kervan -H gh auth setup-git`; otherwise GitHub opens with it ready). |
+| **Pull requests** | From the Changes panel, push a session's work on its own branch and open a pull request (connect the server to GitHub once in **Settings › General › GitHub**: it shows a code you approve in your browser; without it GitHub opens with the pull request ready). |
 | **Resilience** | Every event is written to SQLite first. If the server restarts, sessions are recovered and the agent continues the conversation where it left off. |
 
 ## How it works

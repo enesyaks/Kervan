@@ -153,7 +153,7 @@ kaldırın, erişimi anında biter. Telefonda **Ana Ekrana Ekle** ile uygulama g
 | **Node'lar** | Ajanları başka makinelerde de çalıştırın (ör. GPU'lu bir kutu); hub hepsini tek uygulamada toplar. |
 | **Model seçici** | Ajanın sunduğu model, düşünme seviyesi ve mod yazma kutusunun altında. |
 | **Arama ve arşiv** | Bütün konuşmalarda tam metin arama; eski oturumları arşivleyin. |
-| **Pull request** | Değişiklikler panelinden oturumun işini kendi branch'inde push edip pull request açın (sunucuda servis kullanıcısıyla `gh` girişi yapılmışsa doğrudan: `sudo -u kervan -H gh auth login`, ardından `sudo -u kervan -H gh auth setup-git`; değilse GitHub hazır hâliyle açılır). |
+| **Pull request** | Değişiklikler panelinden oturumun işini kendi branch'inde push edip pull request açın (sunucuyu bir kez **Ayarlar › Genel › GitHub**'dan GitHub'a bağlayın: bir kod gösterir, tarayıcınızda onaylarsınız; bağlı değilse GitHub, pull request hazır hâliyle açılır). |
 | **Dayanıklılık** | Her olay önce SQLite'a yazılır. Sunucu yeniden başlarsa oturumlar kurtarılır, ajan konuşmaya kaldığı yerden devam eder. |
 
 ## Nasıl çalışır

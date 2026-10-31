@@ -391,6 +391,21 @@ public struct UsageReport: Codable, Equatable, Sendable {
     }
 }
 
+/// Whether the server can push and open pull requests: gh installed, and signed in to GitHub as `account`.
+public struct GitHubStatus: Codable, Equatable, Sendable {
+    public let available: Bool
+    public let signedIn: Bool
+    /// A sign-in is waiting for its code to be entered.
+    public let signingIn: Bool
+    public let account: String?
+}
+
+/// The code to enter at `url` (github.com/login/device) to sign the server in.
+public struct GitHubDeviceCode: Equatable, Sendable {
+    public let code: String
+    public let url: URL
+}
+
 /// A browser paired for the web client. Its key never comes back to the app, only who it is.
 public struct WebDevice: Codable, Equatable, Sendable, Identifiable {
     public let id: String

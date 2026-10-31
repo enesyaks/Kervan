@@ -618,6 +618,10 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
     case webEnable(id: String, enabled: Bool)
     case webPair(id: String)
     case webRevoke(id: String, deviceId: String)
+    /// The server's GitHub sign-in (for pull requests). The app only.
+    case githubStatus(id: String)
+    case githubConnect(id: String)
+    case githubDisconnect(id: String)
     case projectList(id: String)
     case projectSave(id: String, project: ProjectInput)
     case projectDelete(id: String, projectId: String)
@@ -681,6 +685,15 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
             try c.encode(id, forKey: .id)
             try c.encode(sessionId, forKey: .sessionId)
             try c.encode(message, forKey: .message)
+        case .githubStatus(let id):
+            try c.encode("github.status", forKey: .type)
+            try c.encode(id, forKey: .id)
+        case .githubConnect(let id):
+            try c.encode("github.connect", forKey: .type)
+            try c.encode(id, forKey: .id)
+        case .githubDisconnect(let id):
+            try c.encode("github.disconnect", forKey: .type)
+            try c.encode(id, forKey: .id)
         case .webStatus(let id):
             try c.encode("web.status", forKey: .type)
             try c.encode(id, forKey: .id)
@@ -911,13 +924,16 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
     case sessionPullRequestResult(id: String, sessionId: String, pullRequest: PullRequestInfo)
     case webStatusResult(id: String, web: WebAccessStatus)
     case webPaired(id: String, code: String, expiresAt: String)
+    case githubStatusResult(id: String, github: GitHubStatus)
+    case githubCode(id: String, code: String, url: URL)
+    case githubUpdated(github: GitHubStatus, error: String?)
     /// A type this client doesn't know yet. Ignored, so the server can add types without a version bump.
     case unknown(type: String)
 
     private enum CodingKeys: String, CodingKey {
         case type, `protocol`, server, agents, agentDetails, id, code, message, session, sessions, sessionId, events, event, hits, servers
         case nodes, roles, team, teams, name, expiresAt, hubAddresses
-        case changes, projects, schedules, report, terminalId, backlog, data, ports, pullRequest, web
+        case changes, projects, schedules, report, terminalId, backlog, data, ports, pullRequest, web, github, url, error
     }
 
     public init(from decoder: any Decoder) throws {
@@ -1021,6 +1037,12 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
             self = .terminalExited(terminalId: try c.decode(String.self, forKey: .terminalId))
         case "web.status.result":
             self = .webStatusResult(id: try c.decode(String.self, forKey: .id), web: try c.decode(WebAccessStatus.self, forKey: .web))
+        case "github.status.result":
+            self = .githubStatusResult(id: try c.decode(String.self, forKey: .id), github: try c.decode(GitHubStatus.self, forKey: .github))
+        case "github.code":
+            self = .githubCode(id: try c.decode(String.self, forKey: .id), code: try c.decode(String.self, forKey: .code), url: try c.decode(URL.self, forKey: .url))
+        case "github.updated":
+            self = .githubUpdated(github: try c.decode(GitHubStatus.self, forKey: .github), error: try c.decodeIfPresent(String.self, forKey: .error))
         case "web.paired":
             self = .webPaired(
                 id: try c.decode(String.self, forKey: .id),

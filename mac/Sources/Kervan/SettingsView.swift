@@ -113,6 +113,16 @@ private struct GeneralSettings: View {
                         }
                     }
                 }
+
+                SettingsCard(
+                    title: "GitHub",
+                    footer: L(
+                        "Lets the server push a session's work and open pull requests from the Changes panel. You approve it in your browser; the sign-in stays on the server.",
+                        "Sunucunun bir oturumun işini push etmesini ve Değişiklikler panelinden pull request açmasını sağlar. Tarayıcınızda onaylarsınız; giriş sunucuda kalır."
+                    )
+                ) {
+                    GitHubConnection()
+                }
             }
             .padding(20)
         }

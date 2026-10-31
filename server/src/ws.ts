@@ -9,6 +9,10 @@ import { NODE_NAME, LOCAL_NODE } from "./nodes.ts";
 import type { SessionManager } from "./sessions.ts";
 import { listeningPorts, pipeTunnel, TUNNEL_PATH } from "./tunnel.ts";
 import { AttemptLimiter, type WebAccess } from "./webaccess.ts";
+import { GitHubAccess } from "./github.ts";
+
+/** One per server: the gh sign-in belongs to the user the server runs as. */
+const github = new GitHubAccess();
 import { diagnostics } from "./diagnostics.ts";
 import { VERSION } from "./version.ts";
 
@@ -114,6 +118,20 @@ async function handleRequest(
     return web;
   };
   switch (message.type) {
+    case "github.status":
+      return send(ws, { type: "github.status.result", id: message.id, github: await github.status() });
+    case "github.connect": {
+      const device = await github.connect(async (error) => {
+        sessions.broadcast({ type: "github.updated", github: await github.status(), ...(error ? { error } : {}) });
+      });
+      return send(ws, { type: "github.code", id: message.id, ...device });
+    }
+    case "github.disconnect": {
+      await github.disconnect();
+      const status = await github.status();
+      sessions.broadcast({ type: "github.updated", github: status });
+      return send(ws, { type: "github.status.result", id: message.id, github: status });
+    }
     case "web.status":
       return send(ws, { type: "web.status.result", id: message.id, web: requireWeb().status() });
     case "web.enable":

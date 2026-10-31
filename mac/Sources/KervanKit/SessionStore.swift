@@ -41,6 +41,11 @@ public final class SessionStore {
     private var diagnosticsReport: Diagnostics?
     private var pullRequestAnswer: PullRequestInfo?
     private var pairingAnswer: WebPairing?
+    private var githubCodeAnswer: GitHubDeviceCode?
+    /// The server's GitHub sign-in as last reported; nil until asked for.
+    public private(set) var github: GitHubStatus?
+    /// Why the last GitHub sign-in didn't finish, if it didn't.
+    public private(set) var githubError: String?
     /// Web access as the server last told it; nil until asked for.
     public private(set) var webAccess: WebAccessStatus?
     /// The shell open in each session's folder, by session id.
@@ -170,6 +175,28 @@ public final class SessionStore {
         }
         guard let answer = pullRequestAnswer else { return .failure(RequestFailure(message: L("The server didn't answer.", "Sunucu yanıt vermedi."))) }
         return .success(answer)
+    }
+
+    // MARK: GitHub
+
+    @discardableResult
+    public func loadGitHub() async -> String? {
+        await call(.githubStatus(id: Self.newID()))
+    }
+
+    /// Starts the server's GitHub sign-in; the code to enter, or the server's refusal. `github` updates when it ends.
+    public func connectGitHub() async -> Result<GitHubDeviceCode, RequestFailure> {
+        githubCodeAnswer = nil
+        githubError = nil
+        if let failure = await call(.githubConnect(id: Self.newID())) { return .failure(RequestFailure(message: failure)) }
+        guard let answer = githubCodeAnswer else { return .failure(RequestFailure(message: L("The server didn't answer.", "Sunucu yanıt vermedi."))) }
+        return .success(answer)
+    }
+
+    @discardableResult
+    public func disconnectGitHub() async -> String? {
+        githubError = nil
+        return await call(.githubDisconnect(id: Self.newID()))
     }
 
     // MARK: Web access
@@ -418,6 +445,13 @@ public final class SessionStore {
             diagnosticsReport = report
         case .sessionPullRequestResult(_, _, let pullRequest):
             pullRequestAnswer = pullRequest
+        case .githubStatusResult(_, let status):
+            github = status
+        case .githubCode(_, let code, let url):
+            githubCodeAnswer = GitHubDeviceCode(code: code, url: url)
+        case .githubUpdated(let status, let error):
+            github = status
+            githubError = error
         case .webStatusResult(_, let web):
             webAccess = web
         case .webPaired(_, let code, let expiresAt):
