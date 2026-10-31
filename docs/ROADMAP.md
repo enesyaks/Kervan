@@ -114,4 +114,6 @@ After the onboarding, six short cards walk through sessions, projects, approvals
 
 ## Up next
 
+The detailed plan, with acceptance criteria per step: [plans/next-features.md](plans/next-features.md).
+
 - **Real-agent end-to-end testing:** Automated test suites that execute real coding agents (Claude Code, Codex, Gemini) against sample repositories over ACP, validating tool calls, plan updates, diff generation, and recovery.
