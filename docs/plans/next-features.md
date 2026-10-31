@@ -49,7 +49,10 @@ Acceptance:
 - The card's column changes by itself as its session's status changes, on the Mac and in the web client.
 - The board survives a server restart.
 
-### Step 3. Phone alerts
+### Step 3. Phone alerts (done)
+
+Shipped as planned, plus a "Show session names" switch: a name the user didn't give is the first line of the first message.
+
 
 Implement server-side alerts so a phone hears about an approval or a finished turn without the Mac. The first channel
 is ntfy (a topic on ntfy.sh or a self-hosted server), with a generic webhook as the second; both are set in the app.

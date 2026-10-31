@@ -22,6 +22,7 @@ import { commitAll, repositoryBranch, type Checkpoints } from "./checkpoints.ts"
 import { openPullRequest } from "./pullrequest.ts";
 import type { ProjectRegistry } from "./projects.ts";
 import type { Board } from "./board.ts";
+import type { Alerts } from "./alerts.ts";
 import { localParts, type Scheduler } from "./schedules.ts";
 import { TerminalHub } from "./terminals.ts";
 import type { AgentProcess, AgentRunner, PermissionDecision, PermissionRequest } from "./runner.ts";
@@ -169,6 +170,7 @@ export class SessionManager {
   /** Set once the scheduler exists (it needs this manager to start its sessions). */
   scheduler?: Scheduler;
   board?: Board;
+  alerts?: Alerts;
   /** The user's shells in session folders; their output goes to every client. */
   readonly terminals = new TerminalHub((message) => this.broadcast(message));
 

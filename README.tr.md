@@ -154,6 +154,7 @@ kaldırın, erişimi anında biter. Telefonda **Ana Ekrana Ekle** ile uygulama g
 | **Node'lar** | Ajanları başka makinelerde de çalıştırın (ör. GPU'lu bir kutu); hub hepsini tek uygulamada toplar. |
 | **Model seçici** | Ajanın sunduğu model, düşünme seviyesi ve mod yazma kutusunun altında. |
 | **Arama ve arşiv** | Bütün konuşmalarda tam metin arama; eski oturumları arşivleyin. |
+| **Telefona bildirim** | Bir ajan onay beklediğinde, bitirdiğinde ya da hata verdiğinde sunucu telefonunuza [ntfy](https://ntfy.sh) ya da bir webhook ile haber verir; Mac uyurken bile. **Ayarlar › Bildirimler**'den kurulur; bildirime dokununca oturum web sürümünde açılır. |
 | **Görev panosu** | Her projenin bir panosu var: kartlar bir istem taşır, birini Çalışıyor'a sürükleyince oturum başlar; kart oturum ilerledikçe kendiliğinden Sizi bekliyor, İncelenecek ve Bitti'ye geçer. Web sürümü aynı panoyu gösterir. |
 | **Pull request** | Değişiklikler panelinden oturumun işini kendi branch'inde push edip pull request açın (sunucuyu bir kez **Ayarlar › Genel › GitHub**'dan GitHub'a bağlayın: bir kod gösterir, tarayıcınızda onaylarsınız; bağlı değilse GitHub, pull request hazır hâliyle açılır). |
 | **Dayanıklılık** | Her olay önce SQLite'a yazılır. Sunucu yeniden başlarsa oturumlar kurtarılır, ajan konuşmaya kaldığı yerden devam eder. |

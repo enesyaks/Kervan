@@ -92,6 +92,11 @@ function requireMcp(sessions: SessionManager) {
   return sessions.mcp;
 }
 
+function requireAlerts(sessions: SessionManager) {
+  if (!sessions.alerts) throw new KervanError("bad_message", "this server has no alerts");
+  return sessions.alerts;
+}
+
 function requireBoard(sessions: SessionManager) {
   if (!sessions.board) throw new KervanError("bad_message", "this server has no task boards");
   return sessions.board;
@@ -126,6 +131,14 @@ async function handleRequest(
     return web;
   };
   switch (message.type) {
+    case "alerts.get":
+      return send(ws, { type: "alerts.result", id: message.id, alerts: requireAlerts(sessions).view() });
+    case "alerts.save":
+      requireAlerts(sessions).save(message.alerts);
+      return send(ws, { type: "alerts.result", id: message.id, alerts: requireAlerts(sessions).view() });
+    case "alerts.test":
+      await requireAlerts(sessions).test();
+      return send(ws, { type: "ok", id: message.id });
     case "board.list":
       return send(ws, { type: "board.result", id: message.id, projectId: message.projectId, cards: requireBoard(sessions).list(message.projectId) });
     case "card.save": {

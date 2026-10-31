@@ -80,6 +80,9 @@ Typing `@` in the composer brings up a fuzzy file picker of workspace paths; sel
 ### Projects
 Projects link sessions to a shared workspace on the server—from an existing path, an empty folder, or a cloned git repository. Project-level instructions (coding standards, test commands, conventions) are automatically prepended to every session started within that project. In a git repository each session gets its own worktree and branch, so parallel sessions never edit the same files; archiving can remove the worktree while keeping the branch.
 
+### Phone alerts
+The server sends alerts itself when an agent needs approval, finishes a turn or stops with an error: through ntfy (ntfy.sh or self-hosted, with an optional access token) and a JSON webhook. One alert per approval; the session's name and agent only, with session names optional; sending runs on its own with a five-second limit, so it never slows a session. Tapping an alert opens the session in the web client.
+
 ### Task board
 Each project has a board with To do, Working, Needs you, Review and Done. Moving a card to Working starts a session with its prompt (on its own worktree in a git project); the card then follows the session by itself, and archiving the session puts it in Done. Stored on the server, shown in the app and, read-only, in the web client.
 

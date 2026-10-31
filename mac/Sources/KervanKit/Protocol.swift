@@ -625,6 +625,10 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
     case projectList(id: String)
     case projectSave(id: String, project: ProjectInput)
     case projectDelete(id: String, projectId: String)
+    /// Phone alerts (ntfy, webhook). The app only.
+    case alertsGet(id: String)
+    case alertsSave(id: String, alerts: AlertInput)
+    case alertsTest(id: String)
     /// A project's task board.
     case boardList(id: String, projectId: String)
     case cardSave(id: String, card: CardInput)
@@ -670,7 +674,7 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
         case type, `protocol`, client, id, agent, sessionId, text, requestId, optionId, attachments, title, archived, query
         case skills, mcpServers, server, name, agentId, role, roleId, roles, orchestrate, budgetUsd, configId, value
         case projectId, since, seq, paths, project, schedule, scheduleId, days, timeZone, terminalId, data, message, body
-        case enabled, deviceId, shared, removeWorktree, card, cardId, column
+        case enabled, deviceId, shared, removeWorktree, card, cardId, column, alerts
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -728,6 +732,16 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
             try c.encode("project.save", forKey: .type)
             try c.encode(id, forKey: .id)
             try c.encode(project, forKey: .project)
+        case .alertsGet(let id):
+            try c.encode("alerts.get", forKey: .type)
+            try c.encode(id, forKey: .id)
+        case .alertsSave(let id, let alerts):
+            try c.encode("alerts.save", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(alerts, forKey: .alerts)
+        case .alertsTest(let id):
+            try c.encode("alerts.test", forKey: .type)
+            try c.encode(id, forKey: .id)
         case .boardList(let id, let projectId):
             try c.encode("board.list", forKey: .type)
             try c.encode(id, forKey: .id)
@@ -940,6 +954,7 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
     case schedulesUpdated([ScheduleInfo])
     /// Broadcast after a project was added, changed or removed.
     case projectsUpdated([ProjectInfo])
+    case alertsResult(id: String, alerts: AlertSettings)
     case boardResult(id: String, projectId: String, cards: [CardInfo])
     case boardUpdated(projectId: String, cards: [CardInfo])
     case usageReportResult(id: String, report: UsageReport)
@@ -962,7 +977,7 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
         case type, `protocol`, server, agents, agentDetails, id, code, message, session, sessions, sessionId, events, event, hits, servers
         case nodes, roles, team, teams, name, expiresAt, hubAddresses
         case changes, projects, schedules, report, terminalId, backlog, data, ports, pullRequest, web, github, url, error
-        case projectId, cards
+        case projectId, cards, alerts
     }
 
     public init(from decoder: any Decoder) throws {
@@ -1066,6 +1081,8 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
             self = .terminalExited(terminalId: try c.decode(String.self, forKey: .terminalId))
         case "web.status.result":
             self = .webStatusResult(id: try c.decode(String.self, forKey: .id), web: try c.decode(WebAccessStatus.self, forKey: .web))
+        case "alerts.result":
+            self = .alertsResult(id: try c.decode(String.self, forKey: .id), alerts: try c.decode(AlertSettings.self, forKey: .alerts))
         case "board.result":
             self = .boardResult(id: try c.decode(String.self, forKey: .id), projectId: try c.decode(String.self, forKey: .projectId), cards: try c.decode([CardInfo].self, forKey: .cards))
         case "board.updated":

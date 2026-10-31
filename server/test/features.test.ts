@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type AddressInfo } from "node:net";
+import { createServer as createHttpServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
@@ -134,6 +135,80 @@ describe("changes, projects, schedules, terminals, ports, usage", () => {
 
     const outside = await ask(ws, inbox, { type: "session.revert", sessionId, seq: first.messageSeq, paths: ["../x"] });
     assert.equal(outside.type, "error");
+  });
+
+  it("alerts once per approval with the session's name only, and never holds a session up", async () => {
+    const { ws, inbox } = await client();
+    // A stand-in ntfy server that remembers what it was sent.
+    const received: { body: any; auth: string | undefined }[] = [];
+    const ntfy = createHttpServer((req, res) => {
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      req.on("end", () => {
+        received.push({ body: JSON.parse(body), auth: req.headers.authorization });
+        res.end("{}");
+      });
+    });
+    await new Promise<void>((resolve) => ntfy.listen(0, "127.0.0.1", resolve));
+    const ntfyUrl = `http://127.0.0.1:${(ntfy.address() as AddressInfo).port}`;
+    try {
+      assert.equal((await ask(ws, inbox, { type: "alerts.get" })).alerts.enabled, false);
+      const saved = await ask(ws, inbox, {
+        type: "alerts.save",
+        alerts: { enabled: true, events: { finished: false }, ntfy: { server: ntfyUrl, topic: "kervan-test", token: "t0k3n" }, openUrl: "http://kervan:7420" },
+      });
+      assert.equal(saved.type, "alerts.result", JSON.stringify(saved));
+      assert.equal(saved.alerts.ntfy.tokenSet, true);
+      assert.ok(!JSON.stringify(saved).includes("t0k3n"), "the token never goes back to a client");
+
+      const sessionId = await idleSession(ws, inbox);
+      await ask(ws, inbox, { type: "session.rename", sessionId, title: "Docs" });
+      send(ws, { type: "session.prompt", id: nextId(), sessionId, text: "use the tool on SECRETWORD" });
+      const request = await inbox.waitFor((m) => m.type === "session.event" && m.sessionId === sessionId && m.event.kind === "permission_request");
+      const started = Date.now();
+      while (received.length === 0 && Date.now() - started < 5_000) await new Promise((r) => setTimeout(r, 50));
+      assert.equal(received.length, 1, "one alert within five seconds");
+      const alert = received[0];
+      assert.equal(alert.body.topic, "kervan-test");
+      assert.equal(alert.body.title, "Docs");
+      assert.match(alert.body.message, /waiting for your approval/);
+      assert.equal(alert.body.click, `http://kervan:7420/#/s/${sessionId}`);
+      assert.equal(alert.auth, "Bearer t0k3n");
+      assert.ok(!JSON.stringify(alert.body).includes("SECRETWORD"), "no prompt text in the alert");
+
+      // Resolving it sends nothing more (finished-turn alerts are off here).
+      await ask(ws, inbox, { type: "session.permission", sessionId, requestId: request.event.requestId, optionId: "yes" });
+      await inbox.waitFor((m) => m.type === "session.event" && m.sessionId === sessionId && m.event.kind === "turn_end");
+      await new Promise((r) => setTimeout(r, 300));
+      assert.equal(received.length, 1);
+      assert.equal((await ask(ws, inbox, { type: "alerts.test" })).type, "ok");
+      assert.equal(received.length, 2);
+
+      // Without names, an alert says only which agent and what happened.
+      await ask(ws, inbox, { type: "alerts.save", alerts: { includeNames: false } });
+      send(ws, { type: "session.prompt", id: nextId(), sessionId, text: "use the tool once more" });
+      const nameless = await inbox.waitFor((m) => m.type === "session.event" && m.sessionId === sessionId && m.event.kind === "permission_request" && m.event.requestId !== request.event.requestId);
+      while (received.length < 3) await new Promise((r) => setTimeout(r, 50));
+      assert.equal(received[2].body.title, "Kervan");
+      assert.match(received[2].body.message, /^Fake/);
+      await ask(ws, inbox, { type: "session.permission", sessionId, requestId: nameless.event.requestId, optionId: "yes" });
+      await inbox.waitFor((m) => m.type === "session.event" && m.sessionId === sessionId && m.event.kind === "turn_end" && m.event.seq > nameless.event.seq);
+
+      // An address nothing answers on: the turn still ends at once, and the test says why it failed.
+      await ask(ws, inbox, { type: "alerts.save", alerts: { events: { finished: true }, ntfy: { server: "http://127.0.0.1:1", topic: "kervan-test", token: null } } });
+      const before = Date.now();
+      send(ws, { type: "session.prompt", id: nextId(), sessionId, text: "use the tool again" });
+      const second = await inbox.waitFor((m) => m.type === "session.event" && m.sessionId === sessionId && m.event.kind === "permission_request" && m.event.requestId !== request.event.requestId && m.event.requestId !== nameless.event.requestId);
+      await ask(ws, inbox, { type: "session.permission", sessionId, requestId: second.event.requestId, optionId: "yes" });
+      await inbox.waitFor((m) => m.type === "session.event" && m.sessionId === sessionId && m.event.kind === "turn_end" && m.event.seq > second.event.seq);
+      assert.ok(Date.now() - before < 3_000, "alerts that fail to send don't slow the session");
+      const failed = await ask(ws, inbox, { type: "alerts.test" });
+      assert.equal(failed.type, "error");
+      assert.match(failed.message, /couldn't be reached/);
+    } finally {
+      ntfy.close();
+      await ask(ws, inbox, { type: "alerts.save", alerts: { enabled: false } });
+    }
   });
 
   it("runs a board card as a session and moves the card with it, and keeps the board across a restart", async () => {

@@ -42,6 +42,8 @@ public final class SessionStore {
     private var pullRequestAnswer: PullRequestInfo?
     private var pairingAnswer: WebPairing?
     private var githubCodeAnswer: GitHubDeviceCode?
+    /// Phone alert settings as last reported; nil until asked for.
+    public private(set) var alerts: AlertSettings?
     /// Task boards by project, as last reported.
     public private(set) var boards: [String: [CardInfo]] = [:]
     /// The server's GitHub sign-in as last reported; nil until asked for.
@@ -177,6 +179,24 @@ public final class SessionStore {
         }
         guard let answer = pullRequestAnswer else { return .failure(RequestFailure(message: L("The server didn't answer.", "Sunucu yanıt vermedi."))) }
         return .success(answer)
+    }
+
+    // MARK: Phone alerts
+
+    @discardableResult
+    public func loadAlerts() async -> String? {
+        await call(.alertsGet(id: Self.newID()))
+    }
+
+    @discardableResult
+    public func saveAlerts(_ input: AlertInput) async -> String? {
+        await call(.alertsSave(id: Self.newID(), alerts: input))
+    }
+
+    /// Sends a test alert; the reason it didn't arrive, if the server could tell.
+    @discardableResult
+    public func testAlerts() async -> String? {
+        await call(.alertsTest(id: Self.newID()))
     }
 
     // MARK: Task boards
@@ -472,6 +492,8 @@ public final class SessionStore {
             diagnosticsReport = report
         case .sessionPullRequestResult(_, _, let pullRequest):
             pullRequestAnswer = pullRequest
+        case .alertsResult(_, let settings):
+            alerts = settings
         case .boardResult(_, let projectId, let cards), .boardUpdated(let projectId, let cards):
             boards[projectId] = cards
         case .githubStatusResult(_, let status):

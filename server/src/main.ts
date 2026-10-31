@@ -5,6 +5,7 @@ import { LocalAcpRunner } from "./runner.ts";
 import { createKervanServer, VERSION } from "./server.ts";
 import { WebAccess } from "./webaccess.ts";
 import { attachBoard } from "./board.ts";
+import { attachAlerts } from "./alerts.ts";
 import { SessionManager } from "./sessions.ts";
 import { EventStore } from "./store.ts";
 import { McpRegistry } from "./mcp.ts";
@@ -66,6 +67,7 @@ const scheduler = new Scheduler(join(config.dataDir, "schedules.json"), {
 scheduler.onChange = (schedules) => sessions.broadcast({ type: "schedules.updated", schedules });
 sessions.scheduler = scheduler;
 attachBoard(sessions, join(config.dataDir, "board.json"));
+attachAlerts(sessions, join(config.dataDir, "alerts.json"));
 scheduler.start((task) =>
   sessions.runTask({ agent: task.agent, title: task.title, prompt: task.prompt, scheduleId: task.id, ...(task.projectId ? { projectId: task.projectId } : {}) }),
 );

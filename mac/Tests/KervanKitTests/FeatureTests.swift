@@ -306,3 +306,17 @@ import Testing
         #expect(move.contains(#""column":"working""#) && move.contains(#""type":"card.move""#))
     }
 }
+
+@Suite struct PhoneAlertTests {
+    @Test func secretsAreKeptUnlessReplacedOrRemoved() throws {
+        let events = AlertSettings.Events(approval: true, finished: false, error: true)
+        let keep: String = try ClientMessage.alertsSave(id: "a", alerts: AlertInput(enabled: true, events: events, ntfyServer: "https://ntfy.sh", ntfyTopic: "kervan-x")).jsonString()
+        #expect(keep.contains(#""token":null"#), "a null token keeps the stored one")
+        #expect(!keep.contains("webhook"), "no webhook field keeps the stored address")
+        let off: String = try ClientMessage.alertsSave(id: "a", alerts: AlertInput(enabled: false, events: events, ntfyServer: "", ntfyTopic: "", webhook: "")).jsonString()
+        #expect(off.contains(#""ntfy":"""#) && off.contains(#""webhook":"""#), "empty strings remove them")
+        let settings = try ServerMessage.decode(#"{"type":"alerts.result","id":"a","alerts":{"enabled":true,"events":{"approval":true,"finished":false,"error":true},"ntfy":{"server":"https://ntfy.sh","topic":"kervan-x","tokenSet":true},"webhookSet":false}}"#)
+        guard case .alertsResult(_, let value) = settings else { Issue.record("not alerts"); return }
+        #expect(value.ntfy?.tokenSet == true && !value.events.finished)
+    }
+}

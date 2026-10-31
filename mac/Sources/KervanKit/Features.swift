@@ -159,6 +159,81 @@ public struct ProjectInfo: Codable, Equatable, Sendable, Identifiable {
 
 /// What project.save takes: an existing project by id (only name and instructions change), or a new
 /// one from a folder on the server, a repository to clone, or neither (an empty folder).
+/// Phone alerts as the server reports them: the ntfy token and webhook address only as "set".
+public struct AlertSettings: Codable, Equatable, Sendable {
+    public struct Events: Codable, Equatable, Sendable {
+        public var approval: Bool
+        public var finished: Bool
+        public var error: Bool
+        public init(approval: Bool, finished: Bool, error: Bool) {
+            self.approval = approval
+            self.finished = finished
+            self.error = error
+        }
+    }
+
+    public struct Ntfy: Codable, Equatable, Sendable {
+        public let server: String
+        public let topic: String
+        public let tokenSet: Bool
+    }
+
+    public let enabled: Bool
+    public let events: Events
+    public let ntfy: Ntfy?
+    public let webhookSet: Bool
+    public let openUrl: String?
+    /// Alerts carry the session's name, which starts as the first line of its first message.
+    public let includeNames: Bool?
+}
+
+/// Changes to alert settings. `ntfyToken` nil keeps the stored token, "" removes it; `webhook` nil keeps the
+/// stored address, "" removes it; `ntfyTopic` empty removes ntfy.
+public struct AlertInput: Encodable, Equatable, Sendable {
+    public var enabled: Bool
+    public var events: AlertSettings.Events
+    public var ntfyServer: String
+    public var ntfyTopic: String
+    public var ntfyToken: String?
+    public var webhook: String?
+    public var openUrl: String
+    public var includeNames: Bool
+
+    public init(
+        enabled: Bool, events: AlertSettings.Events, ntfyServer: String, ntfyTopic: String, ntfyToken: String? = nil,
+        webhook: String? = nil, openUrl: String = "", includeNames: Bool = true
+    ) {
+        self.enabled = enabled
+        self.events = events
+        self.ntfyServer = ntfyServer
+        self.ntfyTopic = ntfyTopic
+        self.ntfyToken = ntfyToken
+        self.webhook = webhook
+        self.openUrl = openUrl
+        self.includeNames = includeNames
+    }
+
+    private enum Keys: String, CodingKey { case enabled, events, ntfy, webhook, openUrl, server, topic, token, includeNames }
+
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: Keys.self)
+        try c.encode(enabled, forKey: .enabled)
+        try c.encode(events, forKey: .events)
+        if ntfyTopic.isEmpty {
+            try c.encode("", forKey: .ntfy)
+        } else {
+            var n = c.nestedContainer(keyedBy: Keys.self, forKey: .ntfy)
+            try n.encode(ntfyServer, forKey: .server)
+            try n.encode(ntfyTopic, forKey: .topic)
+            // null keeps the stored token, so the app never needs to know it.
+            if let ntfyToken { try n.encode(ntfyToken, forKey: .token) } else { try n.encodeNil(forKey: .token) }
+        }
+        if let webhook { try c.encode(webhook, forKey: .webhook) }
+        try c.encode(openUrl, forKey: .openUrl)
+        try c.encode(includeNames, forKey: .includeNames)
+    }
+}
+
 /// A column of a project's task board.
 public enum CardColumn: String, Codable, CaseIterable, Sendable, Identifiable {
     case todo, working, needs, review, done

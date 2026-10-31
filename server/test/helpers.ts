@@ -1,5 +1,6 @@
 import { WebAccess } from "../src/webaccess.ts";
 import { attachBoard } from "../src/board.ts";
+import { attachAlerts } from "../src/alerts.ts";
 import type { Server } from "node:http";
 import { mkdtempSync } from "node:fs";
 import type { AddressInfo } from "node:net";
@@ -66,6 +67,7 @@ export async function startServer(
   });
   sessions!.scheduler = scheduler;
   attachBoard(sessions!, join(dataDir, "board.json"));
+  attachAlerts(sessions!, join(dataDir, "alerts.json"));
   scheduler.start((task) => sessions!.runTask({ agent: task.agent, title: task.title, prompt: task.prompt, scheduleId: task.id }), 60_000);
   const web = new WebAccess(join(dataDir, "web.json"));
   const server = createKervanServer({

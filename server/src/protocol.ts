@@ -201,6 +201,17 @@ export interface UsageReport {
 }
 
 /** For "Report a problem": no prompts, no keys; log lines are redacted. */
+/** Phone alerts as clients see them: the ntfy token and the webhook address are never sent back. */
+export interface AlertSettings {
+  enabled: boolean;
+  events: { approval: boolean; finished: boolean; error: boolean };
+  ntfy?: { server: string; topic: string; tokenSet: boolean };
+  webhookSet: boolean;
+  openUrl?: string;
+  /** Alerts carry the session's name (which starts as the first line of its first message). */
+  includeNames: boolean;
+}
+
 export type CardColumn = "todo" | "working" | "needs" | "review" | "done";
 
 /** A task on a project's board. Once moved to Working it has a session, and its column follows that session. */
@@ -313,6 +324,10 @@ export type ClientMessage =
   | { type: "web.enable"; id: string; enabled: boolean }
   | { type: "web.pair"; id: string }
   | { type: "web.revoke"; id: string; deviceId: string }
+  /** Phone alerts (ntfy, webhook), from the app only. */
+  | { type: "alerts.get"; id: string }
+  | { type: "alerts.save"; id: string; alerts: Record<string, unknown> }
+  | { type: "alerts.test"; id: string }
   /** A project's task board. */
   | { type: "board.list"; id: string; projectId: string }
   | { type: "card.save"; id: string; card: Record<string, unknown> }
@@ -415,6 +430,7 @@ export type ServerMessage =
   | { type: "session.pullRequest.result"; id: string; sessionId: string; pullRequest: PullRequestInfo }
   | { type: "web.status.result"; id: string; web: WebAccessStatus }
   | { type: "web.paired"; id: string; code: string; expiresAt: string }
+  | { type: "alerts.result"; id: string; alerts: AlertSettings }
   | { type: "board.result"; id: string; projectId: string; cards: CardInfo[] }
   /** Sent to everyone when any card of the project changes, by hand or by following its session. */
   | { type: "board.updated"; projectId: string; cards: CardInfo[] }
@@ -480,6 +496,9 @@ const STRING_FIELDS: Record<string, readonly string[]> = {
   "web.enable": ["id"],
   "web.pair": ["id"],
   "web.revoke": ["id", "deviceId"],
+  "alerts.get": ["id"],
+  "alerts.save": ["id"],
+  "alerts.test": ["id"],
   "board.list": ["id", "projectId"],
   "card.save": ["id"],
   "card.move": ["id", "cardId", "column"],
@@ -599,7 +618,7 @@ export function parseClientMessage(raw: string): ParseResult {
     }
     (message as Record<string, unknown>).body = data.body ?? "";
   }
-  for (const [type, field] of [["project.save", "project"], ["schedule.save", "schedule"], ["card.save", "card"]] as const) {
+  for (const [type, field] of [["project.save", "project"], ["schedule.save", "schedule"], ["card.save", "card"], ["alerts.save", "alerts"]] as const) {
     if (data.type !== type) continue;
     if (!isRecord(data[field])) return fail("bad_message", `${type} needs a '${field}' object`);
     (message as Record<string, unknown>)[field] = data[field];
