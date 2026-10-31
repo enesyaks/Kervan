@@ -604,7 +604,7 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
     case ping(id: String)
     case sessionCreate(
         id: String, agent: String, skills: [String] = [], mcpServers: [String] = [], orchestrate: Bool = false,
-        budgetUsd: Double? = nil, projectId: String? = nil
+        budgetUsd: Double? = nil, projectId: String? = nil, shared: Bool = false
     )
     /// `sinceTurn`: only what the last message changed; otherwise everything since the first one.
     case sessionChanges(id: String, sessionId: String, sinceTurn: Bool = false)
@@ -645,7 +645,8 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
     case sessionCancel(id: String, sessionId: String)
     case sessionPermission(id: String, sessionId: String, requestId: String, optionId: String)
     case sessionRename(id: String, sessionId: String, title: String)
-    case sessionArchive(id: String, sessionId: String, archived: Bool)
+    /// `removeWorktree` (when archiving) also takes away a project session's worktree; its work stays on its branch.
+    case sessionArchive(id: String, sessionId: String, archived: Bool, removeWorktree: Bool = false)
     case sessionSearch(id: String, query: String)
     case mcpList(id: String)
     case mcpSave(id: String, server: McpServerInput)
@@ -663,7 +664,7 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
         case type, `protocol`, client, id, agent, sessionId, text, requestId, optionId, attachments, title, archived, query
         case skills, mcpServers, server, name, agentId, role, roleId, roles, orchestrate, budgetUsd, configId, value
         case projectId, since, seq, paths, project, schedule, scheduleId, days, timeZone, terminalId, data, message, body
-        case enabled, deviceId
+        case enabled, deviceId, shared, removeWorktree
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -771,7 +772,7 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
         case .ping(let id):
             try c.encode("ping", forKey: .type)
             try c.encode(id, forKey: .id)
-        case .sessionCreate(let id, let agent, let skills, let mcpServers, let orchestrate, let budgetUsd, let projectId):
+        case .sessionCreate(let id, let agent, let skills, let mcpServers, let orchestrate, let budgetUsd, let projectId, let shared):
             try c.encode("session.create", forKey: .type)
             try c.encode(id, forKey: .id)
             try c.encode(agent, forKey: .agent)
@@ -780,6 +781,7 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
             if orchestrate { try c.encode(true, forKey: .orchestrate) }
             if orchestrate, let budgetUsd { try c.encode(budgetUsd, forKey: .budgetUsd) }
             if let projectId { try c.encode(projectId, forKey: .projectId) }
+            if shared { try c.encode(true, forKey: .shared) }
         case .sessionConfig(let id, let sessionId, let configId, let value):
             try c.encode("session.config", forKey: .type)
             try c.encode(id, forKey: .id)
@@ -825,11 +827,12 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
             try c.encode(id, forKey: .id)
             try c.encode(sessionId, forKey: .sessionId)
             try c.encode(title, forKey: .title)
-        case .sessionArchive(let id, let sessionId, let archived):
+        case .sessionArchive(let id, let sessionId, let archived, let removeWorktree):
             try c.encode("session.archive", forKey: .type)
             try c.encode(id, forKey: .id)
             try c.encode(sessionId, forKey: .sessionId)
             try c.encode(archived, forKey: .archived)
+            if removeWorktree { try c.encode(true, forKey: .removeWorktree) }
         case .sessionSearch(let id, let query):
             try c.encode("session.search", forKey: .type)
             try c.encode(id, forKey: .id)

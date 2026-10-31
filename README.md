@@ -96,7 +96,8 @@ message. The conversation stays, and the agent is told what happened.
 ### Projects
 Make a project from a folder on the server, a git repository the server clones, or a new empty folder. The
 project's **instructions** (code style, test command, things to watch out for) are given to every agent in
-it before its first message, and its sessions share the folder.
+it before its first message. In a git repository each session works on a branch of its own (a worktree), so several
+agents can work on one project at once without touching each other's files.
 
 </td>
 </tr>

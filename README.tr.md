@@ -95,7 +95,8 @@ sarabilirsiniz**. Konuşma silinmez, ajana olan biten söylenir.
 ### Projeler
 Sunucudaki bir klasörü, sunucunun klonladığı bir git deposunu ya da boş bir klasörü proje yapın. Projenin
 **talimatları** (kod stili, test komutu, dikkat edilecekler) o projedeki her ajana ilk mesajdan önce
-söylenir; projedeki oturumlar aynı klasörde çalışır.
+söylenir. Git deposunda her oturum kendi branch'inde (bir worktree'de) çalışır; böylece birkaç ajan aynı projede,
+birbirinin dosyalarına dokunmadan aynı anda çalışabilir.
 
 </td>
 </tr>

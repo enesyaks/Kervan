@@ -78,7 +78,7 @@ When an agent reports its to-do list, an interactive **plan card** appears above
 Typing `@` in the composer brings up a fuzzy file picker of workspace paths; selecting a file inserts it as an attachment. Pasting images via **⌘V** attaches screenshots as visual inputs for multimodal models, and the microphone button triggers macOS dictation.
 
 ### Projects
-Projects link sessions to a shared workspace on the server—from an existing path, an empty folder, or a cloned git repository. Project-level instructions (coding standards, test commands, conventions) are automatically prepended to every session started within that project.
+Projects link sessions to a shared workspace on the server—from an existing path, an empty folder, or a cloned git repository. Project-level instructions (coding standards, test commands, conventions) are automatically prepended to every session started within that project. In a git repository each session gets its own worktree and branch, so parallel sessions never edit the same files; archiving can remove the worktree while keeping the branch.
 
 ### Scheduled tasks
 Automated tasks run on recurring daily schedules (at specific times on selected weekdays) or periodic intervals (every N minutes). When due, Kervan starts a dedicated session, executes the user prompt, records the outcome, and sends a system notification upon completion. Schedules respect the user's local Mac time zone.

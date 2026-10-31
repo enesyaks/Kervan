@@ -152,6 +152,7 @@ async function handleRequest(
           orchestrate: message.orchestrate,
           ...(message.budgetUsd ? { budgetUsd: message.budgetUsd } : {}),
           ...(message.projectId ? { projectId: message.projectId } : {}),
+          ...(message.shared ? { shared: true } : {}),
         }),
       });
     case "session.changes":
@@ -245,7 +246,7 @@ async function handleRequest(
       sessions.rename(message.sessionId, message.title);
       return send(ws, { type: "ok", id: message.id });
     case "session.archive":
-      sessions.archive(message.sessionId, message.archived);
+      await sessions.archive(message.sessionId, message.archived, message.removeWorktree ?? false);
       return send(ws, { type: "ok", id: message.id });
     case "agent.list":
       return send(ws, agentList(message.id, sessions));

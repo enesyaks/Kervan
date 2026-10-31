@@ -134,6 +134,57 @@ describe("changes, projects, schedules, terminals, ports, usage", () => {
     assert.equal(outside.type, "error");
   });
 
+  it("gives each session in a git project a worktree of its own, and keeps the work when the worktree goes", async () => {
+    const { ws, inbox } = await client();
+    const git = (cwd: string, ...args: string[]) =>
+      execFileSync("git", ["-C", cwd, "-c", "user.name=T", "-c", "user.email=t@t", ...args], { encoding: "utf8" }).trim();
+    // A project cloned from an "origin", with one commit on main.
+    const origin = mkdtempSync(join(tmpdir(), "kervan-origin-"));
+    execFileSync("git", ["init", "-q", "--bare", "-b", "main", origin]);
+    const repo = mkdtempSync(join(tmpdir(), "kervan-shared-"));
+    execFileSync("git", ["clone", "-q", origin, repo], { stdio: "ignore" });
+    git(repo, "checkout", "-q", "-b", "main");
+    writeFileSync(join(repo, "page.html"), "start\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "first");
+    git(repo, "push", "-q", "-u", "origin", "main");
+    git(repo, "remote", "set-head", "origin", "main");
+    const saved = await ask(ws, inbox, { type: "project.save", project: { name: "Paralel", path: repo } });
+    const project = saved.projects.find((p: any) => p.name === "Paralel");
+
+    const a = await idleSession(ws, inbox, { projectId: project.id });
+    const b = await idleSession(ws, inbox, { projectId: project.id });
+    const [aDir, bDir] = [sessions.workspace(a), sessions.workspace(b)];
+    assert.notEqual(aDir, repo);
+    assert.notEqual(aDir, bDir);
+    await turn(ws, inbox, a, "write page.html from A");
+    await turn(ws, inbox, b, "write page.html from B");
+    assert.equal(readFileSync(join(aDir, "page.html"), "utf8").trim(), "from A");
+    assert.equal(readFileSync(join(bDir, "page.html"), "utf8").trim(), "from B");
+    assert.equal(readFileSync(join(repo, "page.html"), "utf8"), "start\n", "the project folder itself is untouched");
+
+    // A pull request from A carries A's work only.
+    const pr = await ask(ws, inbox, { type: "session.pullRequest", sessionId: a, title: "From A" });
+    assert.equal(pr.type, "session.pullRequest.result", JSON.stringify(pr));
+    assert.equal(git(origin, "show", `${pr.pullRequest.branch}:page.html`), "from A");
+    assert.equal(git(origin, "rev-list", "--count", `main..${pr.pullRequest.branch}`), "1");
+
+    // Removing B's worktree keeps B's uncommitted work on its branch, and leaves A and the project alone.
+    const bBranch = sessions.list().find((s) => s.id === b)!.branch!;
+    assert.equal((await ask(ws, inbox, { type: "session.archive", sessionId: b, archived: true, removeWorktree: true })).type, "ok");
+    assert.equal(existsSync(bDir), false);
+    assert.equal(git(repo, "show", `${bBranch}:page.html`), "from B");
+    assert.equal(readFileSync(join(aDir, "page.html"), "utf8").trim(), "from A");
+    assert.equal(readFileSync(join(repo, "page.html"), "utf8"), "start\n");
+    // Unarchiving puts it back on its branch.
+    assert.equal((await ask(ws, inbox, { type: "session.archive", sessionId: b, archived: false })).type, "ok");
+    assert.equal(readFileSync(join(bDir, "page.html"), "utf8").trim(), "from B");
+
+    // Asking for the shared folder still works.
+    const shared = await idleSession(ws, inbox, { projectId: project.id, shared: true });
+    assert.equal(sessions.workspace(shared), repo);
+  });
+
   it("works in a project's folder with its instructions, and commits to its repository", async () => {
     const { ws, inbox } = await client();
     const repo = mkdtempSync(join(tmpdir(), "kervan-project-"));

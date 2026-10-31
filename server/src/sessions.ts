@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentRegistry } from "./agents.ts";
@@ -31,7 +32,16 @@ import type { RoleRegistry } from "./roles.ts";
 import type * as acp from "@agentclientprotocol/sdk";
 import { isOrchestraCall } from "./orchestra.ts";
 import { LOCAL_NODE, nodeOf, type NodeHub } from "./nodes.ts";
-import { addWorktree, branchDiff, branchName, hasCommits, mergeBranch, type MergeResult } from "./worktree.ts";
+import {
+  addWorktree,
+  branchDiff,
+  branchName,
+  hasCommits,
+  mergeBranch,
+  removeWorktree as removeWorktreeAt,
+  restoreWorktree,
+  type MergeResult,
+} from "./worktree.ts";
 
 const fail = (message: string): never => {
   throw new KervanError("bad_message", message);
@@ -91,6 +101,8 @@ interface CreateOptions {
   worktreeFrom?: string;
   /** Work in this project's folder, with its instructions. */
   projectId?: string;
+  /** In a git project, work in the project folder itself instead of a worktree of its own. */
+  shared?: boolean;
   /** Started by this scheduled task. */
   scheduleId?: string;
 }
@@ -287,6 +299,12 @@ export class SessionManager {
       if (!this.projects?.get(options.projectId)) throw new KervanError("bad_message", `no project '${options.projectId}'`);
       if (node !== LOCAL_NODE) throw new KervanError("bad_message", `projects live on this server; '${agent}' runs on node '${node}'`);
     }
+    // Sessions in a git project each get a worktree and branch of their own, so two of them never edit the same
+    // files. Team members share on purpose, helpers already have one, and a repository without commits can't branch.
+    const project = options.projectId ? this.projects?.get(options.projectId) : undefined;
+    const worktreeFrom =
+      options.worktreeFrom ??
+      (project && !options.shared && !options.teamId && !options.parentId && (await hasCommits(project.path)) ? project.path : undefined);
 
     const id = randomUUID();
     const session: Session = {
@@ -304,7 +322,7 @@ export class SessionManager {
         ...(options.parentId ? { parentId: options.parentId } : {}),
         ...(options.orchestrate && !options.parentId ? { orchestrate: true } : {}),
         ...(options.orchestrate && !options.parentId && options.budgetUsd ? { budgetUsd: options.budgetUsd } : {}),
-        ...(options.worktreeFrom ? { branch: branchName(options.title ?? agent, id) } : {}),
+        ...(worktreeFrom ? { branch: branchName(options.title ?? agent, id) } : {}),
         ...(options.projectId ? { projectId: options.projectId } : {}),
         ...(options.scheduleId ? { scheduleId: options.scheduleId } : {}),
       },
@@ -316,7 +334,7 @@ export class SessionManager {
     };
     session.cwd = this.cwdFor(this.workspacesDir, session.info);
     // A node makes its own workspace folder when the agent starts there.
-    if (options.worktreeFrom) await addWorktree(options.worktreeFrom, session.cwd, session.info.branch!);
+    if (worktreeFrom) await addWorktree(worktreeFrom, session.cwd, session.info.branch!);
     else if (node === LOCAL_NODE) await mkdir(session.cwd, { recursive: true });
     if (session.info.skills.length > 0) {
       const target = this.agents.get(agent)!.skillsDir ?? FALLBACK_SKILLS_DIR;
@@ -668,11 +686,44 @@ export class SessionManager {
     this.broadcast({ type: "session.updated", session: { ...session.info } });
   }
 
-  archive(sessionId: string, archived: boolean): void {
+  /**
+   * Archiving can also take away a project session's worktree; its work stays committed on its branch.
+   * Unarchiving puts the worktree back.
+   */
+  async archive(sessionId: string, archived: boolean, removeWorktree = false): Promise<void> {
     const session = this.require(sessionId);
+    if (archived && removeWorktree) {
+      const repo = this.worktreeRepo(session);
+      if (!repo) throw new KervanError("bad_message", "this session has no worktree of its own");
+      if (session.info.status === "running" || session.info.status === "waiting") {
+        throw new KervanError("session_busy", "stop the session before removing its worktree");
+      }
+      if (existsSync(session.cwd)) {
+        session.process?.close();
+        session.process = undefined;
+        await removeWorktreeAt(repo, session.cwd, session.info.title).catch((error) => {
+          throw new KervanError("bad_message", `couldn't remove the worktree: ${error instanceof Error && "stderr" in error ? String((error as { stderr: unknown }).stderr).trim() : String(error)}`);
+        });
+        this.record(session, { kind: "notice", text: `Worktree removed; the work stays on branch ${session.info.branch}.` });
+      }
+    }
+    if (!archived) await this.ensureWorktree(session);
     session.info.archived = archived;
     this.save(session);
     this.broadcast({ type: "session.updated", session: { ...session.info } });
+  }
+
+  /** The repository a project session's worktree belongs to; undefined for anything else. */
+  private worktreeRepo(session: Session): string | undefined {
+    if (!session.info.branch || !session.info.projectId || session.info.parentId) return undefined;
+    return this.projects?.get(session.info.projectId)?.path;
+  }
+
+  /** A project session whose worktree was removed gets it back, on its branch, before it runs again. */
+  private async ensureWorktree(session: Session): Promise<void> {
+    const repo = this.worktreeRepo(session);
+    if (!repo || existsSync(session.cwd)) return;
+    await restoreWorktree(repo, session.cwd, session.info.branch!);
   }
 
   search(query: string): SearchHit[] {
@@ -899,6 +950,7 @@ export class SessionManager {
   /** Starts (or resumes) the session's agent. On failure the session ends up in `error`. */
   private async startAgent(session: Session, resume = false): Promise<void> {
     session.costBase = session.info.usage?.costUsd ?? 0;
+    await this.ensureWorktree(session).catch((error) => log("warn", "couldn't restore a worktree", { id: session.info.id, error: String(error) }));
     // What the user chose before the agent stopped; a restarted agent may come back on its defaults.
     const chosen = session.info.config ?? [];
     try {

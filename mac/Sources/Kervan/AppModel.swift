@@ -185,7 +185,8 @@ final class AppModel {
     }
 
     func startSession(
-        agent: String, skills: [String], mcpServers: [String], orchestrate: Bool = false, budgetUsd: Double? = nil, projectId: String? = nil
+        agent: String, skills: [String], mcpServers: [String], orchestrate: Bool = false, budgetUsd: Double? = nil, projectId: String? = nil,
+        shared: Bool = false
     ) {
         lastAgentID = agent
         UserDefaults.standard.set(skills, forKey: Self.lastSkillsKey)
@@ -193,7 +194,8 @@ final class AppModel {
         UserDefaults.standard.set(orchestrate, forKey: Self.lastOrchestrateKey)
         Task {
             await store.create(
-                agent: agent, skills: skills, mcpServers: mcpServers, orchestrate: orchestrate, budgetUsd: budgetUsd, projectId: projectId
+                agent: agent, skills: skills, mcpServers: mcpServers, orchestrate: orchestrate, budgetUsd: budgetUsd, projectId: projectId,
+                shared: shared
             )
         }
     }

@@ -13,6 +13,8 @@ struct NewSessionSheet: View {
     @State private var available: [SkillInfo]?
     @State private var loadError: String?
     @State private var project: String?
+    /// In a git project: a worktree and branch of its own (the default), or the project folder itself.
+    @State private var ownBranch = true
 
     init(agent: String, project: String? = nil) {
         _agent = State(initialValue: agent)
@@ -36,7 +38,13 @@ struct NewSessionSheet: View {
                         ForEach(model.store.projects) { Text($0.name).tag(Optional($0.id)) }
                     } label: {
                         Text(L("Project", "Proje"))
-                        Text(L("The agent works in the project's folder, with the project's instructions.", "Ajan projenin klasöründe, projenin talimatlarıyla çalışır."))
+                        Text(L("The agent works on the project's files, with the project's instructions.", "Ajan projenin dosyalarında, projenin talimatlarıyla çalışır."))
+                    }
+                    if project != nil {
+                        Toggle(isOn: $ownBranch) {
+                            Text(L("Work on a branch of its own", "Kendi branch'inde çalışsın"))
+                            Text(L("In a git repository the session gets its own copy (a worktree), so sessions in the same project never edit the same files. Turn off to work in the project folder itself.", "Git deposunda oturum kendi kopyasını (worktree) alır; böylece aynı projedeki oturumlar aynı dosyaları düzenlemez. Proje klasörünün kendisinde çalışmak için kapatın."))
+                        }
                     }
                     Toggle(isOn: $orchestrate) {
                         Text(L("Can start helper agents", "Yardımcı ajan başlatabilsin"))
@@ -97,7 +105,8 @@ struct NewSessionSheet: View {
                         mcpServers: mcpServers.filter { name in servers.contains { $0.name == name } }.sorted(),
                         orchestrate: orchestrate,
                         budgetUsd: orchestrate ? budget.flatMap { $0 > 0 ? $0 : nil } : nil,
-                        projectId: project
+                        projectId: project,
+                        shared: project != nil && !ownBranch
                     )
                     dismiss()
                 }

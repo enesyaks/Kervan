@@ -22,7 +22,7 @@ What the field has that Kervan doesn't:
 
 ## Steps
 
-### Step 1. Isolated worktree per session
+### Step 1. Isolated worktree per session (done)
 
 Implement an option, on by default for projects that are git repositories, that starts each new session on its own
 worktree and branch (`kervan/<title>-<id>`) instead of the shared project folder. The Changes panel, Commit and

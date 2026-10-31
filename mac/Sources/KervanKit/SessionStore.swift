@@ -130,13 +130,13 @@ public final class SessionStore {
 
     public func create(
         agent: String, skills: [String] = [], mcpServers: [String] = [], orchestrate: Bool = false, budgetUsd: Double? = nil,
-        projectId: String? = nil
+        projectId: String? = nil, shared: Bool = false
     ) async {
         let id = Self.newID()
         pendingCreates.insert(id)
         await request(.sessionCreate(
             id: id, agent: agent, skills: skills, mcpServers: mcpServers, orchestrate: orchestrate, budgetUsd: budgetUsd,
-            projectId: projectId
+            projectId: projectId, shared: shared
         ))
     }
 
@@ -393,8 +393,10 @@ public final class SessionStore {
         await request(.sessionRename(id: Self.newID(), sessionId: sessionID, title: String(trimmed.prefix(120))))
     }
 
-    public func setArchived(_ sessionID: String, _ archived: Bool) async {
-        await request(.sessionArchive(id: Self.newID(), sessionId: sessionID, archived: archived))
+    /// Returns the server's refusal, if any (removing a worktree can be refused, e.g. while the agent works).
+    @discardableResult
+    public func setArchived(_ sessionID: String, _ archived: Bool, removeWorktree: Bool = false) async -> String? {
+        await call(.sessionArchive(id: Self.newID(), sessionId: sessionID, archived: archived, removeWorktree: removeWorktree))
     }
 
     public func search(_ query: String) async {

@@ -282,7 +282,8 @@ export type SessionEvent = SessionEventBody & { seq: number; at: string };
 export type ClientMessage =
   | { type: "hello"; protocol: number; client: PeerInfo }
   | { type: "ping"; id: string }
-  | { type: "session.create"; id: string; agent: string; skills?: string[]; mcpServers?: string[]; orchestrate?: boolean; budgetUsd?: number; projectId?: string }
+  /** In a git project the session gets a worktree of its own unless `shared` asks for the project folder itself. */
+  | { type: "session.create"; id: string; agent: string; skills?: string[]; mcpServers?: string[]; orchestrate?: boolean; budgetUsd?: number; projectId?: string; shared?: boolean }
   /** `since` "session": everything since the first message; "turn": since the last one. */
   | { type: "session.changes"; id: string; sessionId: string; since?: "session" | "turn" }
   /** Puts files (all when `paths` is missing) back as they were before the user message `seq`. */
@@ -322,7 +323,8 @@ export type ClientMessage =
   | { type: "session.cancel"; id: string; sessionId: string }
   | { type: "session.permission"; id: string; sessionId: string; requestId: string; optionId: string }
   | { type: "session.rename"; id: string; sessionId: string; title: string }
-  | { type: "session.archive"; id: string; sessionId: string; archived: boolean }
+  /** `removeWorktree` (when archiving) also takes away a project session's worktree; its work stays on its branch. */
+  | { type: "session.archive"; id: string; sessionId: string; archived: boolean; removeWorktree?: boolean }
   | { type: "session.search"; id: string; query: string }
   | { type: "mcp.list"; id: string }
   | { type: "mcp.save"; id: string; server: Record<string, unknown> }
@@ -523,6 +525,10 @@ export function parseClientMessage(raw: string): ParseResult {
       if (typeof data.orchestrate !== "boolean") return fail("bad_message", "orchestrate must be true or false");
       (message as Record<string, unknown>).orchestrate = data.orchestrate;
     }
+    if (data.shared !== undefined) {
+      if (typeof data.shared !== "boolean") return fail("bad_message", "shared must be true or false");
+      (message as Record<string, unknown>).shared = data.shared;
+    }
     if (data.budgetUsd !== undefined) {
       if (typeof data.budgetUsd !== "number" || !(data.budgetUsd > 0 && data.budgetUsd <= MAX_BUDGET_USD)) {
         return fail("bad_message", `budgetUsd must be a number between 0 and ${MAX_BUDGET_USD}`);
@@ -597,6 +603,10 @@ export function parseClientMessage(raw: string): ParseResult {
   if (data.type === "session.archive") {
     if (typeof data.archived !== "boolean") return fail("bad_message", "session.archive needs a boolean 'archived'");
     (message as Record<string, unknown>).archived = data.archived;
+    if (data.removeWorktree !== undefined) {
+      if (typeof data.removeWorktree !== "boolean") return fail("bad_message", "removeWorktree must be true or false");
+      (message as Record<string, unknown>).removeWorktree = data.removeWorktree;
+    }
   }
   if (data.type === "session.rename" && (message.title.trim() === "" || message.title.length > 120)) {
     return fail("bad_message", "title must be 1–120 characters");

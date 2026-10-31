@@ -39,6 +39,20 @@ export async function addWorktree(repo: string, path: string, branch: string): P
   await git(repo, "worktree", "add", "-b", branch, path, "HEAD");
 }
 
+/** Puts a removed worktree back, on the branch it left behind. */
+export async function restoreWorktree(repo: string, path: string, branch: string): Promise<void> {
+  await git(repo, "worktree", "add", path, branch);
+}
+
+/**
+ * Takes a session's worktree away but keeps its work: anything uncommitted is committed to its branch first, and the
+ * branch stays, so the worktree can come back. Ignored files (build output, dependencies) go with the folder.
+ */
+export async function removeWorktree(repo: string, worktree: string, label: string): Promise<void> {
+  await snapshot(worktree, `Kervan: ${label} (kept when its worktree was removed)`);
+  await git(repo, "worktree", "remove", "--force", worktree);
+}
+
 /** Commits whatever the helper left uncommitted, so its branch holds all of its work. */
 async function snapshot(worktree: string, message: string): Promise<void> {
   await git(worktree, "add", "-A");

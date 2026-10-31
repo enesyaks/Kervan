@@ -212,6 +212,17 @@ private struct SidebarView: View {
         Button(session.archived ? L("Unarchive", "Arşivden çıkar") : L("Archive", "Arşivle")) {
             Task { await model.store.setArchived(session.id, !session.archived) }
         }
+        // A project session's own worktree can go with it; its work stays committed on its branch.
+        if !session.archived, session.branch != nil, session.projectId != nil, session.parentId == nil {
+            Button(L("Archive and Remove Worktree", "Arşivle ve Worktree'yi Kaldır")) {
+                Task {
+                    if let failure = await model.store.setArchived(session.id, true, removeWorktree: true) {
+                        model.store.lastError = failure
+                    }
+                }
+            }
+            .help(L("Frees the disk space; the work stays on branch \(session.branch ?? ""), and unarchiving brings the folder back.", "Disk alanını boşaltır; iş \(session.branch ?? "") branch'inde kalır, arşivden çıkarınca klasör geri gelir."))
+        }
     }
 }
 

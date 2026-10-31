@@ -285,3 +285,14 @@ import Testing
         #expect(try ClientMessage.githubConnect(id: "c").jsonString().contains(#""type":"github.connect""#))
     }
 }
+
+@Suite struct WorktreeTests {
+    @Test func sharedAndRemovalAreSentOnlyWhenAsked() throws {
+        let own = try ClientMessage.sessionCreate(id: "c", agent: "claude", projectId: "p").jsonString()
+        #expect(own.contains(#""projectId":"p""#) && !own.contains("shared"))
+        #expect(try ClientMessage.sessionCreate(id: "c", agent: "claude", projectId: "p", shared: true).jsonString().contains(#""shared":true"#))
+        let plain: String = try ClientMessage.sessionArchive(id: "a", sessionId: "s", archived: true).jsonString()
+        #expect(!plain.contains("removeWorktree"))
+        #expect(try ClientMessage.sessionArchive(id: "a", sessionId: "s", archived: true, removeWorktree: true).jsonString().contains(#""removeWorktree":true"#))
+    }
+}
