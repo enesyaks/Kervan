@@ -900,14 +900,12 @@ private struct Composer: View {
                     .strokeBorder(Color.kervanLapis.opacity(focused ? 0.45 : 0), lineWidth: 1.5)
             )
             .animation(Motion.fast, value: focused)
-            HStack(spacing: 14) {
-                ForEach(options) { option in
-                    SettingMenu(option: option) { choose(option, $0) }
-                }
-                Spacer()
-                Text(L("/ commands, @ files. ↩ sends, ⌥↩ new line.", "/ komut, @ dosya. ↩ gönderir, ⌥↩ yeni satır."))
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+            // Never wider than the chat: with the side panel open the column can be narrow, and a row that
+            // insists on its width pushes the panel off the window. Names give way to icons, the hint goes first.
+            ViewThatFits(in: .horizontal) {
+                optionsRow(compact: false, hint: true)
+                optionsRow(compact: false, hint: false)
+                optionsRow(compact: true, hint: false)
             }
             .padding(.horizontal, 10)
         }
@@ -930,6 +928,22 @@ private struct Composer: View {
         .onDisappear {
             if let pasteMonitor { NSEvent.removeMonitor(pasteMonitor) }
             pasteMonitor = nil
+        }
+    }
+
+    private func optionsRow(compact: Bool, hint: Bool) -> some View {
+        HStack(spacing: compact ? 8 : 14) {
+            ForEach(options) { option in
+                SettingMenu(option: option, compact: compact) { choose(option, $0) }
+            }
+            Spacer(minLength: 0)
+            if hint {
+                Text(L("/ commands, @ files. ↩ sends, ⌥↩ new line.", "/ komut, @ dosya. ↩ gönderir, ⌥↩ yeni satır."))
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .fixedSize()
+            }
         }
     }
 
@@ -965,6 +979,8 @@ private struct Composer: View {
 /// One agent setting under the composer: the current choice, and a menu of the others.
 private struct SettingMenu: View {
     let option: ConfigOption
+    /// Just the icon, for a narrow chat; the name is still in the menu, the tooltip and VoiceOver.
+    var compact = false
     let choose: (String) -> Void
 
     var body: some View {
@@ -981,11 +997,12 @@ private struct SettingMenu: View {
             .pickerStyle(.inline)
         } label: {
             Label(option.current?.name ?? option.value, systemImage: Self.symbol(option.category))
+                .labelStyle(compact ? AnyLabelStyle.iconOnly : AnyLabelStyle.titleAndIcon)
                 .font(.caption)
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
-        .help(option.name)
+        .help("\(option.name): \(option.current?.name ?? option.value)")
         .accessibilityLabel("\(option.name): \(option.current?.name ?? option.value)")
     }
 
@@ -1023,5 +1040,17 @@ struct Banner: View {
         .background(tint.opacity(0.10), in: RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
+    }
+}
+
+/// Lets one view switch between icon-only and icon-and-title labels.
+private enum AnyLabelStyle: LabelStyle {
+    case iconOnly, titleAndIcon
+
+    func makeBody(configuration: Configuration) -> some View {
+        switch self {
+        case .iconOnly: Label(configuration).labelStyle(.iconOnly)
+        case .titleAndIcon: Label(configuration).labelStyle(.titleAndIcon)
+        }
     }
 }

@@ -230,8 +230,9 @@ struct ChangesPanel: View {
             TextField(L("Commit message", "Commit mesajı"), text: $commitMessage, axis: .vertical)
                 .lineLimit(1...4)
                 .textFieldStyle(.roundedBorder)
+            // On its own line: the panel can be as narrow as 280 points, and the buttons need their full names.
+            Text(L("Commits every change in the folder.", "Klasördeki bütün değişiklikler commit edilir.")).font(.caption).foregroundStyle(.secondary)
             HStack {
-                Text(L("Commits every change in the folder.", "Klasördeki bütün değişiklikler commit edilir.")).font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button(L("Pull request…", "Pull request…")) { proposing = true }
                     .disabled(working)
