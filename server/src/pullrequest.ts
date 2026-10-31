@@ -70,7 +70,8 @@ export async function openPullRequest(
     throw new KervanError(
       "bad_message",
       `pushing ${branch} failed: ${stderrOf(error)}. The server needs push access to this repository, ` +
-        "for example by signing in with `gh auth login` and running `gh auth setup-git`.",
+        // The service runs as the kervan user, so that's who has to sign in.
+        "for example on the server: `sudo -u kervan -H gh auth login && sudo -u kervan -H gh auth setup-git`",
     );
   });
 

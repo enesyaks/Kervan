@@ -22,7 +22,8 @@ trap 'rm -f "$HERE/token"' EXIT
 echo "==> packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-# gh lets the server open pull requests from a session (sign in once with `gh auth login`).
+# gh lets the server open pull requests from a session. Sign in once as the service user:
+#   sudo -u kervan -H gh auth login && sudo -u kervan -H gh auth setup-git
 apt-get install -y -qq ca-certificates curl gnupg git gh sqlite3 ufw python3 tar avahi-daemon >/dev/null
 
 echo "==> Node.js $NODE_MAJOR"
