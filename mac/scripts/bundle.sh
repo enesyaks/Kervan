@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Build mac/build/Kervan.app (release, ad-hoc signed). Usage: mac/scripts/bundle.sh
+# Build mac/build/Kervan.app (release), signed with the "Kervan Release" certificate when this Mac has it
+# (see scripts/signing-identity.sh), ad-hoc otherwise. Usage: mac/scripts/bundle.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -28,6 +29,13 @@ COPYFILE_DISABLE=1 tar -czf "$APP/Contents/Resources/server.tar.gz" \
   --exclude=./node_modules --exclude=./data --exclude=./test -C ../server .
 cp ../infra/hub-setup.sh ../infra/kervan.service "$APP/Contents/Resources/"
 
-codesign --force --sign - "$APP"
+# The same certificate on every release keeps the app's identity, so the Keychain still knows it after an update.
+IDENTITY="${KERVAN_SIGN_IDENTITY:-Kervan Release}"
+if security find-certificate -c "$IDENTITY" >/dev/null 2>&1; then
+  codesign --force --sign "$IDENTITY" "$APP"
+else
+  echo "No \"$IDENTITY\" certificate; signing ad-hoc (updates won't keep the saved key). See scripts/signing-identity.sh." >&2
+  codesign --force --sign - "$APP"
+fi
 
 echo "$(pwd)/$APP"

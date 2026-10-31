@@ -3,6 +3,7 @@ import CryptoKit
 import Foundation
 import KervanKit
 import Observation
+import Security
 
 /// Finds a newer release on GitHub and installs it: download, check the SHA-256 published with it,
 /// swap the app bundle once this process has quit, and open the new one.
@@ -129,7 +130,35 @@ final class AppUpdater {
         guard Bundle(url: app)?.bundleIdentifier == "com.enes.kervan" else {
             throw UpdateError(errorDescription: L("The download isn't a Kervan app.", "İndirilen dosya bir Kervan uygulaması değil."))
         }
+        guard signedLikeThisApp(app) else {
+            throw UpdateError(errorDescription: L(
+                "The update isn't signed with the same certificate as this copy of Kervan, so it wasn't installed.",
+                "Güncelleme bu Kervan kopyasıyla aynı sertifikayla imzalanmamış; kurulmadı."
+            ))
+        }
         return app
+    }
+
+    /// The new bundle must meet this app's own signing requirement, so a swapped release (checksum and all) can't be
+    /// installed. An ad-hoc copy has nothing lasting to compare (its requirement is its own hash), so it only gets the
+    /// signature checked; from a certificate-signed copy on, updates must carry the same certificate.
+    static func signedLikeThisApp(_ app: URL) -> Bool {
+        var newCode: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(app as CFURL, [], &newCode) == errSecSuccess, let newCode else { return false }
+        var me: SecCode?
+        var info: CFDictionary?
+        var myStatic: SecStaticCode?
+        guard SecCodeCopySelf([], &me) == errSecSuccess, let me,
+              SecCodeCopyStaticCode(me, [], &myStatic) == errSecSuccess, let myStatic,
+              SecCodeCopySigningInformation(myStatic, [], &info) == errSecSuccess
+        else { return false }
+        let flags = (info as? [String: Any])?[kSecCodeInfoFlags as String] as? UInt32 ?? 0
+        if flags & SecCodeSignatureFlags.adhoc.rawValue != 0 {
+            return SecStaticCodeCheckValidity(newCode, [], nil) == errSecSuccess
+        }
+        var requirement: SecRequirement?
+        guard SecCodeCopyDesignatedRequirement(myStatic, [], &requirement) == errSecSuccess else { return false }
+        return SecStaticCodeCheckValidity(newCode, [], requirement) == errSecSuccess
     }
 
     /// Waits for this process to exit, swaps the bundles (the old one comes back if the move fails),
