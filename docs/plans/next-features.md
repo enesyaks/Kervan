@@ -79,6 +79,9 @@ Acceptance:
 
 Decision: HTTPS through Tailscale Serve, plain HTTP kept for the home network. See [https.md](https.md).
 
+Not built for now: nothing requires it, and ntfy already brings alerts to the phone over plain HTTP. It's worth doing
+when Web Push or installing the web client as an app is wanted.
+
 
 Plan how the web client gets HTTPS on a home network, so it can install as a proper app and receive Web Push alerts.
 Evaluate Tailscale Serve certificates, a local certificate the app installs, and leaving HTTP for the LAN with HTTPS
