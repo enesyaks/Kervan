@@ -149,7 +149,7 @@ kaldırın, erişimi anında biter. Telefonda **Ana Ekrana Ekle** ile uygulama g
 |---|---|
 | **İki dil** | Uygulama İngilizce ve Türkçe; **Ayarlar › Genel › Dil**'den seçilir, varsayılan olarak macOS'un dilini izler. |
 | **Takımlar ve roller** | Bir işi birkaç ajana bölün: her rolün ajanı, talimatı, skill ve MCP sunucuları ayrı. Takım görünümü hepsini yan yana gösterir. |
-| **Orkestrasyon** | Ana ajan alt görevleri yardımcı ajanlara verir; git deposunda her yardımcı kendi dalında çalışır, ana ajan farkına bakıp birleştirir. |
+| **Orkestrasyon** | Ana ajan alt görevleri yardımcı ajanlara verir; git deposunda her yardımcı kendi dalında çalışır, ana ajan farkına bakıp birleştirir. **İş büyük olduğunda yardımcılara böl** açıkken ana ajan önce işin büyüklüğüne bakar, yalnızca büyük işi böler. Boşta kalan yardımcılar 10 dakika sonra bellek boşaltmak için dinlenmeye geçer, bir sonraki mesajla uyanır. |
 | **Skill ve MCP** | Skill kütüphanesi ve MCP sunucuları sunucuda tutulur, oturum ya da rol başına açılır; her ajan aynı araçları kullanır. |
 | **Node'lar** | Ajanları başka makinelerde de çalıştırın (ör. GPU'lu bir kutu); hub hepsini tek uygulamada toplar. |
 | **Model seçici** | Ajanın sunduğu model, düşünme seviyesi ve mod yazma kutusunun altında. |

@@ -815,7 +815,7 @@ function openNewSession() {
       class: "agent-choice",
       onclick: () => { dialog.close(); void create(agent.id, split); },
     }, h("span", { class: "dot idle", "aria-hidden": "true" }), agent.name)),
-    h("label", { style: "display: flex; align-items: center; gap: 8px; margin: 14px 2px 4px; font-size: 14px; cursor: pointer;" },
+    h("label", { class: "check-row" },
       splitCheckbox,
       h("span", {}, L("Split into helpers when the work is large", "İş büyük olduğunda yardımcılara böl"))),
     h("div", { class: "row" }, h("span", { class: "spacer" }), h("button", { class: "quiet", onclick: () => dialog.close() }, L("Cancel", "Vazgeç"))));
@@ -911,7 +911,8 @@ function buildPane(sessionId) {
   const fileInput = h("input", {
     type: "file",
     multiple: true,
-    style: "display: none",
+    // Hidden by class: the page's content policy refuses inline styles.
+    hidden: true,
     onchange: () => {
       if (fileInput.files) {
         for (const file of fileInput.files) {

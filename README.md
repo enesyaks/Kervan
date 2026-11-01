@@ -150,7 +150,7 @@ and its access ends at once. On a phone, **Add to Home Screen** makes it open li
 |---|---|
 | **Two languages** | The app speaks English and Turkish; pick one in **Settings › General › Language**. By default it follows macOS. |
 | **Teams and roles** | Split a job across several agents, each role with its own agent, instructions, skills and MCP servers. The team view shows them side by side. |
-| **Orchestration** | A lead agent hands subtasks to helper agents; in a git repository each helper works on its own branch, and the lead reviews the diff and merges it. |
+| **Orchestration** | A lead agent hands subtasks to helper agents; in a git repository each helper works on its own branch, and the lead reviews the diff and merges it. With **Split into helpers when the work is large**, the lead judges the size first and splits only big work. Idle helpers rest after 10 minutes to free memory and wake with the next message. |
 | **Skills and MCP** | A skill library and MCP servers live on the server and are switched on per session or role, so every agent gets the same tools. |
 | **Nodes** | Run agents on other machines too (a GPU box, say); the hub brings them all into one app. |
 | **Model picker** | The agent's models, thinking level and modes sit under the composer. |
