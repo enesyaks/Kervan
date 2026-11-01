@@ -183,6 +183,7 @@ async function handleRequest(
         id: message.id,
         session: await sessions.create(message.agent, message.skills, message.mcpServers, {
           orchestrate: message.orchestrate,
+          ...(message.split ? { split: true } : {}),
           ...(message.budgetUsd ? { budgetUsd: message.budgetUsd } : {}),
           ...(message.projectId ? { projectId: message.projectId } : {}),
           ...(message.shared ? { shared: true } : {}),

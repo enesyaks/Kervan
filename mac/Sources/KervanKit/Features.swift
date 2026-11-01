@@ -247,6 +247,7 @@ public struct CardInfo: Codable, Equatable, Sendable, Identifiable {
     public let title: String
     public let prompt: String
     public let agent: String
+    public let split: Bool?
     public let column: CardColumn
     public let sessionId: String?
     public let createdAt: String
@@ -260,8 +261,10 @@ public struct CardInput: Encodable, Equatable, Sendable {
     public var title: String
     public var prompt: String
     public var agent: String
+    public var split: Bool
 
-    public init(id: String? = nil, projectId: String, title: String, prompt: String, agent: String) {
+    public init(id: String? = nil, projectId: String, title: String, prompt: String, agent: String, split: Bool = false) {
+        self.split = split
         self.id = id
         self.projectId = projectId
         self.title = title

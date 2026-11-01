@@ -192,7 +192,7 @@ import Testing
     @Test func selectsOnlySessionsItCreated() async {
         let (store, outbox) = makeStore()
         await store.create(agent: "claude")
-        guard case .sessionCreate(let requestID, "claude", _, _, false, _, _, false)? = outbox.sent.last else {
+        guard case .sessionCreate(let requestID, "claude", _, _, false, _, _, false, false)? = outbox.sent.last else {
             Issue.record("expected a session.create")
             return
         }

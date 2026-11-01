@@ -136,6 +136,10 @@ public struct SessionInfo: Codable, Equatable, Sendable, Identifiable {
     public var scheduleId: String?
     /// Set for a review: the session whose changes this one reviews, on a copy of its files.
     public var reviewOf: String?
+    /// The lead judges the work's size and hands independent parts to helpers.
+    public var split: Bool?
+    /// A helper whose agent was stopped after sitting idle; the next message starts it again.
+    public var resting: Bool?
     public var error: String?
 
     public init(
@@ -169,7 +173,7 @@ public struct SessionInfo: Codable, Equatable, Sendable, Identifiable {
 
     private enum CodingKeys: String, CodingKey {
         case id, agent, title, status, createdAt, archived, skills, mcpServers, teamId, role, parentId, orchestrate, budgetUsd, branch, usage, config
-        case projectId, scheduleId, reviewOf, error
+        case projectId, scheduleId, reviewOf, split, resting, error
     }
 
     public init(from decoder: any Decoder) throws {
@@ -193,6 +197,8 @@ public struct SessionInfo: Codable, Equatable, Sendable, Identifiable {
         projectId = try c.decodeIfPresent(String.self, forKey: .projectId)
         scheduleId = try c.decodeIfPresent(String.self, forKey: .scheduleId)
         reviewOf = try c.decodeIfPresent(String.self, forKey: .reviewOf)
+        split = try c.decodeIfPresent(Bool.self, forKey: .split)
+        resting = try c.decodeIfPresent(Bool.self, forKey: .resting)
         error = try c.decodeIfPresent(String.self, forKey: .error)
     }
 }
@@ -611,7 +617,7 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
     case ping(id: String)
     case sessionCreate(
         id: String, agent: String, skills: [String] = [], mcpServers: [String] = [], orchestrate: Bool = false,
-        budgetUsd: Double? = nil, projectId: String? = nil, shared: Bool = false
+        budgetUsd: Double? = nil, projectId: String? = nil, shared: Bool = false, split: Bool = false
     )
     /// `sinceTurn`: only what the last message changed; otherwise everything since the first one.
     case sessionChanges(id: String, sessionId: String, sinceTurn: Bool = false)
@@ -683,7 +689,7 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
         case type, `protocol`, client, id, agent, sessionId, text, requestId, optionId, attachments, title, archived, query
         case skills, mcpServers, server, name, agentId, role, roleId, roles, orchestrate, budgetUsd, configId, value
         case projectId, since, seq, paths, project, schedule, scheduleId, days, timeZone, terminalId, data, message, body
-        case enabled, deviceId, shared, removeWorktree, card, cardId, column, alerts
+        case enabled, deviceId, shared, removeWorktree, card, cardId, column, alerts, split
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -823,7 +829,7 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
         case .ping(let id):
             try c.encode("ping", forKey: .type)
             try c.encode(id, forKey: .id)
-        case .sessionCreate(let id, let agent, let skills, let mcpServers, let orchestrate, let budgetUsd, let projectId, let shared):
+        case .sessionCreate(let id, let agent, let skills, let mcpServers, let orchestrate, let budgetUsd, let projectId, let shared, let split):
             try c.encode("session.create", forKey: .type)
             try c.encode(id, forKey: .id)
             try c.encode(agent, forKey: .agent)
@@ -833,6 +839,7 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
             if orchestrate, let budgetUsd { try c.encode(budgetUsd, forKey: .budgetUsd) }
             if let projectId { try c.encode(projectId, forKey: .projectId) }
             if shared { try c.encode(true, forKey: .shared) }
+            if split { try c.encode(true, forKey: .split) }
         case .sessionConfig(let id, let sessionId, let configId, let value):
             try c.encode("session.config", forKey: .type)
             try c.encode(id, forKey: .id)

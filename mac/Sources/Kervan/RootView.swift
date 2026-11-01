@@ -300,9 +300,10 @@ private struct SessionRow: View {
                             .accessibilityLabel(L("lead", "ana ajan"))
                     }
                 }
-                Text("\(agentName), \(session.status.label.lowercased())")
+                Text("\(agentName), \(session.resting == true ? L("resting", "dinleniyor") : session.status.label.lowercased())")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .help(session.resting == true ? L("Stopped while idle to free memory; the next message starts it again", "Boşta durduğu için bellek boşaltmak üzere durduruldu; bir sonraki mesaj yeniden başlatır") : "")
             }
         }
         .padding(.vertical, 2)

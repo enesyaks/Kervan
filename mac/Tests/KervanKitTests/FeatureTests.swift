@@ -329,3 +329,14 @@ import Testing
         #expect(info.reviewOf == "s")
     }
 }
+
+@Suite struct SplitTests {
+    @Test func splitIsSentAndRestingRead() throws {
+        let create: String = try ClientMessage.sessionCreate(id: "c", agent: "claude", orchestrate: true, split: true).jsonString()
+        #expect(create.contains(#""split":true"#) && create.contains(#""orchestrate":true"#))
+        let plain: String = try ClientMessage.sessionCreate(id: "c", agent: "claude").jsonString()
+        #expect(!plain.contains("split"))
+        let helper = try JSONDecoder().decode(SessionInfo.self, from: Data(#"{"id":"h","agent":"fake","title":"H","status":"idle","createdAt":"c","parentId":"l","resting":true}"#.utf8))
+        #expect(helper.resting == true)
+    }
+}

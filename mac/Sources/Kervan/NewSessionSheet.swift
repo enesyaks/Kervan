@@ -9,6 +9,8 @@ struct NewSessionSheet: View {
     @State private var skills: Set<String>
     @State private var mcpServers: Set<String>
     @State private var orchestrate: Bool
+    /// With helpers on: the lead judges the size first and splits large work among them.
+    @State private var split = false
     @State private var budget: Double?
     @State private var available: [SkillInfo]?
     @State private var loadError: String?
@@ -51,6 +53,10 @@ struct NewSessionSheet: View {
                         Text(L("Hands subtasks to other agents; helpers show up under this session in the sidebar. In a git repository each helper works on its own branch.", "Alt görevleri başka ajanlara verir; yardımcılar kenar çubuğunda bu oturumun altında görünür. Klasör bir git deposuysa her yardımcı kendi dalında çalışır."))
                     }
                     if orchestrate {
+                        Toggle(isOn: $split) {
+                            Text(L("Split into helpers when the work is large", "İş büyük olduğunda yardımcılara böl"))
+                            Text(L("The agent judges the size first: large work with separate parts it plans and hands out, small work it does itself. Idle helpers rest after a while and wake when needed.", "Ajan önce işin büyüklüğüne bakar: ayrı parçaları olan büyük işi planlayıp dağıtır, küçük işi kendisi yapar. Boşta kalan yardımcılar bir süre sonra dinlenmeye geçer, gerekince uyanır."))
+                        }
                         BudgetField(budget: $budget)
                     }
                 }
@@ -106,7 +112,8 @@ struct NewSessionSheet: View {
                         orchestrate: orchestrate,
                         budgetUsd: orchestrate ? budget.flatMap { $0 > 0 ? $0 : nil } : nil,
                         projectId: project,
-                        shared: project != nil && !ownBranch
+                        shared: project != nil && !ownBranch,
+                        split: orchestrate && split
                     )
                     dismiss()
                 }

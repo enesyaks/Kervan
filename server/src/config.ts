@@ -14,6 +14,7 @@ export interface KervanConfig {
   /** Shared secret for `kervan-node` processes; unset means this server takes no nodes. */
   nodeToken?: string;
   helperTurnMinutes?: number;
+  helperIdleMinutes?: number;
 }
 
 const MIN_TOKEN_LENGTH = 16;
@@ -40,6 +41,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): KervanConfig {
     ...(env.KERVAN_MAX_HELPERS ? { maxHelpers: wholeNumber("KERVAN_MAX_HELPERS", env.KERVAN_MAX_HELPERS) } : {}),
     ...(env.KERVAN_HELPER_TURN_MINUTES
       ? { helperTurnMinutes: wholeNumber("KERVAN_HELPER_TURN_MINUTES", env.KERVAN_HELPER_TURN_MINUTES) }
+      : {}),
+    ...(env.KERVAN_HELPER_IDLE_MINUTES
+      ? { helperIdleMinutes: wholeNumber("KERVAN_HELPER_IDLE_MINUTES", env.KERVAN_HELPER_IDLE_MINUTES) }
       : {}),
   };
 }

@@ -52,6 +52,10 @@ export interface SessionInfo {
   scheduleId?: string;
   /** Set for a review: the session whose changes this one reviews (on a copy of its files). */
   reviewOf?: string;
+  /** The lead judges the work's size and hands independent parts to helpers. */
+  split?: boolean;
+  /** A helper whose agent was stopped after sitting idle; the next message starts it again where it left off. */
+  resting?: boolean;
   error?: string;
 }
 
@@ -223,6 +227,8 @@ export interface CardInfo {
   title: string;
   prompt: string;
   agent: string;
+  /** The session it starts splits large work into helpers. */
+  split?: boolean;
   column: CardColumn;
   sessionId?: string;
   /** The prompt has been sent; from here the column follows the session. */
@@ -313,7 +319,7 @@ export type ClientMessage =
   | { type: "hello"; protocol: number; client: PeerInfo }
   | { type: "ping"; id: string }
   /** In a git project the session gets a worktree of its own unless `shared` asks for the project folder itself. */
-  | { type: "session.create"; id: string; agent: string; skills?: string[]; mcpServers?: string[]; orchestrate?: boolean; budgetUsd?: number; projectId?: string; shared?: boolean }
+  | { type: "session.create"; id: string; agent: string; skills?: string[]; mcpServers?: string[]; orchestrate?: boolean; budgetUsd?: number; projectId?: string; shared?: boolean; split?: boolean }
   /** `since` "session": everything since the first message; "turn": since the last one. */
   | { type: "session.changes"; id: string; sessionId: string; since?: "session" | "turn" }
   /** Puts files (all when `paths` is missing) back as they were before the user message `seq`. */
@@ -578,6 +584,10 @@ export function parseClientMessage(raw: string): ParseResult {
     if (data.orchestrate !== undefined) {
       if (typeof data.orchestrate !== "boolean") return fail("bad_message", "orchestrate must be true or false");
       (message as Record<string, unknown>).orchestrate = data.orchestrate;
+    }
+    if (data.split !== undefined) {
+      if (typeof data.split !== "boolean") return fail("bad_message", "split must be true or false");
+      (message as Record<string, unknown>).split = data.split;
     }
     if (data.shared !== undefined) {
       if (typeof data.shared !== "boolean") return fail("bad_message", "shared must be true or false");

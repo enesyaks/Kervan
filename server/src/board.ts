@@ -52,18 +52,21 @@ export class Board {
     const prompt = text("prompt", MAX_PROMPT);
     const agent = text("agent", 80);
     if (!this.deps.hasAgent(agent)) throw new KervanError("unknown_agent", `no agent named '${agent}'`);
+    const split = input.split === true ? { split: true } : {};
     const now = new Date().toISOString();
 
     if (typeof input.id === "string") {
       const card = this.require(input.id);
       if (card.sessionId) throw new KervanError("bad_message", "a card can't be changed once its session has started");
       Object.assign(card, { title, prompt, agent, updatedAt: now });
+      if (input.split === true) card.split = true;
+      else delete card.split;
       this.changed(card.projectId);
       return card;
     }
     const projectId = text("projectId", 80);
     if (!this.deps.hasProject(projectId)) throw new KervanError("bad_message", `no project '${projectId}'`);
-    const card: CardInfo = { id: randomUUID(), projectId, title, prompt, agent, column: "todo", createdAt: now, updatedAt: now };
+    const card: CardInfo = { id: randomUUID(), projectId, title, prompt, agent, ...split, column: "todo", createdAt: now, updatedAt: now };
     this.cards.set(card.id, card);
     this.changed(projectId);
     return card;
@@ -156,7 +159,8 @@ export function attachBoard(sessions: SessionManager, file: string): Board {
   const board = new Board(file, {
     hasProject: (id) => sessions.projects?.get(id) !== undefined,
     hasAgent: (id) => sessions.agentKinds.includes(id),
-    start: (card) => sessions.runTask({ agent: card.agent, title: card.title, prompt: card.prompt, projectId: card.projectId }),
+    start: (card) =>
+      sessions.runTask({ agent: card.agent, title: card.title, prompt: card.prompt, projectId: card.projectId, ...(card.split ? { split: true } : {}) }),
     session: (id) => sessions.list().find((s) => s.id === id),
     broadcast: (message) => sessions.broadcast(message),
   });

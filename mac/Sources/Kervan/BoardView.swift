@@ -179,6 +179,7 @@ struct CardDraft: Identifiable {
     var title = ""
     var prompt = ""
     var agent: String
+    var split = false
 
     init(projectID: String, agent: String) {
         self.projectID = projectID
@@ -191,6 +192,7 @@ struct CardDraft: Identifiable {
         title = card.title
         prompt = card.prompt
         agent = card.agent
+        split = card.split ?? false
     }
 }
 
@@ -209,6 +211,7 @@ private struct CardSheet: View {
                 Picker(L("Agent", "Ajan"), selection: $draft.agent) {
                     ForEach(model.store.agents) { Text($0.displayName).tag($0.id) }
                 }
+                Toggle(L("Split into helpers when the work is large", "İş büyük olduğunda yardımcılara böl"), isOn: $draft.split)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(L("Prompt", "İstem"))
                     TextEditor(text: $draft.prompt).frame(height: 120)
@@ -240,7 +243,7 @@ private struct CardSheet: View {
         saving = true
         defer { saving = false }
         failure = await model.store.saveCard(CardInput(
-            id: draft.cardID, projectId: draft.projectID, title: draft.title, prompt: draft.prompt, agent: draft.agent
+            id: draft.cardID, projectId: draft.projectID, title: draft.title, prompt: draft.prompt, agent: draft.agent, split: draft.split
         ))
         if failure == nil { dismiss() }
     }

@@ -159,3 +159,71 @@ describe("lead agents and helpers", () => {
     assert.deepEqual([info.teamId, info.role], [team.id, "İşçi"]);
   });
 });
+
+describe("splitting work and resting helpers", () => {
+  /** Waits until the session's last turn has ended. */
+  async function turnEnded(sessions: SessionManager, id: string, after = 0): Promise<void> {
+    for (let i = 0; i < 200; i++) {
+      const events = sessions.history(id);
+      if (events.filter((e) => e.kind === "turn_end").length > after) return;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    throw new Error(`no turn end for ${id}`);
+  }
+
+  it("rests an idle helper's agent, then picks it up again on the next message", async () => {
+    const { sessions, stop } = await startServer({ limits: { helperIdleMinutes: 0.005 } });
+    try {
+      const lead = await sessions.create("fake", [], [], { orchestrate: true });
+      const helper = await sessions.startHelper(lead.id, { name: "H", task: "selam", agent: "fake" });
+      await sessions.waitForHelper(lead.id, helper.helperId, 5_000);
+      for (let i = 0; i < 80 && !sessions.list().find((s) => s.id === helper.helperId)!.resting; i++) {
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      assert.equal(sessions.list().find((s) => s.id === helper.helperId)!.resting, true, "rested after sitting idle");
+      assert.ok(sessions.history(helper.helperId).some((e) => e.kind === "notice" && /Resting/.test(e.text)));
+
+      sessions.prompt(helper.helperId, "again", [], lead.id);
+      await turnEnded(sessions, helper.helperId, 1);
+      const info = sessions.list().find((s) => s.id === helper.helperId)!;
+      assert.equal(info.resting, undefined, "woken by the message");
+      const replies = sessions.history(helper.helperId).filter((e) => e.kind === "agent_message_chunk").map((e) => (e.kind === "agent_message_chunk" ? e.text : ""));
+      assert.match(replies.join(""), /again/);
+    } finally {
+      await stop();
+    }
+  });
+
+  it("stops and rests a lead's helpers when the lead is archived", async () => {
+    const { sessions, stop } = await startServer({ limits: { helperIdleMinutes: 0 } });
+    try {
+      const lead = await sessions.create("fake", [], [], { orchestrate: true });
+      const helper = await sessions.startHelper(lead.id, { name: "H", task: "selam", agent: "fake" });
+      await sessions.waitForHelper(lead.id, helper.helperId, 5_000);
+      assert.equal(sessions.list().find((s) => s.id === helper.helperId)!.resting, undefined, "resting is off here");
+      await sessions.archive(lead.id, true);
+      assert.equal(sessions.list().find((s) => s.id === helper.helperId)!.resting, true);
+    } finally {
+      await stop();
+    }
+  });
+
+  it("tells a lead to judge the size and split only when asked to", async () => {
+    const { sessions, stop } = await startServer();
+    try {
+      const split = await sessions.create("fake", [], [], { split: true });
+      const plain = await sessions.create("fake", [], [], { orchestrate: true });
+      assert.equal(sessions.list().find((s) => s.id === split.id)!.orchestrate, true, "splitting needs the helper tools");
+      for (const s of [split, plain]) {
+        await new Promise((r) => setTimeout(r, 300));
+        sessions.prompt(s.id, "prefacecheck");
+        await turnEnded(sessions, s.id);
+      }
+      const said = (id: string) => sessions.history(id).filter((e) => e.kind === "agent_message_chunk").map((e) => (e.kind === "agent_message_chunk" ? e.text : "")).join("");
+      assert.match(said(split.id), /judge the size of the task/);
+      assert.doesNotMatch(said(plain.id), /judge the size of the task/);
+    } finally {
+      await stop();
+    }
+  });
+});

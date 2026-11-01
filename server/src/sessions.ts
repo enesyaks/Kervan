@@ -60,11 +60,15 @@ const TITLE_CHARS = 60;
 export const MAX_HELPERS = 6;
 /** A helper's turn is stopped after this long, unless configured otherwise. */
 export const HELPER_TURN_MINUTES = 30;
+/** A helper idle this long has its agent stopped (it starts again with the next message), unless configured otherwise. */
+export const HELPER_IDLE_MINUTES = 10;
 
 export interface Limits {
   maxHelpers: number;
   /** 0 turns the limit off. */
   helperTurnMinutes: number;
+  /** 0 keeps idle helpers' agents running. */
+  helperIdleMinutes: number;
 }
 const REPLY_CHARS = 20_000;
 
@@ -109,6 +113,8 @@ interface CreateOptions {
   scheduleId?: string;
   /** A review of this session's changes. */
   reviewOf?: string;
+  /** Judge the work's size and hand independent parts to helpers (implies `orchestrate`). */
+  split?: boolean;
 }
 
 interface PendingPermission {
@@ -172,6 +178,8 @@ export class SessionManager {
   /** Set once the scheduler exists (it needs this manager to start its sessions). */
   scheduler?: Scheduler;
   board?: Board;
+  /** Helpers waiting to rest, by session id. */
+  private readonly idleTimers = new Map<string, NodeJS.Timeout>();
   alerts?: Alerts;
   /** The user's shells in session folders; their output goes to every client. */
   readonly terminals = new TerminalHub((message) => this.broadcast(message));
@@ -195,7 +203,7 @@ export class SessionManager {
     this.projects = extras.projects;
     this.checkpoints = extras.checkpoints;
     this.nodes = extras.nodes;
-    this.limits = { maxHelpers: MAX_HELPERS, helperTurnMinutes: HELPER_TURN_MINUTES, ...extras.limits };
+    this.limits = { maxHelpers: MAX_HELPERS, helperTurnMinutes: HELPER_TURN_MINUTES, helperIdleMinutes: HELPER_IDLE_MINUTES, ...extras.limits };
     this.roles = extras.roles;
     this.skills = extras.skills;
     this.mcp = extras.mcp;
@@ -326,7 +334,8 @@ export class SessionManager {
         ...(options.teamId ? { teamId: options.teamId } : {}),
         ...(options.role ? { role: options.role } : {}),
         ...(options.parentId ? { parentId: options.parentId } : {}),
-        ...(options.orchestrate && !options.parentId ? { orchestrate: true } : {}),
+        ...((options.orchestrate || options.split) && !options.parentId ? { orchestrate: true } : {}),
+        ...(options.split && !options.parentId ? { split: true } : {}),
         ...(options.orchestrate && !options.parentId && options.budgetUsd ? { budgetUsd: options.budgetUsd } : {}),
         ...(worktreeFrom ? { branch: branchName(options.title ?? agent, id) } : {}),
         ...(options.projectId ? { projectId: options.projectId } : {}),
@@ -652,9 +661,52 @@ export class SessionManager {
     return this.helperSessions(leadId).map((helper) => this.helperSummary(helper));
   }
 
+  /** Stops the helper's turn and its agent; a later message starts it again where it left off. */
   async stopHelper(leadId: string, helperId: string): Promise<void> {
-    this.requireHelper(leadId, helperId);
+    const helper = this.requireHelper(leadId, helperId);
     await this.cancel(helperId);
+    this.rest(helper);
+  }
+
+  /**
+   * Stops an idle helper's agent so it stops holding memory. Its conversation, folder and branch stay; the next
+   * message resumes the agent session where it left off (the same path as after a server restart).
+   */
+  private rest(session: Session): void {
+    this.clearIdleTimer(session.info.id);
+    if (!session.process || !session.info.parentId || this.shuttingDown) return;
+    if (!["idle", "error"].includes(session.info.status) || session.pending.size > 0) return;
+    session.process.close();
+    session.process = undefined;
+    session.info.resting = true;
+    this.record(session, { kind: "notice", text: "Resting: its agent was stopped while idle. The next message starts it again where it left off." });
+    this.save(session);
+    this.broadcast({ type: "session.updated", session: { ...session.info } });
+  }
+
+  private clearIdleTimer(sessionId: string): void {
+    const timer = this.idleTimers.get(sessionId);
+    if (timer) clearTimeout(timer);
+    this.idleTimers.delete(sessionId);
+  }
+
+  /** A helper that goes idle rests after a while; any other status cancels that. */
+  private watchIdle(session: Session): void {
+    if (!session.info.parentId) return;
+    this.clearIdleTimer(session.info.id);
+    const minutes = this.limits.helperIdleMinutes;
+    if (session.info.status !== "idle" || !session.process || minutes <= 0) return;
+    const timer = setTimeout(() => this.rest(session), minutes * 60_000);
+    timer.unref();
+    this.idleTimers.set(session.info.id, timer);
+  }
+
+  /** A lead that stops, or is archived, takes its helpers with it: their turns end and their agents rest. */
+  private async stopHelpersOf(leadId: string): Promise<void> {
+    for (const helper of this.helperSessions(leadId)) {
+      await this.cancel(helper.info.id).catch(() => {});
+      this.rest(helper);
+    }
   }
 
   private helperSessions(leadId: string): Session[] {
@@ -715,6 +767,7 @@ export class SessionManager {
       }
     }
     if (!archived) await this.ensureWorktree(session);
+    if (archived) await this.stopHelpersOf(sessionId);
     session.info.archived = archived;
     this.save(session);
     this.broadcast({ type: "session.updated", session: { ...session.info } });
@@ -750,6 +803,10 @@ export class SessionManager {
 
   async cancel(sessionId: string): Promise<void> {
     const session = this.require(sessionId);
+    // Stopping a lead stops the helpers working for it too.
+    if (!session.info.parentId) {
+      for (const helper of this.helperSessions(sessionId)) await this.cancel(helper.info.id).catch(() => {});
+    }
     if (session.info.status !== "running" && session.info.status !== "waiting") return;
     // ACP: a cancelling client must answer its open permission requests with "cancelled".
     for (const requestId of [...session.pending.keys()]) this.resolvePermission(session, requestId, null);
@@ -759,6 +816,7 @@ export class SessionManager {
   /** Shutdown: stop the agents but leave the stored status alone, so the next start recovers. */
   closeAll(): void {
     this.shuttingDown = true;
+    for (const id of [...this.idleTimers.keys()]) this.clearIdleTimer(id);
     this.terminals.closeAll();
     this.scheduler?.stop();
     for (const session of this.sessions.values()) {
@@ -796,6 +854,12 @@ export class SessionManager {
           "then wait for their replies and check their work before you report back. If your folder is a git repository " +
           "with a commit, each helper works on its own branch in a separate worktree: look at its work with helper_diff " +
           "and bring it in with merge_helper. Otherwise helpers work in your folder."
+        : undefined,
+      session.info.split
+        ? "[Kervan] Before you start, judge the size of the task. If it has independent parts that are each substantial, " +
+          "first show your plan as a short list, then hand each part to a helper with start_helper (in parallel where " +
+          "they don't depend on each other), keep the rest for yourself, and wait for them, check their work and bring it " +
+          "together before you answer. If the task is small or its parts depend on each other, do it yourself without helpers."
         : undefined,
       session.info.budgetUsd !== undefined
         ? `[Kervan] Budget for you and your helpers together: $${session.info.budgetUsd}. Everything stops when it is used up.`
@@ -951,9 +1015,10 @@ export class SessionManager {
   }
 
   /** A scheduled task or a board card: a new session that gets `prompt` as soon as its agent is up. Resolves with its id. */
-  async runTask(task: { agent: string; title: string; prompt: string; projectId?: string; scheduleId?: string }): Promise<string> {
+  async runTask(task: { agent: string; title: string; prompt: string; projectId?: string; scheduleId?: string; split?: boolean }): Promise<string> {
     const info = await this.create(task.agent, [], [], {
       title: task.title,
+      ...(task.split ? { split: true } : {}),
       ...(task.scheduleId ? { scheduleId: task.scheduleId } : {}),
       ...(task.projectId && this.projects?.get(task.projectId) ? { projectId: task.projectId } : {}),
     });
@@ -995,6 +1060,7 @@ export class SessionManager {
   /** Starts (or resumes) the session's agent. On failure the session ends up in `error`. */
   private async startAgent(session: Session, resume = false): Promise<void> {
     session.costBase = session.info.usage?.costUsd ?? 0;
+    delete session.info.resting;
     await this.ensureWorktree(session).catch((error) => log("warn", "couldn't restore a worktree", { id: session.info.id, error: String(error) }));
     // What the user chose before the agent stopped; a restarted agent may come back on its defaults.
     const chosen = session.info.config ?? [];
@@ -1122,6 +1188,7 @@ export class SessionManager {
     else delete session.info.error;
     this.save(session);
     this.broadcast({ type: "session.updated", session: { ...session.info } });
+    this.watchIdle(session);
   }
 
   private save(session: Session): void {
