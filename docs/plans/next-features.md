@@ -75,7 +75,10 @@ Acceptance:
 - Findings appear in the original session's Changes panel and can be sent to its agent as one message.
 - A review of a session with no changes is refused with a clear message.
 
-### Step 5. HTTPS for the web client
+### Step 5. HTTPS for the web client (decided)
+
+Decision: HTTPS through Tailscale Serve, plain HTTP kept for the home network. See [https.md](https.md).
+
 
 Plan how the web client gets HTTPS on a home network, so it can install as a proper app and receive Web Push alerts.
 Evaluate Tailscale Serve certificates, a local certificate the app installs, and leaving HTTP for the LAN with HTTPS
