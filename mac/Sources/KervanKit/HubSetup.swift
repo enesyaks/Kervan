@@ -75,7 +75,7 @@ public enum HubSetupStep: Int, CaseIterable, Comparable, Sendable {
         case .uploading: L("Connects with your Mac's SSH key and copies Kervan to the machine.", "Mac'inizin SSH anahtarıyla bağlanıp Kervan'ı makineye kopyalıyor.")
         case .packages: L("The longest step; it can take a few minutes depending on the machine.", "En uzun adım bu; makinenin hızına göre birkaç dakika sürebilir.")
         case .files: L("Preparing the kervan user, folders and dependencies.", "Kervan kullanıcısı, klasörler ve bağımlılıklar hazırlanıyor.")
-        case .settings: L("The key the app made is written to the server; on your Mac it's in the Keychain.", "Uygulamanın ürettiği anahtar sunucuya yazılıyor; Mac'inizde Keychain'de duruyor.")
+        case .settings: L("The key the app made is written to the server; on your Mac only you can read it.", "Uygulamanın ürettiği anahtar sunucuya yazılıyor; Mac'inizde onu yalnızca siz okuyabilirsiniz.")
         case .firewall: L("Only SSH and Kervan's port are opened.", "Yalnızca SSH ve Kervan'ın portu açılıyor.")
         case .service: L("The server is starting; waiting for it to answer.", "Sunucu açılıyor ve yanıt vermesi bekleniyor.")
         case .tailscaleLogin: L("Sign in with your Tailscale account at the link that opens.", "Açılan bağlantıdan Tailscale hesabınızla giriş yapın.")

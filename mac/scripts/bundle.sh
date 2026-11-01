@@ -4,13 +4,18 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Universal: Apple silicon and Intel. One build per architecture, joined with lipo (a single multi-arch
+# swift build needs Xcode, which this project doesn't require).
 swift build -c release --product Kervan
+INTEL=x86_64-apple-macosx14.0
+swift build -c release --triple "$INTEL" --product Kervan
 BIN_DIR="$(swift build -c release --show-bin-path)"
+INTEL_DIR="$(swift build -c release --triple "$INTEL" --show-bin-path)"
 
 APP=build/Kervan.app
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$BIN_DIR/Kervan" "$APP/Contents/MacOS/Kervan"
+lipo -create "$BIN_DIR/Kervan" "$INTEL_DIR/Kervan" -output "$APP/Contents/MacOS/Kervan"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 # English and Turkish: system prompts (InfoPlist.strings) and the language macOS picks for the app.
 cp -R Resources/en.lproj Resources/tr.lproj "$APP/Contents/Resources/"
@@ -29,7 +34,7 @@ COPYFILE_DISABLE=1 tar -czf "$APP/Contents/Resources/server.tar.gz" \
   --exclude=./node_modules --exclude=./data --exclude=./test -C ../server .
 cp ../infra/hub-setup.sh ../infra/kervan.service "$APP/Contents/Resources/"
 
-# The same certificate on every release keeps the app's identity, so the Keychain still knows it after an update.
+# The same certificate on every release keeps the app's identity, which the updater checks before it installs.
 IDENTITY="${KERVAN_SIGN_IDENTITY:-Kervan Release}"
 if security find-certificate -c "$IDENTITY" >/dev/null 2>&1; then
   codesign --force --sign "$IDENTITY" "$APP"

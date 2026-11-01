@@ -48,11 +48,11 @@ To work on the UI without spending a real agent's quota: `node server/scripts/de
 The app, its `Info.plist` and the server (`server/src/version.ts`) share one version number; a test keeps them in
 step.
 
-Releases are signed with one self-signed certificate, "Kervan Release", so an update keeps the app's identity and
-the Keychain keeps its saved access key. Create it once on the machine that makes releases with
-`mac/scripts/signing-identity.sh`, and back it up (Keychain Access › Export). `bundle.sh` signs ad-hoc when it's
-missing, which is fine for development. The app installs an update only if it is signed with the same certificate as
-the running copy.
+Releases are universal (Apple silicon and Intel) and signed with one self-signed certificate, "Kervan Release": the
+app installs an update only if it is signed with the same certificate as the running copy. Create it once on the
+machine that makes releases with `mac/scripts/signing-identity.sh`, and back it up (Keychain Access › Export).
+`bundle.sh` signs ad-hoc when it's missing, which is fine for development. New users install with `install.sh`
+(see the README), which checks the release's checksum and avoids Gatekeeper's "Open Anyway" step.
 
 To release, bump the version, then:
 

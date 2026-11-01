@@ -2,13 +2,13 @@
 # Creates "Kervan Release", the self-signed certificate releases are signed with, in the login keychain.
 # Run once on the machine that makes releases: mac/scripts/signing-identity.sh
 #
-# Why: macOS knows an app by its signature. Ad-hoc signatures change with every build, so after each update the
-# app looked like a stranger to the Keychain and lost the saved access key. One certificate across releases keeps
-# the app's identity, and the key, from one version to the next. It is not an Apple certificate, so Gatekeeper
-# still asks once on first open.
+# Why: the app's updater installs a new version only if it carries the same signing certificate as the running
+# copy, so a release file swapped by someone else isn't installed. Ad-hoc signatures change with every build and
+# can't be compared like that. It is not an Apple certificate: a browser download still meets Gatekeeper once
+# (install.sh avoids that), and the app keeps its access key in a file rather than the Keychain for the same reason.
 #
-# Keep a backup: Keychain Access › My Certificates › "Kervan Release" › Export. A new certificate means every
-# installed copy asks for its key once more after the next update.
+# Keep a backup: Keychain Access › My Certificates › "Kervan Release" › Export. With a new certificate, copies
+# already installed refuse the next update and have to be reinstalled once (install.sh).
 set -euo pipefail
 
 NAME="${KERVAN_SIGN_IDENTITY:-Kervan Release}"

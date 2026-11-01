@@ -198,10 +198,19 @@ flowchart LR
 
 ### 1. The app
 
-Download the app from the [latest release](https://github.com/enesyaks/Kervan/releases/latest). It isn't notarized
-by Apple yet, so macOS blocks it the first time you open it. Open it once, then go to **System Settings → Privacy &
-Security** and click **Open Anyway** (on macOS 14, right-click → Open in Finder also works). After that it opens
-normally, and later versions install from inside the app. To build it from source:
+Paste this into Terminal:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/enesyaks/Kervan/main/install.sh | bash
+```
+
+It downloads the latest release, checks it against its published checksum, puts Kervan in Applications and opens
+it, with no security prompts to click through. It runs on Apple silicon and Intel Macs with macOS 14 or later, and
+later versions install from inside the app (Settings › General).
+
+Prefer to download it yourself? Get the zip from the [latest release](https://github.com/enesyaks/Kervan/releases/latest).
+It isn't notarized by Apple, so macOS blocks it the first time: open it once, then click **Open Anyway** in
+**System Settings → Privacy & Security**. To build it from source:
 
 ```bash
 git clone https://github.com/enesyaks/Kervan.git
@@ -267,6 +276,7 @@ back to the app. Other ACP agents or command-line tools can be added with an `ag
 - The server accepts only connections with the **token**; with a wrong one it answers `401` before any WebSocket opens.
 - It's designed for your local network or **Tailscale**; don't expose it to the internet.
 - API keys and MCP secrets stay on the server in files with `0600` permissions; clients only see their names.
+- On the Mac, the access key is kept in a file only you can read (`0600`, under Application Support), so app updates never ask for it again.
 - Tool calls that need approval wait until you answer.
 - The port preview tunnel needs the same token and only connects to the server's own `localhost`.
 - The web version is off by default. A browser is paired with a one-time code (valid ten minutes) and gets its own
@@ -294,7 +304,7 @@ KERVAN_SERVER=localhost KERVAN_TOKEN=local-dev-token-not-secret swift run Kervan
 
 To work on the UI without spending a real agent's quota: `node server/scripts/dev-fake-server.ts`.
 
-Useful environment variables for the app: `KERVAN_SERVER`, `KERVAN_TOKEN` (skips the Keychain),
+Useful environment variables for the app: `KERVAN_SERVER`, `KERVAN_TOKEN` (doesn't touch the saved key),
 `KERVAN_NO_INTRO=1` (no opening animation), `KERVAN_ONBOARDING=1` (show the first-launch flow again).
 
 UI text lives next to its translation: `L("English", "Türkçe")` in [`Localization.swift`](mac/Sources/KervanKit/Localization.swift).

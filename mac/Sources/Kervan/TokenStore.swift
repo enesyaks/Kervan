@@ -1,35 +1,36 @@
 import Foundation
-import Security
 
-/// The server token lives in the login Keychain, never in UserDefaults.
+/// The server token, in a file only this user can read (0600, in a 0700 folder under Application Support),
+/// never in UserDefaults.
+///
+/// Not in the Keychain: Kervan isn't signed with an Apple-issued certificate, and for such apps macOS ties a
+/// Keychain item to the exact build, so every update asked for the key again (an open access list doesn't help;
+/// the item's partition list still refuses the next build). Any program running as this user could read a file in
+/// its home folder anyway, which is the line a Keychain item open to it would draw too.
 enum TokenStore {
     /// Per app identity, so a second copy (e.g. a first-run test build) starts without the first one's token.
-    private static let service = Bundle.main.bundleIdentifier ?? "com.enes.kervan"
-    private static let account = "server-token"
-
-    private static var baseQuery: [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: service,
-         kSecAttrAccount as String: account]
+    private static var file: URL {
+        let identity = Bundle.main.bundleIdentifier ?? "com.enes.kervan"
+        return URL.applicationSupportDirectory.appending(path: identity, directoryHint: .isDirectory).appending(path: "server-token")
     }
 
     static func read() -> String? {
-        var query = baseQuery
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: AnyObject?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-              let data = result as? Data
-        else { return nil }
-        return String(data: data, encoding: .utf8)
+        guard let text = try? String(contentsOf: file, encoding: .utf8) else { return nil }
+        let token = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return token.isEmpty ? nil : token
     }
 
     static func save(_ token: String) {
         guard read() != token else { return }
-        SecItemDelete(baseQuery as CFDictionary)
-        var item = baseQuery
-        item[kSecValueData as String] = Data(token.utf8)
-        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        SecItemAdd(item as CFDictionary, nil)
+        let folder = file.deletingLastPathComponent()
+        let manager = FileManager.default
+        try? manager.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try? manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
+        // Written private from the start: created 0600, then moved into place.
+        let temporary = folder.appending(path: ".server-token-\(UUID().uuidString)")
+        guard manager.createFile(atPath: temporary.path, contents: Data(token.utf8), attributes: [.posixPermissions: 0o600]) else { return }
+        _ = try? manager.replaceItemAt(file, withItemAt: temporary)
+        if manager.fileExists(atPath: temporary.path) { try? manager.moveItem(at: temporary, to: file) }
+        try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
     }
 }

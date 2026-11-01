@@ -253,7 +253,7 @@ struct OnboardingView: View {
         @Bindable var model = model
         let state = model.connection.state
         return VStack(alignment: .leading, spacing: 28) {
-            heading(L("Connect to your server", "Sunucunuza bağlanalım"), L("You only need to enter these once. The access key is kept in your Mac's Keychain.", "Bunları yalnızca bir kez girmeniz yeterli. Erişim anahtarı Mac'inizin Anahtar Zinciri'nde saklanır."))
+            heading(L("Connect to your server", "Sunucunuza bağlanalım"), L("You only need to enter these once. The access key stays on this Mac, where only you can read it.", "Bunları yalnızca bir kez girmeniz yeterli. Erişim anahtarı bu Mac'te, yalnızca sizin okuyabileceğiniz şekilde saklanır."))
             VStack(alignment: .leading, spacing: 18) {
                 Field(title: L("Server address", "Sunucu adresi"), hint: L("IP address, Tailscale name or network name. Port 7420 is used if you leave it out.", "IP adresi, Tailscale adı ya da ağdaki adı. Port yazmazsanız 7420 kullanılır.")) {
                     TextField(L("Server address", "Sunucu adresi"), text: $model.serverInput, prompt: Text(L("e.g. 192.168.1.21", "ör. 192.168.1.21")))

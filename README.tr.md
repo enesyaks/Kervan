@@ -197,11 +197,19 @@ flowchart LR
 
 ### 1. Uygulama
 
-Hazır derlenmiş uygulamayı [son sürümden](https://github.com/enesyaks/Kervan/releases/latest) indirebilirsiniz.
-Uygulama henüz Apple tarafından onaylanmadığı (notarize edilmediği) için macOS ilk açılışta engeller. Bir kez açmayı
-deneyin, sonra **Sistem Ayarları → Gizlilik ve Güvenlik** bölümünde **Yine de Aç**'a tıklayın (macOS 14'te Finder'da
-sağ tık → Aç da olur). Sonrasında normal açılır; yeni sürümler uygulamanın içinden kurulur.
-Kaynaktan derlemek için:
+Bunu Terminal'e yapıştırın:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/enesyaks/Kervan/main/install.sh | bash
+```
+
+Son sürümü indirir, yayımlanan sağlama toplamıyla doğrular, Kervan'ı Uygulamalar'a koyar ve açar; tıklanacak bir
+güvenlik uyarısı çıkmaz. macOS 14 ve üstünde Apple Silicon ve Intel Mac'lerde çalışır; sonraki sürümler uygulamanın
+içinden kurulur (Ayarlar › Genel).
+
+Kendiniz indirmek isterseniz zip'i [son sürümden](https://github.com/enesyaks/Kervan/releases/latest) alın.
+Apple onaylı olmadığı için macOS ilk açılışta engeller: bir kez açmayı deneyin, sonra **Sistem Ayarları → Gizlilik ve
+Güvenlik**'te **Yine de Aç**'a tıklayın. Kaynaktan derlemek için:
 
 ```bash
 git clone https://github.com/enesyaks/Kervan.git
@@ -268,6 +276,7 @@ uygulamadan eklenebilir.
 - Sunucu yalnızca **token'lı** bağlantı kabul eder; token yanlışsa WebSocket açılmadan `401` döner.
 - Tasarım gereği yerel ağ ya da **Tailscale** içinde çalışır; internete açmayın.
 - API anahtarları ve MCP sırları sunucuda `0600` izinli dosyalarda durur; istemciye yalnızca adları gider.
+- Mac'te erişim anahtarı yalnızca sizin okuyabildiğiniz bir dosyada (`0600`, Application Support altında) durur; böylece uygulama güncellemeleri onu bir daha sormaz.
 - İzin isteyen araç çağrıları siz onaylayana kadar bekler.
 - Port önizleme tüneli de aynı token'ı ister ve yalnızca sunucunun kendi `localhost`'una bağlanır.
 - Web sürümü varsayılan olarak kapalıdır. Tarayıcı tek kullanımlık bir kodla (on dakika geçerli) eşleştirilir ve
@@ -293,7 +302,7 @@ KERVAN_SERVER=localhost KERVAN_TOKEN=local-dev-token-not-secret swift run Kervan
 
 Gerçek bir ajan harcamadan arayüz üzerinde çalışmak için `node server/scripts/dev-fake-server.ts`.
 
-Faydalı ortam değişkenleri (Mac): `KERVAN_SERVER`, `KERVAN_TOKEN` (Keychain'e dokunmaz), `KERVAN_NO_INTRO=1`
+Faydalı ortam değişkenleri (Mac): `KERVAN_SERVER`, `KERVAN_TOKEN` (kayıtlı anahtara dokunmaz), `KERVAN_NO_INTRO=1`
 (açılış animasyonu yok), `KERVAN_ONBOARDING=1` (ilk açılışı yeniden göster).
 
 ### Görselleri yeniden üretmek

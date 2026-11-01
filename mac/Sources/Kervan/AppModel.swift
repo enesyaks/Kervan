@@ -50,7 +50,7 @@ final class AppModel {
     private(set) var isLinked = false
 
     /// KERVAN_SERVER / KERVAN_TOKEN override the saved values for local development
-    /// (`KERVAN_TOKEN=… swift run Kervan`) and keep the Keychain out of it.
+    /// (`KERVAN_TOKEN=… swift run Kervan`) and leave the saved key alone.
     private let environment = ProcessInfo.processInfo.environment
     private var usesEnvironmentToken: Bool { environment["KERVAN_TOKEN"] != nil }
 
@@ -108,7 +108,7 @@ final class AppModel {
         guard let address, canConnect else { return }
         let token = trimmedToken
         if !usesEnvironmentToken {
-            // Keychain calls can block on a system permission prompt; keep them off the main thread.
+            // File work, kept off the main thread.
             Task.detached { TokenStore.save(token) }
         }
         activeAddress = address
