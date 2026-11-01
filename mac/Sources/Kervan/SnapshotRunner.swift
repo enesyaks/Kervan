@@ -76,6 +76,21 @@ enum SnapshotRunner {
                     print("[SnapshotRunner] Wrote \(filename)")
                 }
 
+                // 1b. The welcome film, stopped at moments through its chapters.
+                let filmMoments: [Double] = [2.0, Film.finished(0), 7.5, Film.finished(1), 12.6, Film.finished(2), Film.finished(3)]
+                for (index, moment) in filmMoments.enumerated() {
+                    let view = OnboardingView(stage: .welcome, filmTime: moment)
+                        .environment(model)
+                        .fontDesign(.rounded)
+                        .preferredColorScheme(app.scheme)
+                        .environment(\.colorScheme, app.scheme)
+                        .frame(width: 860, height: 580)
+
+                    let filename = "00-film-\(index + 1)-\(lang.name)-\(app.name).png"
+                    render(view: view, size: CGSize(width: 860, height: 580), appearance: NSAppearance(named: app.ns)!, to: outURL.appendingPathComponent(filename))
+                    print("[SnapshotRunner] Wrote \(filename)")
+                }
+
                 // 2. Tour cards
                 for card in tourCards {
                     let view = WelcomeTourView(close: {}, initialPage: card.page)

@@ -62,7 +62,11 @@ struct OnboardingView: View {
         }
     }
 
-    init(stage: Stage? = nil) {
+    /// Snapshots stop the welcome film at a moment instead of playing it.
+    private let filmTime: Double?
+
+    init(stage: Stage? = nil, filmTime: Double? = nil) {
+        self.filmTime = filmTime
         if let stage {
             _stage = State(initialValue: stage)
         }
@@ -80,7 +84,7 @@ struct OnboardingView: View {
                 }
                 .frame(maxWidth: 520, alignment: .leading)
                 .padding(.horizontal, 56)
-                .padding(.top, 60)
+                .padding(.top, stage == .welcome ? 44 : 60)
                 .padding(.bottom, 40)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -201,17 +205,16 @@ struct OnboardingView: View {
     // MARK: Stages
 
     private var welcome: some View {
-        VStack(alignment: .leading, spacing: 28) {
+        VStack(alignment: .leading, spacing: 22) {
             heading(
                 L("Run your agents on your own server", "Ajanlarınız kendi sunucunuzda çalışsın"),
-                L("Kervan runs agents like Claude, Codex and Gemini on your own machine, and you manage them all from this Mac.", "Kervan; Claude, Codex ve Gemini gibi ajanları sizin makinenizde çalıştırır, siz de hepsini bu Mac'ten yönetirsiniz.")
+                L("Claude, Codex and Gemini work on your machine; you run them all from this Mac.", "Claude, Codex ve Gemini sizin makinenizde çalışır; siz hepsini bu Mac'ten yönetirsiniz.")
             )
-            VStack(alignment: .leading, spacing: 18) {
-                Promise(symbol: "moon.stars", title: L("Work goes on when the Mac sleeps", "Mac uyusa da iş sürer"), text: L("Agents run on the server, so when you come back you see how far they got.", "Ajanlar sunucuda çalışır; döndüğünüzde ne kadar ilerlediklerini görürsünüz."))
-                Promise(symbol: "lock", title: L("Everything stays with you", "Her şey sizde kalır"), text: L("Your code and API keys stay on your own server and go nowhere else.", "Kodunuz ve API anahtarlarınız kendi sunucunuzda durur, başka bir yere gitmez."))
-                Promise(symbol: "clock", title: L("Ready in minutes", "Birkaç dakikada hazır"), text: L("A minute if you have a server; setting one up together takes 3–5 minutes.", "Sunucunuz varsa bir dakika, yoksa birlikte kurmak 3–5 dakika."))
-            }
+            WelcomeFilm(fixedTime: filmTime)
             Actions {
+                Text(L("Ready in a few minutes", "Birkaç dakikada hazır"))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
                 Spacer()
                 Button(L("Get started", "Başlayalım")) { go(.choose) }
                     .buttonStyle(PrimaryPillStyle())
