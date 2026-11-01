@@ -131,6 +131,8 @@ public struct SessionInfo: Codable, Equatable, Sendable, Identifiable {
     public var projectId: String?
     /// Set when a scheduled task started the session.
     public var scheduleId: String?
+    /// Set for a review: the session whose changes this one reviews, on a copy of its files.
+    public var reviewOf: String?
     public var error: String?
 
     public init(
@@ -138,8 +140,9 @@ public struct SessionInfo: Codable, Equatable, Sendable, Identifiable {
         archived: Bool = false, skills: [String] = [], mcpServers: [String] = [], teamId: String? = nil,
         role: String? = nil, parentId: String? = nil, orchestrate: Bool = false, budgetUsd: Double? = nil,
         branch: String? = nil, usage: SessionUsage? = nil, config: [ConfigOption] = [], projectId: String? = nil,
-        scheduleId: String? = nil, error: String? = nil
+        scheduleId: String? = nil, reviewOf: String? = nil, error: String? = nil
     ) {
+        self.reviewOf = reviewOf
         self.config = config
         self.projectId = projectId
         self.scheduleId = scheduleId
@@ -163,7 +166,7 @@ public struct SessionInfo: Codable, Equatable, Sendable, Identifiable {
 
     private enum CodingKeys: String, CodingKey {
         case id, agent, title, status, createdAt, archived, skills, mcpServers, teamId, role, parentId, orchestrate, budgetUsd, branch, usage, config
-        case projectId, scheduleId, error
+        case projectId, scheduleId, reviewOf, error
     }
 
     public init(from decoder: any Decoder) throws {
@@ -186,6 +189,7 @@ public struct SessionInfo: Codable, Equatable, Sendable, Identifiable {
         config = try c.decodeIfPresent([ConfigOption].self, forKey: .config) ?? []
         projectId = try c.decodeIfPresent(String.self, forKey: .projectId)
         scheduleId = try c.decodeIfPresent(String.self, forKey: .scheduleId)
+        reviewOf = try c.decodeIfPresent(String.self, forKey: .reviewOf)
         error = try c.decodeIfPresent(String.self, forKey: .error)
     }
 }
@@ -613,6 +617,8 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
     case sessionCommit(id: String, sessionId: String, message: String)
     /// Commits what is left on a branch of its own, pushes it and opens a pull request.
     case sessionPullRequest(id: String, sessionId: String, title: String, body: String)
+    /// Starts `agent` reviewing the session's changes on a copy of its files, as a session of its own.
+    case sessionReview(id: String, sessionId: String, agent: String)
     /// Web access: turning it on and off, pairing browsers and removing them. The app only.
     case webStatus(id: String)
     case webEnable(id: String, enabled: Bool)
@@ -719,6 +725,11 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
             try c.encode("web.revoke", forKey: .type)
             try c.encode(id, forKey: .id)
             try c.encode(deviceId, forKey: .deviceId)
+        case .sessionReview(let id, let sessionId, let agent):
+            try c.encode("session.review", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(sessionId, forKey: .sessionId)
+            try c.encode(agent, forKey: .agent)
         case .sessionPullRequest(let id, let sessionId, let title, let body):
             try c.encode("session.pullRequest", forKey: .type)
             try c.encode(id, forKey: .id)

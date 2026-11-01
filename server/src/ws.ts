@@ -201,6 +201,9 @@ async function handleRequest(
     case "session.commit":
       await sessions.commit(message.sessionId, message.message);
       return send(ws, { type: "ok", id: message.id });
+    case "session.review":
+      await sessions.review(message.sessionId, message.agent);
+      return send(ws, { type: "ok", id: message.id });
     case "session.pullRequest":
       return send(ws, {
         type: "session.pullRequest.result",

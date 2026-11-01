@@ -137,6 +137,31 @@ describe("changes, projects, schedules, terminals, ports, usage", () => {
     assert.equal(outside.type, "error");
   });
 
+  it("has another agent review a session's changes on a copy it can't harm", async () => {
+    const { ws, inbox } = await client();
+    const idle = await idleSession(ws, inbox);
+    const refused = await ask(ws, inbox, { type: "session.review", sessionId: idle, agent: "fake" });
+    assert.equal(refused.type, "error");
+    assert.match(refused.message, /nothing to review/);
+
+    const authorId = await idleSession(ws, inbox);
+    await turn(ws, inbox, authorId, "write page.html hello world");
+    assert.equal((await ask(ws, inbox, { type: "session.review", sessionId: authorId, agent: "fake" })).type, "ok");
+    const reviewer = sessions.list().find((s) => s.reviewOf === authorId)!;
+    assert.ok(reviewer, "the review is a session of its own, linked to the one it reviews");
+    const [authorDir, reviewDir] = [sessions.workspace(authorId), sessions.workspace(reviewer.id)];
+    assert.notEqual(reviewDir, authorDir);
+    assert.match(readFileSync(join(reviewDir, "CHANGES.diff"), "utf8"), /page\.html/);
+    assert.equal(readFileSync(join(reviewDir, "page.html"), "utf8").trim(), "hello world");
+    const history = await ask(ws, inbox, { type: "session.history", sessionId: reviewer.id });
+    assert.match(history.events.find((e: any) => e.kind === "user_message").text, /Review the work.*most severe first/s);
+
+    // Whatever the reviewer writes stays in its copy.
+    await inbox.waitFor((m) => m.type === "session.event" && m.sessionId === reviewer.id && m.event.kind === "turn_end");
+    await turn(ws, inbox, reviewer.id, "write page.html broken by the reviewer");
+    assert.equal(readFileSync(join(authorDir, "page.html"), "utf8").trim(), "hello world");
+  });
+
   it("alerts once per approval with the session's name only, and never holds a session up", async () => {
     const { ws, inbox } = await client();
     // A stand-in ntfy server that remembers what it was sent.

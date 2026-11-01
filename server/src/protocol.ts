@@ -50,6 +50,8 @@ export interface SessionInfo {
   projectId?: string;
   /** Set for sessions a scheduled task started. */
   scheduleId?: string;
+  /** Set for a review: the session whose changes this one reviews (on a copy of its files). */
+  reviewOf?: string;
   error?: string;
 }
 
@@ -319,6 +321,8 @@ export type ClientMessage =
   | { type: "session.commit"; id: string; sessionId: string; message: string }
   /** Commits what is left on a branch of its own, pushes it and opens a pull request. */
   | { type: "session.pullRequest"; id: string; sessionId: string; title: string; body?: string }
+  /** Starts `agent` reviewing the session's changes on a copy of its files; the review is a session of its own. */
+  | { type: "session.review"; id: string; sessionId: string; agent: string }
   /** Web access is managed from the app only; paired browsers can't reach these. */
   | { type: "web.status"; id: string }
   | { type: "web.enable"; id: string; enabled: boolean }
@@ -492,6 +496,7 @@ const STRING_FIELDS: Record<string, readonly string[]> = {
   "session.revert": ["id", "sessionId"],
   "session.commit": ["id", "sessionId", "message"],
   "session.pullRequest": ["id", "sessionId", "title"],
+  "session.review": ["id", "sessionId", "agent"],
   "web.status": ["id"],
   "web.enable": ["id"],
   "web.pair": ["id"],

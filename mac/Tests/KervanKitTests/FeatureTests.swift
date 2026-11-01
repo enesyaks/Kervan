@@ -320,3 +320,12 @@ import Testing
         #expect(value.ntfy?.tokenSet == true && !value.events.finished)
     }
 }
+
+@Suite struct ReviewTests {
+    @Test func reviewRequestAndLinkDecode() throws {
+        let request: String = try ClientMessage.sessionReview(id: "r", sessionId: "s", agent: "gemini").jsonString()
+        #expect(request.contains(#""type":"session.review""#) && request.contains(#""agent":"gemini""#))
+        let info = try JSONDecoder().decode(SessionInfo.self, from: Data(#"{"id":"v","agent":"gemini","title":"Review: X","status":"idle","createdAt":"c","reviewOf":"s"}"#.utf8))
+        #expect(info.reviewOf == "s")
+    }
+}

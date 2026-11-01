@@ -121,6 +121,9 @@ struct ChangesPanel: View {
                         : L("No files changed in this range.", "Bu aralıkta değişen dosya yok."))
                 } else {
                     summary(changes)
+                    if let review = store.latestReview(of: sessionID) {
+                        ReviewCard(review: review, authorID: sessionID)
+                    }
                     ScrollView {
                         VStack(alignment: .leading, spacing: 6) {
                             let patches = changes.patches
@@ -159,6 +162,18 @@ struct ChangesPanel: View {
             Text(L("\(changes.files.count) files", "\(changes.files.count) dosya")).font(.callout.weight(.medium))
             LineCounts(added: added, removed: removed)
             Spacer()
+            // A second opinion from another agent, on a copy of the files.
+            Menu(L("Review with…", "İncelet…")) {
+                ForEach(model.store.agents) { agent in
+                    Button(agent.displayName) {
+                        Task { error = await model.store.review(sessionID, agent: agent.id) }
+                    }
+                }
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .disabled(working || [.running, .waiting].contains(model.store.session(sessionID)?.status))
+            .help(L("Another agent reads these changes on a copy and lists problems, most severe first", "Başka bir ajan bu değişiklikleri bir kopyada okur ve sorunları önem sırasıyla listeler"))
             if changes.sinceSeq != nil {
                 Button(L("Revert all", "Hepsini geri al")) { confirmRevertAll = true }
                     .buttonStyle(.borderless)
@@ -510,5 +525,65 @@ struct PreviewPanel: View {
                 self.error = L("Couldn't open port \(port): \(error.localizedDescription)", "Port \(port) açılamadı: \(error.localizedDescription)")
             }
         }
+    }
+}
+
+/// Above the diff: what the reviewing agent found, and one click to hand it to the agent that did the work.
+private struct ReviewCard: View {
+    let review: SessionInfo
+    let authorID: String
+    @Environment(AppModel.self) private var model
+    @State private var sent = false
+
+    var body: some View {
+        let store = model.store
+        let reviewer = store.agentName(review.agent)
+        let author = store.session(authorID).map { store.agentName($0.agent) } ?? L("the agent", "ajan")
+        let reviewing = [.starting, .running, .waiting].contains(review.status)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                StatusDot(color: review.status.tint, size: 7)
+                Text(L("Review by \(reviewer)", "\(reviewer) incelemesi")).font(.callout.weight(.semibold))
+                Spacer()
+                Button(L("Open", "Aç")) { model.selectedSessionID = review.id }
+                    .buttonStyle(.link)
+                    .font(.caption)
+            }
+            if !reviewing, let findings = store.findings(of: review.id) {
+                ScrollView {
+                    // Reviewers answer in Markdown; bold and code read better rendered than as asterisks.
+                    Text((try? AttributedString(markdown: findings, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(findings))
+                        .font(.callout)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 180)
+                HStack {
+                    Spacer()
+                    Button(sent ? L("Sent", "Gönderildi") : L("Send to \(author)", "\(author) ajanına gönder")) {
+                        Task {
+                            await store.prompt(authorID, text: "[Review by \(reviewer)]\n\n\(findings)")
+                            sent = true
+                        }
+                    }
+                    .disabled(sent || [.starting, .running, .waiting].contains(store.session(authorID)?.status))
+                    .help(L("Sends the findings to the agent that made these changes, as one message", "Bulguları bu değişiklikleri yapan ajana tek mesaj olarak gönderir"))
+                }
+            } else if review.status == .error {
+                Text(review.error ?? L("The review stopped with an error.", "İnceleme hatayla durdu.")).font(.caption).foregroundStyle(Color.kervanCoral)
+            } else {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text(review.status == .waiting ? L("The reviewer is waiting for your approval.", "İnceleyen ajan onayınızı bekliyor.") : L("Reviewing…", "İnceleniyor…"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(12)
+        .softSurface(radius: Radius.card)
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
+        .onChange(of: review.id) { sent = false }
     }
 }

@@ -171,6 +171,31 @@ public final class SessionStore {
         await call(.sessionCommit(id: Self.newID(), sessionId: sessionID, message: message))
     }
 
+    /// Starts `agent` reviewing the session's changes; the server's refusal (e.g. nothing to review), if any.
+    @discardableResult
+    public func review(_ sessionID: String, agent: String) async -> String? {
+        await call(.sessionReview(id: Self.newID(), sessionId: sessionID, agent: agent))
+    }
+
+    /// The latest review of a session, if one was asked for.
+    public func latestReview(of sessionID: String) -> SessionInfo? {
+        sessions.filter { $0.reviewOf == sessionID && !$0.archived }.max { $0.createdAt < $1.createdAt }
+    }
+
+    /// What a reviewer said in its last turn, whole; nil until it has said something.
+    public func findings(of reviewID: String) -> String? {
+        var reply = ""
+        for event in events[reviewID] ?? [] {
+            switch event.body {
+            case .userMessage: reply = ""
+            case .agentMessageChunk(let text): reply += text
+            default: break
+            }
+        }
+        let text = reply.trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
+    }
+
     /// Pushes the session's work on a branch of its own and opens a pull request; the server's refusal on failure.
     public func pullRequest(_ sessionID: String, title: String, body: String) async -> Result<PullRequestInfo, RequestFailure> {
         pullRequestAnswer = nil

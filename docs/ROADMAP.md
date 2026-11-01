@@ -80,6 +80,9 @@ Typing `@` in the composer brings up a fuzzy file picker of workspace paths; sel
 ### Projects
 Projects link sessions to a shared workspace on the server—from an existing path, an empty folder, or a cloned git repository. Project-level instructions (coding standards, test commands, conventions) are automatically prepended to every session started within that project. In a git repository each session gets its own worktree and branch, so parallel sessions never edit the same files; archiving can remove the worktree while keeping the branch.
 
+### Review by another agent
+Review with… in the Changes panel starts any agent on a copy of the session's files, with the diff and the project's instructions, asking for problems ranked by severity. The findings appear next to the diff; Send hands them to the original agent as one message. A session without changes is refused.
+
 ### Phone alerts
 The server sends alerts itself when an agent needs approval, finishes a turn or stops with an error: through ntfy (ntfy.sh or self-hosted, with an optional access token) and a JSON webhook. One alert per approval; the session's name and agent only, with session names optional; sending runs on its own with a five-second limit, so it never slows a session. Tapping an alert opens the session in the web client.
 

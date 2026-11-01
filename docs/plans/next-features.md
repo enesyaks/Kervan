@@ -64,7 +64,7 @@ Acceptance:
 - Alerts carry the session title and kind only; no prompt, code or file content.
 - Turning alerts off, or a wrong topic, never blocks or slows a session.
 
-### Step 4. Review by another agent
+### Step 4. Review by another agent (done)
 
 Implement a "Review with…" action in the Changes panel that starts a reviewer session (any agent) with the session's
 diff and the project's instructions, asking for problems ranked by severity. The reviewer works read-only on a copy;

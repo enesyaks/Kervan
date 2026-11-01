@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { cp, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentRegistry } from "./agents.ts";
 import { isSafeRelativePath } from "./files.ts";
@@ -107,6 +107,8 @@ interface CreateOptions {
   shared?: boolean;
   /** Started by this scheduled task. */
   scheduleId?: string;
+  /** A review of this session's changes. */
+  reviewOf?: string;
 }
 
 interface PendingPermission {
@@ -329,6 +331,7 @@ export class SessionManager {
         ...(worktreeFrom ? { branch: branchName(options.title ?? agent, id) } : {}),
         ...(options.projectId ? { projectId: options.projectId } : {}),
         ...(options.scheduleId ? { scheduleId: options.scheduleId } : {}),
+        ...(options.reviewOf ? { reviewOf: options.reviewOf } : {}),
       },
       ...(options.instructions ? { instructions: options.instructions } : {}),
       events: [],
@@ -907,6 +910,44 @@ export class SessionManager {
       text: result.created ? `Opened a pull request: ${result.url}` : `Pushed ${result.branch} for a pull request into ${result.base}`,
     });
     return result;
+  }
+
+  /**
+   * A second opinion: `agent` reviews the session's changes in a session of its own, on a copy of the files (so it
+   * can't touch the originals), with the diff in CHANGES.diff and the project's instructions in its prompt.
+   */
+  async review(sessionId: string, agent: string): Promise<SessionInfo> {
+    const session = this.require(sessionId);
+    this.requireLocal(session);
+    if (!this.agents.has(agent)) throw new KervanError("unknown_agent", `no agent named '${agent}'`);
+    if (nodeOf(this.agents.get(agent)) !== LOCAL_NODE) throw new KervanError("bad_message", "a reviewer must run on this server");
+    const changes = await this.changes(sessionId, "session");
+    if (changes.files.length === 0) throw new KervanError("bad_message", "nothing to review: this session hasn't changed any files yet");
+
+    const title = `Review: ${session.info.title}`.slice(0, 120);
+    const info = await this.create(agent, [], [], { title, reviewOf: sessionId });
+    const reviewer = this.require(info.id);
+    // Heavy, rebuildable or private folders stay behind; the copy is for reading.
+    const skip = new Set([".git", "node_modules", ".build", "build", "dist", ".next", "target", ".venv", "__pycache__"]);
+    await cp(session.cwd, reviewer.cwd, { recursive: true, force: true, filter: (from) => !skip.has(from.split("/").pop() ?? "") });
+    await writeFile(join(reviewer.cwd, "CHANGES.diff"), changes.patch);
+
+    const project = session.info.projectId ? this.projects?.get(session.info.projectId) : undefined;
+    const author = this.agentDetails.find((a) => a.id === session.info.agent)?.name ?? session.info.agent;
+    const prompt = [
+      `[Kervan] Review the work of the session "${session.info.title}" (${author}). This folder is a copy of its files, and CHANGES.diff holds what it changed (${changes.files.length} files).`,
+      changes.truncated ? "The diff was cut short; read the changed files themselves for the rest." : undefined,
+      project?.instructions ? `The project's instructions, which the work should follow:\n${project.instructions}` : undefined,
+      "List the problems you find, most severe first. For each: severity (high, medium or low), the file and line, what is wrong and why it matters. Leave out what is fine. If you find nothing wrong, say so in one line.",
+      "Don't change any files: this is a copy, and changes here go nowhere.",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    await reviewer.ready;
+    if (reviewer.info.status !== "idle") throw new KervanError("bad_message", reviewer.info.error ?? "the reviewer didn't start");
+    this.prompt(info.id, prompt);
+    return { ...reviewer.info };
   }
 
   /** A scheduled task or a board card: a new session that gets `prompt` as soon as its agent is up. Resolves with its id. */
