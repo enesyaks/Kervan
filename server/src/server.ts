@@ -134,8 +134,21 @@ export function createKervanServer({
     }
 
     if (url.pathname.startsWith("/v1/sessions/")) {
-      if (!isAuthorized(req.headers.authorization, token)) {
+      const bearer = req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice(7) : "";
+      const isMaster = isAuthorized(req.headers.authorization, token);
+      const isWeb = Boolean(web?.authenticate(bearer));
+      const remote = req.socket.remoteAddress;
+      if (limiter.blocked(remote)) {
+        sendJson(res, 429, { error: "too_many_attempts" });
+        return;
+      }
+      if (!isMaster && !isWeb) {
+        limiter.fail(remote);
         sendJson(res, 401, { error: "unauthorized" });
+        return;
+      }
+      if (!isMaster && isWeb && req.method !== "POST" && req.method !== "PUT") {
+        sendJson(res, 403, { error: "forbidden" });
         return;
       }
       void handleFiles(req, res, sessions, maxUploadBytes).then((handled) => {

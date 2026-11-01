@@ -114,3 +114,89 @@ describe("workspace files", () => {
     assert.equal((await inbox.waitFor((m) => m.type === "error" && m.id === "p2")).code, "bad_message");
   });
 });
+
+describe("web device file uploads", () => {
+  let base = "";
+  let sessions: SessionManager;
+  let webAccess: any;
+  let stop: () => Promise<void>;
+  let sessionId = "";
+  let deviceToken = "";
+
+  before(async () => {
+    let port = 0;
+    ({ port, sessions, web: webAccess, stop } = await startServer({ maxUploadBytes: 1024 }));
+    base = `http://127.0.0.1:${port}`;
+    sessionId = (await sessions.create("fake")).id;
+    webAccess.setEnabled(true);
+    const { code } = webAccess.startPairing();
+    const redeemed = webAccess.redeem(code, "iPhone");
+    assert.ok(redeemed);
+    deviceToken = redeemed.token;
+  });
+
+  after(async () => {
+    await stop();
+  });
+
+  it("allows paired web device to upload via POST", async () => {
+    const res = await fetch(`${base}/v1/sessions/${sessionId}/files?name=test.txt`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${deviceToken}`,
+        "content-type": "text/plain",
+      },
+      body: "hello from phone",
+    });
+    assert.equal(res.status, 201);
+    const data = await res.json();
+    assert.equal(data.path, "uploads/test.txt");
+    assert.equal(data.size, 16);
+    assert.equal(readFileSync(join(sessions.workspace(sessionId), "uploads/test.txt"), "utf8"), "hello from phone");
+  });
+
+  it("forbids GET operations for paired web device", async () => {
+    const res = await fetch(`${base}/v1/sessions/${sessionId}/files`, {
+      headers: { authorization: `Bearer ${deviceToken}` },
+    });
+    assert.equal(res.status, 403);
+    assert.deepEqual(await res.json(), { error: "forbidden" });
+  });
+
+  it("refuses paths that leave the workspace via query params", async () => {
+    for (const name of ["../../etc/passwd", "../escape.txt", "/outside.txt"]) {
+      const res = await fetch(`${base}/v1/sessions/${sessionId}/files?name=${encodeURIComponent(name)}`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${deviceToken}` },
+        body: "bad",
+      });
+      assert.equal(res.status, 400);
+    }
+  });
+
+  it("rejects unauthorized tokens and blocks after repeated attempts", async () => {
+    for (let i = 0; i < 9; i++) {
+      const res = await fetch(`${base}/v1/sessions/${sessionId}/files?name=x.txt`, {
+        method: "POST",
+        headers: { authorization: `Bearer invalid-token-${i}` },
+        body: "x",
+      });
+      assert.equal(res.status, 401);
+    }
+    const failRes = await fetch(`${base}/v1/sessions/${sessionId}/files?name=x.txt`, {
+      method: "POST",
+      headers: { authorization: "Bearer invalid-token-10" },
+      body: "x",
+    });
+    assert.equal(failRes.status, 401);
+
+    const blockedRes = await fetch(`${base}/v1/sessions/${sessionId}/files?name=x.txt`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${deviceToken}` },
+      body: "x",
+    });
+    assert.equal(blockedRes.status, 429);
+    assert.deepEqual(await blockedRes.json(), { error: "too_many_attempts" });
+  });
+});
+
