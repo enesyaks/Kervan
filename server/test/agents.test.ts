@@ -104,13 +104,18 @@ describe("builtin agent sign-in", () => {
   const home = mkdtempSync(join(tmpdir(), "kervan-home-"));
 
   it("counts a key in the agent's env or the server's, and a saved login", () => {
-    assert.equal(isSignedIn("claude", {}, {}, home), false);
-    assert.equal(isSignedIn("claude", { ANTHROPIC_API_KEY: "sk-ant-x" }, {}, home), true);
-    assert.equal(isSignedIn("codex", {}, { OPENAI_API_KEY: "sk-x" }, home), true);
-    assert.equal(isSignedIn("gemini", { GEMINI_API_KEY: "  " }, {}, home), false, "a blank key is no key");
+    assert.equal(isSignedIn("claude", {}, {}, home, "linux"), false);
+    assert.equal(isSignedIn("claude", { ANTHROPIC_API_KEY: "sk-ant-x" }, {}, home, "linux"), true);
+    assert.equal(isSignedIn("codex", {}, { OPENAI_API_KEY: "sk-x" }, home, "linux"), true);
+    assert.equal(isSignedIn("gemini", { GEMINI_API_KEY: "  " }, {}, home, "linux"), false, "a blank key is no key");
     mkdirSync(join(home, ".codex"));
     writeFileSync(join(home, ".codex/auth.json"), "{}");
-    assert.equal(isSignedIn("codex", {}, {}, home), true);
+    assert.equal(isSignedIn("codex", {}, {}, home, "linux"), true);
+  });
+
+  it("can't tell on a Mac, where logins live in the Keychain", () => {
+    assert.equal(isSignedIn("claude", {}, {}, home, "darwin"), undefined);
+    assert.equal(isSignedIn("claude", { ANTHROPIC_API_KEY: "sk-ant-x" }, {}, home, "darwin"), true);
   });
 
   it("says nothing about agents it doesn't know", () => {

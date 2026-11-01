@@ -15,7 +15,7 @@ interface Stored {
   webhook?: { url: string };
   /** The web client's address, so tapping an alert opens the session there. */
   openUrl?: string;
-  /** Session names start as the first line of the first message; off, alerts name only the agent. */
+  /** Session names start as the first line of the first message, so they are left out unless turned on. */
   includeNames?: boolean;
 }
 
@@ -65,7 +65,7 @@ export class Alerts {
       ...(ntfy ? { ntfy: { server: ntfy.server, topic: ntfy.topic, tokenSet: Boolean(ntfy.token) } } : {}),
       webhookSet: Boolean(webhook),
       ...(this.state.openUrl ? { openUrl: this.state.openUrl } : {}),
-      includeNames: this.state.includeNames !== false,
+      includeNames: this.state.includeNames === true,
     };
   }
 
@@ -130,7 +130,7 @@ export class Alerts {
     // Helpers report to their lead; the user hears about the lead.
     if (!info || info.parentId) return;
     const text = alertText(kind, info);
-    void this.deliver(kind, info.id, this.state.includeNames === false ? { ...text, title: "Kervan" } : text);
+    void this.deliver(kind, info.id, this.state.includeNames === true ? text : { ...text, title: "Kervan" });
   }
 
   private async deliver(kind: AlertKind, sessionId: string | undefined, text: { title: string; message: string }): Promise<string[]> {

@@ -14,7 +14,7 @@ import { AgentCatalog } from "./catalog.ts";
 import { RoleRegistry } from "./roles.ts";
 import { probeAgent } from "./runner.ts";
 import { join, resolve } from "node:path";
-import { OrchestraHub } from "./orchestra.ts";
+import { OrchestraHub, orchestraSocketPath } from "./orchestra.ts";
 import { NodeHub } from "./nodes.ts";
 import { Checkpoints } from "./checkpoints.ts";
 import { ProjectRegistry } from "./projects.ts";
@@ -58,7 +58,7 @@ sessions = new SessionManager(runner, catalog.live, config.workspacesDir, store,
   },
 });
 // Absolute: lead agents' MCP bridges run in their own working folders.
-const orchestra = new OrchestraHub(resolve(config.dataDir, "orchestra.sock"), sessions);
+const orchestra = new OrchestraHub(orchestraSocketPath(resolve(config.dataDir, "orchestra.sock")), sessions);
 await orchestra.listen();
 sessions.useOrchestra(orchestra);
 const scheduler = new Scheduler(join(config.dataDir, "schedules.json"), {

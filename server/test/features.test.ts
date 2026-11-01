@@ -154,7 +154,9 @@ describe("changes, projects, schedules, terminals, ports, usage", () => {
     assert.match(readFileSync(join(reviewDir, "CHANGES.diff"), "utf8"), /page\.html/);
     assert.equal(readFileSync(join(reviewDir, "page.html"), "utf8").trim(), "hello world");
     const history = await ask(ws, inbox, { type: "session.history", sessionId: reviewer.id });
-    assert.match(history.events.find((e: any) => e.kind === "user_message").text, /Review the work.*most severe first/s);
+    const reviewPrompt = history.events.find((e: any) => e.kind === "user_message").text;
+    assert.match(reviewPrompt, /Review the work.*most severe first/s);
+    assert.match(reviewPrompt, /What the user asked for[^]*write page\.html hello world/, "the reviewer sees the request, not just the title");
 
     // Whatever the reviewer writes stays in its copy.
     await inbox.waitFor((m) => m.type === "session.event" && m.sessionId === reviewer.id && m.event.kind === "turn_end");
@@ -177,10 +179,18 @@ describe("changes, projects, schedules, terminals, ports, usage", () => {
     await new Promise<void>((resolve) => ntfy.listen(0, "127.0.0.1", resolve));
     const ntfyUrl = `http://127.0.0.1:${(ntfy.address() as AddressInfo).port}`;
     try {
-      assert.equal((await ask(ws, inbox, { type: "alerts.get" })).alerts.enabled, false);
+      const initial = (await ask(ws, inbox, { type: "alerts.get" })).alerts;
+      assert.equal(initial.enabled, false);
+      assert.equal(initial.includeNames, false, "session names, often prompt text, are left out until turned on");
       const saved = await ask(ws, inbox, {
         type: "alerts.save",
-        alerts: { enabled: true, events: { finished: false }, ntfy: { server: ntfyUrl, topic: "kervan-test", token: "t0k3n" }, openUrl: "http://kervan:7420" },
+        alerts: {
+          enabled: true,
+          events: { finished: false },
+          ntfy: { server: ntfyUrl, topic: "kervan-test", token: "t0k3n" },
+          openUrl: "http://kervan:7420",
+          includeNames: true,
+        },
       });
       assert.equal(saved.type, "alerts.result", JSON.stringify(saved));
       assert.equal(saved.alerts.ntfy.tokenSet, true);
@@ -623,6 +633,9 @@ describe("web client", () => {
       send(ws, { type, id: type, name: "x" });
       assert.equal((await inbox.waitFor((m) => m.id === type)).code, "forbidden", type);
     }
+    // Malformed restricted requests are refused the same way, without saying what a valid one looks like.
+    send(ws, { type: "node.invite", id: "bare" });
+    assert.equal((await inbox.waitFor((m) => m.id === "bare")).code, "forbidden");
 
     const closed = new Promise<number>((resolve) => ws.once("close", (code) => resolve(code)));
     const device = web.status().devices.at(-1)!;
@@ -641,8 +654,10 @@ describe("web client", () => {
         fetch(`http://127.0.0.1:${limited.port}/v1/web/pair`, { method: "POST", body: JSON.stringify({ code: "WRNG-CODE" }) });
       for (let i = 0; i < 10; i++) assert.equal((await tryCode()).status, 401);
       assert.equal((await tryCode()).status, 429);
-      const check = await fetch(`http://127.0.0.1:${limited.port}/v1/check`, { headers: { authorization: `Bearer ${TEST_TOKEN}` } });
-      assert.equal(check.status, 429, "the same address waits for the key check too");
+      const device = await fetch(`http://127.0.0.1:${limited.port}/v1/check`, { headers: { authorization: "Bearer some-device-key" } });
+      assert.equal(device.status, 429, "the same address waits for a device key check too");
+      const app = await fetch(`http://127.0.0.1:${limited.port}/v1/check`, { headers: { authorization: `Bearer ${TEST_TOKEN}` } });
+      assert.equal(app.status, 200, "the app's own key is never limited");
     } finally {
       await limited.stop();
     }

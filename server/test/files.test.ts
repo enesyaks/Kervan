@@ -155,6 +155,15 @@ describe("web device file uploads", () => {
     assert.equal(readFileSync(join(sessions.workspace(sessionId), "uploads/test.txt"), "utf8"), "hello from phone");
   });
 
+  it("answers a badly %-encoded file name as a bad request", async () => {
+    const res = await fetch(`${base}/v1/sessions/${sessionId}/files`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${deviceToken}`, "content-disposition": "attachment; filename*=UTF-8''%E0%A4%A.txt" },
+      body: "x",
+    });
+    assert.equal(res.status, 400);
+  });
+
   it("forbids GET operations for paired web device", async () => {
     const res = await fetch(`${base}/v1/sessions/${sessionId}/files`, {
       headers: { authorization: `Bearer ${deviceToken}` },

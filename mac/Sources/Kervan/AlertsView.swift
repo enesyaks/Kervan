@@ -12,7 +12,7 @@ struct AlertsSection: View {
     @State private var token = ""
     @State private var webhook = ""
     @State private var removeWebhook = false
-    @State private var includeNames = true
+    @State private var includeNames = false
     @State private var loaded = false
     @State private var working = false
     @State private var note: (text: String, good: Bool)?
@@ -89,8 +89,8 @@ struct AlertsSection: View {
                 Toggle(isOn: $includeNames) {
                     Text(L("Show session names", "Oturum adlarını göster"))
                     Text(L(
-                        "A session's name is the first line of its first message until you rename it. Turn off and alerts only say which agent and what happened.",
-                        "Oturumun adı, siz değiştirene kadar ilk mesajının ilk satırıdır. Kapatırsanız bildirimler yalnızca hangi ajan ve ne olduğunu söyler."
+                        "A session's name is the first line of its first message until you rename it, so it's off unless you turn it on. Off, alerts only say which agent and what happened.",
+                        "Oturumun adı, siz değiştirene kadar ilk mesajının ilk satırıdır; bu yüzden siz açmadıkça kapalıdır. Kapalıyken bildirimler yalnızca hangi ajan ve ne olduğunu söyler."
                     ))
                 }
             }
@@ -130,7 +130,7 @@ struct AlertsSection: View {
         loaded = true
         enabled = settings.enabled
         events = settings.events
-        includeNames = settings.includeNames ?? true
+        includeNames = settings.includeNames ?? false
         server = settings.ntfy?.server ?? "https://ntfy.sh"
         topic = settings.ntfy?.topic ?? ""
     }

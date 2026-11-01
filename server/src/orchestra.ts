@@ -1,6 +1,7 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { rmSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type * as acp from "@agentclientprotocol/sdk";
 import { log } from "./log.ts";
@@ -118,6 +119,16 @@ const str = (args: Args, key: string, required = true): string | undefined => {
   if (typeof value !== "string" || value.trim() === "") throw new KervanError("bad_message", `'${key}' must be text`);
   return value;
 };
+
+/**
+ * Where the socket goes: in the data folder, unless that path is longer than Unix sockets allow (104 bytes on
+ * macOS, 108 on Linux); then a short name in the temp folder, the same for the same data folder.
+ */
+export function orchestraSocketPath(preferred: string): string {
+  if (Buffer.byteLength(preferred) <= 100) return preferred;
+  const hash = createHash("sha256").update(preferred).digest("hex").slice(0, 12);
+  return join(tmpdir(), `kervan-${hash}.sock`);
+}
 
 /**
  * Gives lead agents tools to start and talk to helper agents. Each lead gets a small stdio MCP server

@@ -76,9 +76,11 @@ export function createKervanServer({
     // Lets the web client tell a wrong key from an unreachable server, which a browser WebSocket can't.
     if (req.method === "GET" && url.pathname === "/v1/check") {
       const remote = req.socket.remoteAddress;
+      // The app's own key is never limited; a device key is checked only while the address isn't blocked.
+      if (isAuthorized(req.headers.authorization, token)) return sendJson(res, 200, { status: "ok" });
       if (limiter.blocked(remote)) return sendJson(res, 429, { error: "too_many_attempts" });
       const bearer = req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice(7) : "";
-      const ok = isAuthorized(req.headers.authorization, token) || Boolean(web?.authenticate(bearer));
+      const ok = Boolean(web?.authenticate(bearer));
       if (!ok) limiter.fail(remote);
       sendJson(res, ok ? 200 : 401, ok ? { status: "ok" } : { error: "unauthorized" });
       return;

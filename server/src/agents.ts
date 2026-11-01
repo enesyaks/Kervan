@@ -1,5 +1,5 @@
 import { accessSync, constants, existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, platform } from "node:os";
 import { delimiter, dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
@@ -58,11 +58,14 @@ export function isSignedIn(
   env: Record<string, string> = {},
   serverEnv: NodeJS.ProcessEnv = process.env,
   home = homedir(),
+  os: string = platform(),
 ): boolean | undefined {
   const credentials = CREDENTIALS[id];
   if (!credentials) return undefined;
   if (credentials.env.some((name) => (env[name] ?? serverEnv[name] ?? "").trim() !== "")) return true;
-  return credentials.files.some((file) => existsSync(join(home, file)));
+  if (credentials.files.some((file) => existsSync(join(home, file)))) return true;
+  // On a Mac the agents keep their login in the Keychain, which can't be checked from here: unknown, not "no".
+  return os === "darwin" ? undefined : false;
 }
 
 function fail(file: string, message: string): never {

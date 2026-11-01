@@ -201,7 +201,7 @@ public struct AlertInput: Encodable, Equatable, Sendable {
 
     public init(
         enabled: Bool, events: AlertSettings.Events, ntfyServer: String, ntfyTopic: String, ntfyToken: String? = nil,
-        webhook: String? = nil, openUrl: String = "", includeNames: Bool = true
+        webhook: String? = nil, openUrl: String = "", includeNames: Bool = false
     ) {
         self.enabled = enabled
         self.events = events

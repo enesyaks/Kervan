@@ -998,8 +998,15 @@ export class SessionManager {
 
     const project = session.info.projectId ? this.projects?.get(session.info.projectId) : undefined;
     const author = this.agentDetails.find((a) => a.id === session.info.agent)?.name ?? session.info.agent;
+    // The title is often the first prompt cut short; the reviewer checks against what was actually asked.
+    const asked = session.events
+      .filter((event): event is Extract<SessionEvent, { kind: "user_message" }> => event.kind === "user_message" && !event.from)
+      .map((event) => event.text.trim())
+      .filter(Boolean);
+    const request = asked.join("\n\n---\n\n");
     const prompt = [
       `[Kervan] Review the work of the session "${session.info.title}" (${author}). This folder is a copy of its files, and CHANGES.diff holds what it changed (${changes.files.length} files).`,
+      request ? `What the user asked for, in their own messages:\n${request.length > 8000 ? `${request.slice(0, 8000)}\n[…]` : request}` : undefined,
       changes.truncated ? "The diff was cut short; read the changed files themselves for the rest." : undefined,
       project?.instructions ? `The project's instructions, which the work should follow:\n${project.instructions}` : undefined,
       "List the problems you find, most severe first. For each: severity (high, medium or low), the file and line, what is wrong and why it matters. Leave out what is fine. If you find nothing wrong, say so in one line.",

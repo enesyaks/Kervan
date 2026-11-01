@@ -108,6 +108,15 @@ export async function upload(req: IncomingMessage, target: string, maxBytes: num
  * Serves /v1/sessions/:id/files[/<path>]: GET without a path lists the workspace, GET with one
  * downloads, PUT uploads. The caller has already checked the token. Returns false for other URLs.
  */
+/** `decodeURIComponent`, with a broken %-sequence answered as a bad request rather than a crash of the request. */
+function decode(text: string): string {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    throw new KervanError("bad_message", "badly encoded name or path");
+  }
+}
+
 export async function handleFiles(
   req: IncomingMessage,
   res: ServerResponse,
@@ -118,8 +127,8 @@ export async function handleFiles(
   if (!match) return false;
 
   try {
-    const sessionId = decodeURIComponent(match[1]);
-    let relPath = match[2] ? decodeURIComponent(match[2]) : "";
+    const sessionId = decode(match[1]);
+    let relPath = match[2] ? decode(match[2]) : "";
     const parsedUrl = new URL(req.url ?? "/", "http://localhost");
     if (!relPath) {
       const qPath = parsedUrl.searchParams.get("path");
@@ -136,7 +145,7 @@ export async function handleFiles(
         const disposition = req.headers["content-disposition"];
         if (disposition) {
           const m = /filename\*?=(?:UTF-8'')?["']?([^"';]+)["']?/i.exec(disposition);
-          if (m) name = decodeURIComponent(m[1]);
+          if (m) name = decode(m[1]);
         }
       }
       if (name !== undefined) {

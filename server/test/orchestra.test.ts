@@ -3,7 +3,7 @@ import { request } from "node:http";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import type WebSocket from "ws";
-import { isOrchestraCall } from "../src/orchestra.ts";
+import { isOrchestraCall, orchestraSocketPath } from "../src/orchestra.ts";
 import { MAX_HELPERS, type SessionManager } from "../src/sessions.ts";
 import { HELLO, Inbox, openSocket, opened, send, startServer } from "./helpers.ts";
 
@@ -225,5 +225,15 @@ describe("splitting work and resting helpers", () => {
     } finally {
       await stop();
     }
+  });
+});
+
+describe("orchestra socket path", () => {
+  it("keeps a short path and moves a long one to a short name in the temp folder", () => {
+    assert.equal(orchestraSocketPath("/var/lib/kervan/orchestra.sock"), "/var/lib/kervan/orchestra.sock");
+    const long = `/${"d".repeat(200)}/orchestra.sock`;
+    const short = orchestraSocketPath(long);
+    assert.ok(Buffer.byteLength(short) <= 100, short);
+    assert.equal(orchestraSocketPath(long), short, "the same data folder always gets the same socket");
   });
 });

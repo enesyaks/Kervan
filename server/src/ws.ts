@@ -324,6 +324,17 @@ async function handleRequest(
   }
 }
 
+function peekField(raw: string, field: "type" | "id"): string | undefined {
+  try {
+    const value = (JSON.parse(raw) as Record<string, unknown> | null)?.[field];
+    return typeof value === "string" ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+const peekType = (raw: string) => peekField(raw, "type");
+const peekId = (raw: string) => peekField(raw, "id");
+
 function handleConnection(
   ws: WebSocket,
   req: IncomingMessage,
@@ -342,7 +353,18 @@ function handleConnection(
       send(ws, { type: "error", code: "bad_message", message: "binary frames are not supported" });
       return;
     }
-    const parsed = parseClientMessage(data.toString());
+    const raw = data.toString();
+    // A browser hears "forbidden" for what it may not ask, before the shape of the request is checked, so the
+    // errors don't tell it how those requests are built.
+    if (client.kind === "web") {
+      const type = peekType(raw);
+      if (type !== undefined && type !== "hello" && !WEB_ALLOWED.has(type)) {
+        const id = peekId(raw);
+        send(ws, { type: "error", code: "forbidden", message: "only the Kervan app can do that", ...(id ? { id } : {}) });
+        return;
+      }
+    }
+    const parsed = parseClientMessage(raw);
     if (!parsed.ok) {
       send(ws, { type: "error", code: parsed.code, message: parsed.message, ...(parsed.id ? { id: parsed.id } : {}) });
       return;
