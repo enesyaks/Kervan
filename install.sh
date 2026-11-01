@@ -24,7 +24,7 @@ version="$(basename "$zip_url" | sed -E 's/^Kervan-(.*)-macOS\.zip$/\1/')"
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
-echo "Downloading Kervan $version…"
+echo "Downloading Kervan ${version}…"
 curl -fsSL -o "$work/Kervan.zip" "$zip_url"
 expected="$(curl -fsSL "$sum_url" | awk '{print $1}')"
 actual="$(shasum -a 256 "$work/Kervan.zip" | awk '{print $1}')"
