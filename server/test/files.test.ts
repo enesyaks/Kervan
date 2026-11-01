@@ -163,6 +163,14 @@ describe("web device file uploads", () => {
     assert.deepEqual(await res.json(), { error: "forbidden" });
   });
 
+  it("lets a paired browser add files by name only, never at a path of its choosing", async () => {
+    const asDevice = { authorization: `Bearer ${deviceToken}` };
+    for (const url of [`files/notes.md`, `files?path=src/app.ts`, `files/uploads/x.txt`]) {
+      const res = await fetch(`${base}/v1/sessions/${sessionId}/${url}`, { method: "PUT", headers: asDevice, body: "overwrite" });
+      assert.equal(res.status, 403, url);
+    }
+  });
+
   it("refuses paths that leave the workspace via query params", async () => {
     for (const name of ["../../etc/passwd", "../escape.txt", "/outside.txt"]) {
       const res = await fetch(`${base}/v1/sessions/${sessionId}/files?name=${encodeURIComponent(name)}`, {
@@ -197,6 +205,10 @@ describe("web device file uploads", () => {
     });
     assert.equal(blockedRes.status, 429);
     assert.deepEqual(await blockedRes.json(), { error: "too_many_attempts" });
+
+    // The app, with the server's own key, is never held back by the limit.
+    const fromApp = await fetch(`${base}/v1/sessions/${sessionId}/files`, { headers: { authorization: `Bearer ${TEST_TOKEN}` } });
+    assert.equal(fromApp.status, 200);
   });
 });
 

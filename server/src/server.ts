@@ -134,22 +134,25 @@ export function createKervanServer({
     }
 
     if (url.pathname.startsWith("/v1/sessions/")) {
-      const bearer = req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice(7) : "";
-      const isMaster = isAuthorized(req.headers.authorization, token);
-      const isWeb = Boolean(web?.authenticate(bearer));
-      const remote = req.socket.remoteAddress;
-      if (limiter.blocked(remote)) {
-        sendJson(res, 429, { error: "too_many_attempts" });
-        return;
-      }
-      if (!isMaster && !isWeb) {
-        limiter.fail(remote);
-        sendJson(res, 401, { error: "unauthorized" });
-        return;
-      }
-      if (!isMaster && isWeb && req.method !== "POST" && req.method !== "PUT") {
-        sendJson(res, 403, { error: "forbidden" });
-        return;
+      // The app (the server's key) may do anything here and is never limited. A paired browser may only add a
+      // file by name, which always lands in the session's uploads/ folder: it attaches files, nothing more.
+      if (!isAuthorized(req.headers.authorization, token)) {
+        const remote = req.socket.remoteAddress;
+        if (limiter.blocked(remote)) {
+          sendJson(res, 429, { error: "too_many_attempts" });
+          return;
+        }
+        const bearer = req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice(7) : "";
+        if (!web?.authenticate(bearer)) {
+          limiter.fail(remote);
+          sendJson(res, 401, { error: "unauthorized" });
+          return;
+        }
+        const addsByName = /^\/v1\/sessions\/[^/]+\/files\/?$/.test(url.pathname) && !url.searchParams.has("path");
+        if ((req.method !== "POST" && req.method !== "PUT") || !addsByName) {
+          sendJson(res, 403, { error: "forbidden" });
+          return;
+        }
       }
       void handleFiles(req, res, sessions, maxUploadBytes).then((handled) => {
         if (!handled) sendJson(res, 404, { error: "not_found" });
