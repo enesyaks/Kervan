@@ -50,12 +50,15 @@ public struct HubAddress: Codable, Equatable, Sendable, Identifiable {
     public let address: String
     public let kind: Kind
     public let network: String?
+    /// Tailscale only: the hub's MagicDNS name, when the server knows it.
+    public let host: String?
     public var id: String { address }
 
-    public init(address: String, kind: Kind, network: String? = nil) {
+    public init(address: String, kind: Kind, network: String? = nil, host: String? = nil) {
         self.address = address
         self.kind = kind
         self.network = network
+        self.host = host
     }
 }
 

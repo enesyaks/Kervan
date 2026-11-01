@@ -119,7 +119,34 @@ export async function handleFiles(
 
   try {
     const sessionId = decodeURIComponent(match[1]);
-    const relPath = match[2] ? decodeURIComponent(match[2]) : "";
+    let relPath = match[2] ? decodeURIComponent(match[2]) : "";
+    const parsedUrl = new URL(req.url ?? "/", "http://localhost");
+    if (!relPath) {
+      const qPath = parsedUrl.searchParams.get("path");
+      const qName = parsedUrl.searchParams.get("name");
+      const headerName = (req.headers["x-file-name"] as string | undefined)?.trim();
+      let name: string | undefined;
+      if (qPath) {
+        relPath = qPath;
+      } else if (qName) {
+        name = qName;
+      } else if (headerName) {
+        name = headerName;
+      } else {
+        const disposition = req.headers["content-disposition"];
+        if (disposition) {
+          const m = /filename\*?=(?:UTF-8'')?["']?([^"';]+)["']?/i.exec(disposition);
+          if (m) name = decodeURIComponent(m[1]);
+        }
+      }
+      if (name !== undefined) {
+        // A bare file name only: it always lands in uploads/.
+        if (name === "" || name === "." || name === ".." || /[\\/\0]/.test(name)) {
+          throw new KervanError("bad_message", "file name must not contain a path");
+        }
+        relPath = `uploads/${name}`;
+      }
+    }
     const where = sessions.location(sessionId);
     if ("node" in where) {
       await remoteFiles(req, res, sessions, where, relPath, maxUploadBytes);
@@ -139,7 +166,7 @@ export async function handleFiles(
         "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(relPath.split("/").at(-1)!)}`,
       });
       await pipeline(createReadStream(target), res);
-    } else if (req.method === "PUT" && relPath !== "") {
+    } else if ((req.method === "PUT" || req.method === "POST") && relPath !== "") {
       const target = await resolveInside(root, relPath);
       const size = await upload(req, target, maxUploadBytes);
       log("info", "file uploaded", { path: relPath, size });
@@ -194,7 +221,7 @@ async function remoteFiles(
       "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(relPath.split("/").at(-1)!)}`,
     });
     res.end(data);
-  } else if (req.method === "PUT" && relPath !== "") {
+  } else if ((req.method === "PUT" || req.method === "POST") && relPath !== "") {
     const limit = Math.min(maxUploadBytes, MAX_NODE_FILE_BYTES);
     const chunks: Buffer[] = [];
     let size = 0;

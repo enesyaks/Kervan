@@ -37,20 +37,7 @@ struct WebAccessSection: View {
             }
 
             if let web, web.enabled {
-                if let address = webAddress {
-                    HStack(spacing: 8) {
-                        Image(systemName: "globe").foregroundStyle(Color.kervanLapis)
-                        Text(address).font(.callout.monospaced()).textSelection(.enabled)
-                        Spacer()
-                        Button(L("Copy", "Kopyala")) {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(address, forType: .string)
-                        }
-                        .buttonStyle(.borderless)
-                    }
-                    .padding(12)
-                    .softSurface(radius: Radius.chip)
-                }
+                WebAddressList(links: webLinks, hasTailscale: WebLinks.hasTailscale(model.store.hubAddresses))
 
                 HStack {
                     Text(L("Paired browsers", "Eşleştirilen tarayıcılar")).font(.headline)
@@ -110,11 +97,14 @@ struct WebAccessSection: View {
         }
     }
 
-    /// Where a browser finds the web client: the address this app uses, over http.
+    /// Where a browser finds the web client: the hub's Tailscale and LAN addresses, or the one this app uses.
+    private var webLinks: [WebLink] {
+        WebLinks.all(addresses: model.store.hubAddresses, current: model.activeAddress?.url)
+    }
+
+    /// The address the pairing sheet shows: one that also works away from home, when there is one.
     private var webAddress: String? {
-        guard let url = model.activeAddress?.url, let host = url.host() else { return nil }
-        let port = url.port ?? ServerAddress.defaultPort
-        return "http://\(host.contains(":") ? "[\(host)]" : host):\(port)"
+        WebLinks.preferred(addresses: model.store.hubAddresses, current: model.activeAddress?.url)
     }
 
     private func setEnabled(_ on: Bool) async {
@@ -150,6 +140,96 @@ struct WebAccessSection: View {
 
 extension WebPairing: Identifiable {
     public var id: String { code }
+}
+
+/// The addresses a browser can open, grouped by how far they reach: Tailscale anywhere, the LAN only at home.
+private struct WebAddressList: View {
+    let links: [WebLink]
+    let hasTailscale: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            let tailscale = links.filter { $0.reach == .tailscale }
+            let lan = links.filter { $0.reach == .lan }
+            let current = links.filter { $0.reach == .current }
+            if !tailscale.isEmpty {
+                group(
+                    symbol: "globe",
+                    tint: Color.kervanOasis,
+                    title: L("Tailscale: works anywhere you're signed in to Tailscale", "Tailscale: Tailscale'e giriş yaptığınız her yerde çalışır"),
+                    links: tailscale
+                )
+            }
+            if !lan.isEmpty {
+                group(symbol: "house", tint: Color.kervanLapis, title: L("Home network only", "Yalnızca yerel ağda"), links: lan)
+            }
+            if !current.isEmpty {
+                group(symbol: "link", tint: Color.kervanLapis, title: L("The address this app uses", "Bu uygulamanın kullandığı adres"), links: current)
+            }
+            if !hasTailscale {
+                awayFromHome
+            }
+        }
+    }
+
+    private func group(symbol: String, tint: Color, title: String, links: [WebLink]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(title, systemImage: symbol)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(tint)
+            ForEach(links) { link in
+                HStack(spacing: 8) {
+                    Text(link.url).font(.callout.monospaced()).textSelection(.enabled)
+                    if link.isName {
+                        Text(L("name", "ad")).font(.caption2).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button(L("Copy", "Kopyala")) {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(link.url, forType: .string)
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .softSurface(radius: Radius.chip)
+    }
+
+    /// No Tailscale on the server: how to use the web client away from home, without opening it to the internet.
+    private var awayFromHome: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(L("Away from home", "Evden uzaktayken"), systemImage: "airplane")
+                .font(.caption.weight(.semibold))
+            Text(L(
+                "These addresses work only on the same network as the server. To use Kervan from anywhere, install Tailscale on the server and on the phone and sign in to both with the same account; a Tailscale address then shows up here. Run this once on the server:",
+                "Bu adresler yalnızca sunucuyla aynı ağdayken çalışır. Her yerden kullanmak için sunucuya ve telefona Tailscale kurup ikisinde de aynı hesapla giriş yapın; ardından burada bir Tailscale adresi görünür. Sunucuda bir kez şunu çalıştırın:"
+            ))
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Text(NodeSetup.tailscaleCommand).font(.caption.monospaced()).textSelection(.enabled).lineLimit(2)
+                Spacer()
+                Button(L("Copy", "Kopyala")) {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(NodeSetup.tailscaleCommand, forType: .string)
+                }
+                .buttonStyle(.borderless)
+            }
+            Text(L(
+                "On the phone, get the Tailscale app from the App Store or Google Play. Don't forward the port on your router instead: Kervan's web access isn't meant to face the internet.",
+                "Telefona Tailscale uygulamasını App Store ya da Google Play'den yükleyin. Bunun yerine modemden port yönlendirmeyin: Kervan'ın web erişimi internete açık olacak şekilde tasarlanmadı."
+            ))
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .softSurface(radius: Radius.chip)
+    }
 }
 
 /// The one-time code, large enough to read across a desk, with how long it has left.

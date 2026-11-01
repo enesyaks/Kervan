@@ -42,6 +42,7 @@ const state = {
   flash: null,
   menu: false,
   drafts: new Map(),
+  attachments: new Map(), // sessionId → Array<{ id, name, path?, state, error? }>
 };
 
 // MARK: Connection
@@ -249,10 +250,45 @@ function showFlash(text) {
 
 // MARK: Actions
 
-async function send(sessionId, text) {
+async function uploadAttachment(sessionId, file) {
+  const list = state.attachments.get(sessionId) ?? [];
+  const id = "att-" + Math.random().toString(36).slice(2, 9);
+  const entry = { id, name: file.name, state: "uploading" };
+  list.push(entry);
+  state.attachments.set(sessionId, list);
+  render();
+
   try {
-    await request({ type: "session.prompt", sessionId, text });
+    const res = await fetch(`/v1/sessions/${encodeURIComponent(sessionId)}/files?name=${encodeURIComponent(file.name)}`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${state.key}`,
+        "content-type": file.type || "application/octet-stream",
+      },
+      body: file,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || err.error || `Upload failed (${res.status})`);
+    }
+    const data = await res.json();
+    entry.path = data.path;
+    entry.state = "ready";
+  } catch (error) {
+    entry.state = "failed";
+    entry.error = error.message;
+    showFlash(error.message);
+  }
+  render();
+}
+
+async function send(sessionId, text, attachments = []) {
+  try {
+    const payload = { type: "session.prompt", sessionId, text };
+    if (attachments && attachments.length > 0) payload.attachments = attachments;
+    await request(payload);
     state.drafts.delete(sessionId);
+    state.attachments.delete(sessionId);
   } catch (error) {
     showFlash(error.message);
   }
@@ -266,9 +302,14 @@ async function answer(sessionId, requestId, optionId) {
   try { await request({ type: "session.permission", sessionId, requestId, optionId }); } catch (error) { showFlash(error.message); }
 }
 
-async function create(agent) {
+async function create(agent, split = false) {
   try {
-    const answer = await request({ type: "session.create", agent });
+    const payload = { type: "session.create", agent };
+    if (split) {
+      payload.orchestrate = true;
+      payload.split = true;
+    }
+    const answer = await request(payload);
     state.sessions.set(answer.session.id, answer.session);
     location.hash = `#/s/${answer.session.id}`;
   } catch (error) {
@@ -315,6 +356,7 @@ const ICONS = {
   more: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>',
   send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
   stop: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
+  paperclip: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>',
 };
 
 const icon = (name) => h("span", { html: ICONS[name], "aria-hidden": "true", class: "icon" });
@@ -422,7 +464,7 @@ function blocks(session, events) {
     const previous = out[out.length - 1];
     switch (event.kind) {
       case "user_message":
-        out.push({ key: `u${event.seq}`, type: "user", text: event.text, from: event.from });
+        out.push({ key: `u${event.seq}`, type: "user", text: event.text, from: event.from, attachments: event.attachments });
         break;
       case "agent_message_chunk":
         if (previous?.type === "agent") previous.text += event.text;
@@ -503,7 +545,14 @@ function renderBlock(block, sessionId) {
       return h("div", { class: "message user" },
         h("div", {},
           block.from ? h("div", { class: "from" }, L("From the lead", "Liderden")) : null,
-          h("div", { class: "bubble" }, block.text)));
+          h("div", { class: "bubble" }, block.text),
+          block.attachments && block.attachments.length > 0
+            ? h("div", { class: "message-attachments" },
+                block.attachments.map((att) =>
+                  h("span", { class: "message-attachment" }, icon("paperclip"), att.split("/").pop())
+                )
+              )
+            : null));
     case "agent":
       return h("div", { class: "message agent", html: markdown(block.text) });
     case "thought":
@@ -649,8 +698,13 @@ function listPane() {
     ? (state.server ? `${state.server.name} · ${state.server.version}` : L("Connected", "Bağlı"))
     : state.connection === "connecting" ? L("Connecting…", "Bağlanıyor…") : L("Offline, retrying", "Bağlantı yok, yeniden deneniyor");
   const sessions = listedSessions();
-  const needs = sessions.filter((s) => s.status === "waiting");
-  const rest = sessions.filter((s) => s.status !== "waiting");
+  const helpersOf = (leadId) => [...state.sessions.values()]
+    .filter((s) => !s.archived && s.parentId === leadId)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+
+  const needs = sessions.filter((s) => s.status === "waiting" || helpersOf(s.id).some((h) => h.status === "waiting"));
+  const rest = sessions.filter((s) => !needs.includes(s));
+
   const row = (session) => h("button", {
     class: `session-row${session.id === state.open ? " selected" : ""}`,
     onclick: () => { location.hash = `#/s/${encodeURIComponent(session.id)}`; },
@@ -660,6 +714,21 @@ function listPane() {
       h("div", { class: "title" }, session.title || agentName(session.agent)),
       h("div", { class: `meta${session.status === "waiting" ? " needs" : ""}` },
         session.role ? `${session.role} · ${statusText(session)}` : `${agentName(session.agent)} · ${statusText(session)}`)));
+
+  const helperRow = (helper) => h("button", {
+    class: `session-row helper${helper.id === state.open ? " selected" : ""}`,
+    onclick: () => { location.hash = `#/s/${encodeURIComponent(helper.id)}`; },
+  },
+    h("span", { class: `dot ${helper.status}`, "aria-hidden": "true" }),
+    h("span", { class: "text" },
+      h("div", { class: "title" }, helper.role || helper.title || agentName(helper.agent)),
+      h("div", { class: `meta${helper.status === "waiting" ? " needs" : ""}` },
+        `${agentName(helper.agent)} · ${statusText(helper)}`)));
+
+  const leadAndHelpers = (session) => [
+    row(session),
+    ...helpersOf(session.id).map(helperRow),
+  ];
 
   return [
     h("header", { class: "bar" },
@@ -673,9 +742,9 @@ function listPane() {
         ? h("p", { class: "empty" }, state.connection === "connected" ? L("No sessions yet. Start one with +.", "Henüz oturum yok. + ile başlatın.") : "")
         : [
             needs.length ? h("h3", {}, L("Needs you", "Sizi bekliyor")) : null,
-            needs.map(row),
+            ...needs.flatMap(leadAndHelpers),
             needs.length && rest.length ? h("h3", {}, L("Sessions", "Oturumlar")) : null,
-            rest.map(row),
+            ...rest.flatMap(leadAndHelpers),
           ],
       state.projects.length ? h("h3", {}, L("Boards", "Panolar")) : null,
       state.projects.map((project) => h("button", {
@@ -734,12 +803,21 @@ function menu() {
 }
 
 function openNewSession() {
+  let split = false;
+  const splitCheckbox = h("input", {
+    type: "checkbox",
+    id: "split-helpers",
+    onchange: (e) => { split = e.target.checked; },
+  });
   const dialog = h("dialog", { "aria-label": L("New session", "Yeni oturum") },
     h("h2", {}, L("Start a session with", "Oturum başlat:")),
     state.agents.map((agent) => h("button", {
       class: "agent-choice",
-      onclick: () => { dialog.close(); void create(agent.id); },
+      onclick: () => { dialog.close(); void create(agent.id, split); },
     }, h("span", { class: "dot idle", "aria-hidden": "true" }), agent.name)),
+    h("label", { style: "display: flex; align-items: center; gap: 8px; margin: 14px 2px 4px; font-size: 14px; cursor: pointer;" },
+      splitCheckbox,
+      h("span", {}, L("Split into helpers when the work is large", "İş büyük olduğunda yardımcılara böl"))),
     h("div", { class: "row" }, h("span", { class: "spacer" }), h("button", { class: "quiet", onclick: () => dialog.close() }, L("Cancel", "Vazgeç"))));
   dialog.addEventListener("close", () => dialog.remove());
   document.body.append(dialog);
@@ -780,7 +858,30 @@ function renderSessionPane() {
   paneParts.button.className = `send${busy ? " stop" : ""}`;
   paneParts.button.replaceChildren(icon(busy ? "stop" : "send"));
   paneParts.button.setAttribute("aria-label", busy ? L("Stop", "Durdur") : L("Send", "Gönder"));
-  paneParts.button.disabled = state.connection !== "connected" || session.status === "closed";
+  paneParts.button.disabled = state.connection !== "connected" || (session.status === "closed" && !session.parentId);
+
+  const atts = state.attachments.get(session.id) || [];
+  paneParts.chips.replaceChildren(
+    ...atts.map((att) =>
+      h("span", { class: `attachment-chip ${att.state}` },
+        icon("paperclip"),
+        h("span", { class: "chip-name" }, att.name),
+        att.state === "uploading" ? h("span", {}, "…") : null,
+        h("button", {
+          type: "button",
+          class: "chip-remove",
+          "aria-label": L("Remove", "Kaldır"),
+          onclick: (e) => {
+            e.stopPropagation();
+            const list = (state.attachments.get(session.id) || []).filter((a) => a.id !== att.id);
+            if (list.length === 0) state.attachments.delete(session.id);
+            else state.attachments.set(session.id, list);
+            render();
+          },
+        }, "×")
+      )
+    )
+  );
 
   const transcript = paneParts.transcript;
   const nearEnd = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 120;
@@ -806,6 +907,27 @@ function buildPane(sessionId) {
     h("div", { class: "head-text" }, title, h("div", { class: "connection" }, status, statusText)));
   const flash = h("div", { class: "failure flash", role: "alert", hidden: true });
   const transcript = h("div", { class: "transcript" });
+  const chips = h("div", { class: "composer-chips" });
+  const fileInput = h("input", {
+    type: "file",
+    multiple: true,
+    style: "display: none",
+    onchange: () => {
+      if (fileInput.files) {
+        for (const file of fileInput.files) {
+          void uploadAttachment(sessionId, file);
+        }
+        fileInput.value = "";
+      }
+    },
+  });
+  const attachBtn = h("button", {
+    type: "button",
+    class: "icon-button attach-btn",
+    title: L("Attach file", "Dosya ekle"),
+    "aria-label": L("Attach file", "Dosya ekle"),
+    onclick: () => fileInput.click(),
+  }, icon("paperclip"));
   const textarea = h("textarea", {
     rows: 1,
     placeholder: L("Message the agent", "Ajana yazın"),
@@ -835,17 +957,54 @@ function buildPane(sessionId) {
       void stop(sessionId);
       return;
     }
+    const atts = state.attachments.get(sessionId) || [];
+    if (atts.some((a) => a.state === "uploading")) {
+      showFlash(L("Wait for uploads to finish", "Yüklemelerin bitmesini bekleyin"));
+      return;
+    }
     const text = textarea.value.trim();
-    if (!text) return;
+    const readyAttachments = atts.filter((a) => a.state === "ready").map((a) => a.path || a.name);
+    if (!text && readyAttachments.length === 0) return;
     textarea.value = "";
     grow();
     scrollToEnd = true;
-    void send(sessionId, text);
+    void send(sessionId, text, readyAttachments);
   };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer?.files?.length) {
+      for (const file of e.dataTransfer.files) {
+        void uploadAttachment(sessionId, file);
+      }
+    }
+  };
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  transcript.addEventListener("dragover", handleDragOver);
+  transcript.addEventListener("drop", handleDrop);
+
+  textarea.addEventListener("paste", (e) => {
+    if (e.clipboardData?.files?.length) {
+      e.preventDefault();
+      for (const file of e.clipboardData.files) {
+        void uploadAttachment(sessionId, file);
+      }
+    }
+  });
+
+  const inputRow = h("div", { class: "composer-input-row" }, attachBtn, fileInput, textarea, button);
   const composer = h("div", { class: "composer" },
-    h("form", { onsubmit: (event) => { event.preventDefault(); submit(); } }, textarea, button));
+    h("form", {
+      onsubmit: (event) => { event.preventDefault(); submit(); },
+      ondragover: handleDragOver,
+      ondrop: handleDrop,
+    }, chips, inputRow));
   requestAnimationFrame(grow);
-  return { header, title, status, statusText, flash, transcript, composer, button };
+  return { header, title, status, statusText, flash, transcript, composer, button, chips };
 }
 
 // MARK: Start

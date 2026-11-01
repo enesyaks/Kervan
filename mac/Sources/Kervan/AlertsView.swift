@@ -136,8 +136,8 @@ struct AlertsSection: View {
     }
 
     private var input: AlertInput {
-        let address = model.activeAddress?.url
-        let open = address.flatMap { url in url.host().map { "http://\($0):\(url.port ?? ServerAddress.defaultPort)" } } ?? ""
+        // Alerts are read away from home too, so the link prefers the hub's Tailscale address.
+        let open = WebLinks.preferred(addresses: model.store.hubAddresses, current: model.activeAddress?.url) ?? ""
         return AlertInput(
             enabled: enabled,
             events: events,
