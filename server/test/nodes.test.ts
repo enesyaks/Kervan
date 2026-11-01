@@ -157,6 +157,21 @@ describe("hub addresses offered to new nodes", () => {
       { address: "192.168.1.21:7420", kind: "lan", network: "192.168.1.0/24" },
     ]);
   });
+
+  it("puts the MagicDNS name on Tailscale addresses only", async () => {
+    const { hubAddresses } = await import("../src/nodes.ts");
+    const entry = (address: string, cidr: string) =>
+      ({ address, cidr, internal: false, family: "IPv4", netmask: "", mac: "", scopeid: 0 }) as never;
+    const found = hubAddresses(
+      7420,
+      { tailscale0: [entry("100.66.121.56", "100.66.121.56/32")], en0: [entry("192.168.1.21", "192.168.1.21/24")] },
+      "kervan.tail1234.ts.net",
+    );
+    assert.deepEqual(found, [
+      { address: "100.66.121.56:7420", kind: "tailscale", host: "kervan.tail1234.ts.net" },
+      { address: "192.168.1.21:7420", kind: "lan", network: "192.168.1.0/24" },
+    ]);
+  });
 });
 
 describe("finding a hub whose address changed", () => {

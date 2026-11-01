@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { hostname, networkInterfaces } from "node:os";
@@ -24,10 +25,12 @@ export interface HubAddress {
   kind: "tailscale" | "lan";
   /** e.g. 192.168.1.0/24 */
   network?: string;
+  /** Tailscale only: this machine's MagicDNS name, e.g. kervan.tail1234.ts.net, when known. */
+  host?: string;
 }
 
 /** This machine's IPv4 addresses that other machines might reach: Tailscale's, then private LAN ones. */
-export function hubAddresses(port: number, interfaces = networkInterfaces()): HubAddress[] {
+export function hubAddresses(port: number, interfaces = networkInterfaces(), tailscaleHost?: string): HubAddress[] {
   const found: HubAddress[] = [];
   for (const [name, entries] of Object.entries(interfaces)) {
     // Container bridges are reachable only from this machine.
@@ -37,11 +40,33 @@ export function hubAddresses(port: number, interfaces = networkInterfaces()): Hu
       const [a, b] = entry.address.split(".").map(Number);
       const tailscale = name.startsWith("tailscale") || (a === 100 && b >= 64 && b <= 127);
       const lan = a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
-      if (tailscale) found.push({ address: `${entry.address}:${port}`, kind: "tailscale" });
+      if (tailscale) found.push({ address: `${entry.address}:${port}`, kind: "tailscale", ...(tailscaleHost ? { host: tailscaleHost } : {}) });
       else if (lan) found.push({ address: `${entry.address}:${port}`, kind: "lan", ...(entry.cidr ? { network: networkOf(entry.cidr) } : {}) });
     }
   }
   return found.sort((x, y) => (x.kind === y.kind ? 0 : x.kind === "tailscale" ? -1 : 1));
+}
+
+const TAILSCALE_CLI = ["tailscale", "/Applications/Tailscale.app/Contents/MacOS/Tailscale"];
+const TAILSCALE_NAME_TTL_MS = 5 * 60_000;
+let tailscaleNameCache: { name: string | undefined; at: number } | undefined;
+
+/** The MagicDNS name `tailscale status` reports for this machine, without the trailing dot; cached for a while. */
+export function tailscaleName(now = Date.now()): string | undefined {
+  if (tailscaleNameCache && now - tailscaleNameCache.at < TAILSCALE_NAME_TTL_MS) return tailscaleNameCache.name;
+  let name: string | undefined;
+  for (const command of TAILSCALE_CLI) {
+    try {
+      const out = execFileSync(command, ["status", "--json", "--self=true", "--peers=false"], { timeout: 1500, stdio: ["ignore", "pipe", "ignore"] });
+      const dns = (JSON.parse(out.toString("utf8")) as { Self?: { DNSName?: string } }).Self?.DNSName;
+      name = dns ? dns.replace(/\.$/, "") || undefined : undefined;
+      break;
+    } catch {
+      // Not installed here, not running or not signed in: no name.
+    }
+  }
+  tailscaleNameCache = { name, at: now };
+  return name;
 }
 
 function networkOf(cidr: string): string {
@@ -106,7 +131,11 @@ export class NodeHub {
 
   /** Where a new node could reach this hub. */
   addresses(): HubAddress[] {
-    return hubAddresses(this.port);
+    const found = hubAddresses(this.port);
+    // Asking the tailscale CLI only makes sense when this machine is on a tailnet.
+    if (!found.some((a) => a.kind === "tailscale")) return found;
+    const host = tailscaleName();
+    return host ? found.map((a) => (a.kind === "tailscale" ? { ...a, host } : a)) : found;
   }
 
   /**
