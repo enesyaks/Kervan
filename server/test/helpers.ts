@@ -1,7 +1,6 @@
 import { WebAccess } from "../src/webaccess.ts";
 import { attachBoard } from "../src/board.ts";
 import { attachAlerts } from "../src/alerts.ts";
-import type { Server } from "node:http";
 import { mkdtempSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -10,7 +9,7 @@ import WebSocket from "ws";
 import { AgentCatalog } from "../src/catalog.ts";
 import { RoleRegistry } from "../src/roles.ts";
 import { LocalAcpRunner, probeAgent } from "../src/runner.ts";
-import { createKervanServer } from "../src/server.ts";
+import { createKervanServer, type KervanServer } from "../src/server.ts";
 import { SessionManager, type Limits } from "../src/sessions.ts";
 import { EventStore } from "../src/store.ts";
 import { McpRegistry } from "../src/mcp.ts";
@@ -27,7 +26,7 @@ export const fakeAgent = { name: "Fake", command: process.execPath, args: [join(
 
 export async function startServer(
   options: { maxUploadBytes?: number; limits?: Partial<Limits>; nodeToken?: string } = {},
-): Promise<{ server: Server; port: number; sessions: SessionManager; dataDir: string; web: WebAccess; stop: () => Promise<void> }> {
+): Promise<{ server: KervanServer; port: number; sessions: SessionManager; dataDir: string; web: WebAccess; stop: () => Promise<void> }> {
   const workspaces = mkdtempSync(join(tmpdir(), "kervan-test-"));
   const dataDir = mkdtempSync(join(tmpdir(), "kervan-data-"));
   const skills = new SkillLibrary(join(dataDir, "skills"));

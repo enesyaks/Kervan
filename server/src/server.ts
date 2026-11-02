@@ -24,6 +24,11 @@ export interface ServerOptions {
   web?: WebAccess;
 }
 
+export interface KervanServer extends Server {
+  /** Stops listening and ends every connection; resolves once they are gone. */
+  shutdown(): Promise<void>;
+}
+
 const MAX_PAIR_BODY = 2048;
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -58,7 +63,7 @@ export function createKervanServer({
   skills,
   nodeToken,
   web,
-}: ServerOptions): Server {
+}: ServerOptions): KervanServer {
   // One count of failed browser sign-ins, shared by the key check, pairing and the WebSocket.
   const limiter = new AttemptLimiter();
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
@@ -169,6 +174,17 @@ export function createKervanServer({
     });
   });
 
-  attachWebSocket(server, token, sessions, heartbeatMs, nodeToken, web, limiter);
-  return server;
+  const closeClients = attachWebSocket(server, token, sessions, heartbeatMs, nodeToken, web, limiter);
+  const shutdown = () =>
+    new Promise<void>((resolve) => {
+      // A request still running at this point leaves a keep-alive connection behind when it ends, so keep sweeping.
+      const sweep = setInterval(() => server.closeIdleConnections(), 100);
+      server.close(() => {
+        clearInterval(sweep);
+        resolve();
+      });
+      server.closeIdleConnections();
+      closeClients();
+    });
+  return Object.assign(server, { shutdown });
 }

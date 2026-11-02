@@ -28,6 +28,8 @@ import { VERSION } from "./version.ts";
 
 export const WS_PATH = "/v1/ws";
 const HEARTBEAT_MS = 30_000;
+// How long a client gets to answer the close frame when the server shuts down.
+const SHUTDOWN_GRACE_MS = 1000;
 const MAX_FRAME_BYTES = 1024 * 1024;
 
 const sha256 = (value: string) => createHash("sha256").update(value).digest();
@@ -482,7 +484,7 @@ export function attachWebSocket(
   nodeToken?: string,
   web?: WebAccess,
   limiter: AttemptLimiter = new AttemptLimiter(),
-): WebSocketServer {
+): () => void {
   const wss = new WebSocketServer({
     noServer: true,
     maxPayload: MAX_FRAME_BYTES,
@@ -596,10 +598,14 @@ export function attachWebSocket(
   }, heartbeatMs);
   heartbeat.unref();
 
-  server.on("close", () => {
-    clearInterval(heartbeat);
-    for (const ws of wss.clients) ws.close(1001, "server shutting down");
-  });
+  server.on("close", () => clearInterval(heartbeat));
 
-  return wss;
+  // Ends every upgraded connection; the HTTP server's close waits for them, and for a dead client would wait 30s more.
+  return () => {
+    const open = [...wss.clients, ...nodeServer.clients, ...tunnels.clients];
+    for (const ws of open) ws.close(1001, "server shutting down");
+    setTimeout(() => {
+      for (const ws of open) ws.terminate();
+    }, SHUTDOWN_GRACE_MS).unref();
+  };
 }

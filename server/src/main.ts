@@ -104,11 +104,11 @@ function shutdown(signal: string): void {
   sessions.closeAll();
   orchestra.close();
   nodes.close();
-  server.close(() => {
+  void server.shutdown().then(() => {
     store.close();
     process.exit(0);
   });
-  // Don't hang forever on lingering keep-alive sockets.
+  // Don't hang forever on a request that never finishes.
   setTimeout(() => process.exit(1), 5000).unref();
 }
 
