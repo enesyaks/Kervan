@@ -70,6 +70,16 @@ final class HubInstaller {
     /// macOS keeps the app off the local network: the screen offers the settings page.
     private(set) var localNetworkBlocked = false
     var started: Bool { startedAt != nil }
+
+    /// A step as the list shows it. While setup runs in the user's Terminal its progress can't be seen from here, so the
+    /// step says what it's waiting for rather than seeming to work on something.
+    func line(_ step: HubSetupStep) -> (title: String, detail: String) {
+        guard waitingForTerminal, step == self.step else { return (step.title, step.detail) }
+        return (
+            L("Waiting for setup in Terminal", "Terminal'deki kurulum bekleniyor"),
+            L("Run the command below if you haven't. Its progress shows there, and this window carries on when it's done.", "Henüz çalıştırmadıysanız aşağıdaki komutu çalıştırın. İlerlemesi orada görünür; bitince bu pencere kendiliğinden devam eder.")
+        )
+    }
     private var task: Task<Void, Never>?
     private var process: Process?
 
@@ -212,12 +222,15 @@ final class HubInstaller {
             // Over SSH, and not every time: it stays reachable when the server's own port has closed.
             if tailscale == nil, round % 4 == 0 { tailscale = await Self.tailscaleAddress(user: user, host: host) }
             round += 1
-            if let tailscale, await Self.runningVersion(host: tailscale) == KervanVersion.current {
+            var there: String?
+            if let tailscale { there = await Self.runningVersion(host: tailscale) }
+            if let tailscale, there == KervanVersion.current {
                 waitingOnTailscale = nil
                 return tailscale
             }
             if await Self.runningVersion(host: host) == KervanVersion.current { return host }
-            waitingOnTailscale = round > 10 ? tailscale : nil
+            // Only when nothing answers there. An older version answering means setup hasn't finished, not that Tailscale is off.
+            waitingOnTailscale = round > 10 && there == nil ? tailscale : nil
             try await Task.sleep(for: .seconds(3))
         }
         throw SetupError(message: L("The server didn't come back as \(KervanVersion.current) within 20 minutes. Check the detailed output or run setup again.", "Sunucu 20 dakika içinde \(KervanVersion.current) olarak geri gelmedi. Ayrıntılı çıktıya bakın ya da kurulumu yeniden deneyin."))

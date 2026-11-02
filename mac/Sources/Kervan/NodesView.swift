@@ -483,7 +483,12 @@ private struct HubConnectionCard: View {
 struct Guidance: View {
     let text: String
     let command: String
+    /// It's meant for this Mac, so it can be started from here. The password is typed in Terminal, never in the app.
+    var runsHere = false
     @State private var copied = false
+    @State private var failure: String?
+
+    private static let screen = Color(light: 0x16202E, dark: 0x0B111A)
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -491,21 +496,72 @@ struct Guidance: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            HStack(alignment: .top, spacing: 8) {
-                Text(command)
-                    .font(.callout.monospaced())
-                    .textSelection(.enabled)
-                    .padding(8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.kervanWell, in: RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
-                Button(copied ? L("Copied", "Kopyalandı") : L("Copy", "Kopyala")) {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(command, forType: .string)
-                    copied = true
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(verbatim: "$").foregroundStyle(Color.kervanOasis)
+                    Text(command)
+                        .foregroundStyle(.white.opacity(0.92))
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .font(.callout.monospaced())
+                HStack(spacing: 8) {
+                    Spacer()
+                    Button(copied ? L("Copied", "Kopyalandı") : L("Copy", "Kopyala")) {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(command, forType: .string)
+                        copied = true
+                    }
+                    .buttonStyle(.bordered)
+                    .environment(\.colorScheme, .dark)
+                    if runsHere {
+                        Button {
+                            failure = TerminalRun.open(command)
+                        } label: {
+                            Label(L("Run in Terminal", "Terminal'de çalıştır"), systemImage: "play.fill")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.kervanOasis)
+                    }
+                }
+                .controlSize(.small)
+            }
+            .padding(12)
+            .background(Self.screen, in: RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
+            if let failure {
+                Label(failure, systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout)
+                    .foregroundStyle(Color.kervanCoral)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .onChange(of: command) { copied = false }
+    }
+}
+
+/// Starts a command in the Mac's own Terminal, through a small script Terminal opens. Doing it there keeps any password
+/// out of the app, and needs no permission to control Terminal.
+enum TerminalRun {
+    /// What the script holds: it removes itself, runs the command, and says when it's done.
+    static func script(for command: String) -> String {
+        "#!/bin/zsh\nrm -f \"$0\"\n\(command)\nprint\nprint 'You can close this window.'\n"
+    }
+
+    /// Nil when Terminal was told to run it, otherwise why it couldn't be.
+    @MainActor static func open(_ command: String) -> String? {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("kervan-\(UUID().uuidString).command")
+        do {
+            try script(for: command).write(to: file, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: file.path)
+        } catch {
+            return L("Couldn't prepare the command: \(error.localizedDescription)", "Komut hazırlanamadı: \(error.localizedDescription)")
+        }
+        guard NSWorkspace.shared.open(file) else {
+            try? FileManager.default.removeItem(at: file)
+            return L("Terminal didn't open. Copy the command and run it there.", "Terminal açılmadı. Komutu kopyalayıp orada çalıştırın.")
+        }
+        return nil
     }
 }
 

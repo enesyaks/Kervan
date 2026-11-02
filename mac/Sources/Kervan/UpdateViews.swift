@@ -142,7 +142,7 @@ struct ServerUpdateSheet: View {
                 .frame(height: 124)
             } else {
                 StepList(
-                    steps: steps.map { ($0.title, $0.detail) },
+                    steps: steps.map(installer.line),
                     reached: steps.firstIndex(of: installer.step) ?? steps.count - 1,
                     running: installer.isRunning || installer.waitingForTerminal,
                     failed: failed,
@@ -167,7 +167,8 @@ struct ServerUpdateSheet: View {
                                 "sudo needs a password on the server. Run this in Terminal; it asks for your password there, and this window carries on when it's done.",
                                 "Sunucuda sudo parola istiyor. Terminal'de şunu çalıştırın; parolanız orada sorulur, bitince bu pencere kendiliğinden devam eder."
                             ),
-                        command: HubSetup.terminalCommand(user: user, host: host, access: access)
+                        command: HubSetup.terminalCommand(user: user, host: host, access: access),
+                        runsHere: true
                     )
                 }
                 if let failure = installer.failure {

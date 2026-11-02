@@ -319,7 +319,8 @@ struct OnboardingView: View {
                 }
                 Guidance(
                     text: L("If your Mac can't log in to this machine without a password, run this once in Terminal first:", "Mac'iniz bu makineye parolasız giremiyorsa önce Terminal'de bir kez şunu çalıştırın:"),
-                    command: L("ssh-copy-id \(user.trimmed.isEmpty ? "ubuntu" : user.trimmed)@\(host.trimmed.isEmpty ? "ADDRESS" : host.trimmed)", "ssh-copy-id \(user.trimmed.isEmpty ? "ubuntu" : user.trimmed)@\(host.trimmed.isEmpty ? "ADRES" : host.trimmed)")
+                    command: L("ssh-copy-id \(user.trimmed.isEmpty ? "ubuntu" : user.trimmed)@\(host.trimmed.isEmpty ? "ADDRESS" : host.trimmed)", "ssh-copy-id \(user.trimmed.isEmpty ? "ubuntu" : user.trimmed)@\(host.trimmed.isEmpty ? "ADRES" : host.trimmed)"),
+                    runsHere: !host.trimmed.isEmpty
                 )
             }
             .padding(20)
@@ -434,7 +435,7 @@ struct OnboardingView: View {
             )
             VStack(alignment: .leading, spacing: 16) {
                 StepList(
-                    steps: steps.map { ($0.title, $0.detail) },
+                    steps: steps.map(installer.line),
                     reached: steps.firstIndex(of: installer.step) ?? steps.count - 1,
                     running: installer.isRunning || installer.waitingForTerminal,
                     failed: failed,
@@ -447,7 +448,8 @@ struct OnboardingView: View {
                 if installer.waitingForTerminal {
                     Guidance(
                         text: L("sudo needs a password on this machine. Run this in Terminal; it asks for your password there, and this screen connects by itself when setup is done.", "Bu makinede sudo parola istiyor. Terminal'de şunu çalıştırın; parolanız orada sorulur, kurulum bitince bu ekran kendiliğinden bağlanır."),
-                        command: HubSetup.terminalCommand(user: user.trimmed, host: host.trimmed, access: .tailscale)
+                        command: HubSetup.terminalCommand(user: user.trimmed, host: host.trimmed, access: .tailscale),
+                        runsHere: true
                     )
                 }
                 if let address = installer.waitingOnTailscale {
