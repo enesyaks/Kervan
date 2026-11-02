@@ -37,3 +37,33 @@ import Testing
         #expect(decoded[1].host == nil)
     }
 }
+
+@Suite struct HubFallbackTests {
+    @Test func knowsATailscaleName() {
+        for host in ["kervan.tail1234.ts.net", "KERVAN.TAIL1234.TS.NET"] { #expect(HubFallback.isTailscaleName(host), "\(host)") }
+        for host in [".ts.net", "ts.net", "evil-ts.net", "kervan.ts.net.evil.com", "100.92.238.61", ""] { #expect(!HubFallback.isTailscaleName(host), "\(host)") }
+    }
+
+    @Test func knowsATailscaleIP() {
+        for host in ["100.64.0.1", "100.92.238.61", "100.127.255.255"] { #expect(HubFallback.isTailscaleIP(host), "\(host)") }
+        for host in ["100.63.0.1", "100.128.0.1", "192.168.1.32", "100.92.238", "100.92.238.999", "kervan"] { #expect(!HubFallback.isTailscaleIP(host), "\(host)") }
+    }
+
+    @Test func remembersOnlyAMagicDNSName() {
+        let named = HubAddress(address: "100.92.238.61:7420", kind: .tailscale, host: "kervan-1.tail1.ts.net")
+        let lan = HubAddress(address: "192.168.1.32:7420", kind: .lan)
+        #expect(HubFallback.address(among: [lan, named], current: "192.168.1.32") == "kervan-1.tail1.ts.net:7420")
+        #expect(HubFallback.address(among: [named], current: "100.92.238.61") == "kervan-1.tail1.ts.net:7420")
+        #expect(HubFallback.address(among: [named], current: "kervan-1.tail1.ts.net") == nil)
+        #expect(HubFallback.address(among: [lan], current: "192.168.1.32") == nil)
+        #expect(HubFallback.address(among: [HubAddress(address: "100.92.238.61:7420", kind: .tailscale)], current: "192.168.1.32") == nil)
+        // A hub can't talk the app into sending the key to some other name.
+        #expect(HubFallback.address(among: [HubAddress(address: "100.92.238.61:7420", kind: .tailscale, host: "evil.example.com")], current: "192.168.1.32") == nil)
+    }
+
+    @Test func readsTheNameFromTailscaleStatus() {
+        #expect(HubFallback.name(fromStatus: "kervan-1.tail1.ts.net.\n") == "kervan-1.tail1.ts.net")
+        #expect(HubFallback.name(fromStatus: "") == nil)
+        #expect(HubFallback.name(fromStatus: "something else") == nil)
+    }
+}

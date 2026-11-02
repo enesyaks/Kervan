@@ -31,7 +31,7 @@ struct ConnectView: View {
                                 .labelsHidden()
                                 .font(.body.monospaced())
                                 .textContentType(.URL)
-                            Text(L("Tailscale name or IP address. Port 7420 is used if you leave it out.", "Tailscale adı ya da IP adresi. Port yazılmazsa 7420 kullanılır."))
+                            Text(L("Tailscale name, like kervan.tail1234.ts.net, or home network address. Port 7420 is used if you leave it out.", "kervan.tail1234.ts.net gibi Tailscale adı ya da ev ağı adresi. Port yazılmazsa 7420 kullanılır."))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }

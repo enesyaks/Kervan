@@ -136,6 +136,60 @@ public enum NodeSetup {
     }
 }
 
+/// Finding a hub again when the address the app has stops answering, as a LAN address does once the hub is Tailscale only.
+public enum HubFallback {
+    public static let storageKey = "hubTailscaleAddresses"
+    /// Long enough that a brief drop or a restart doesn't move the app.
+    public static let attemptsBeforeLooking = 2
+
+    /// A MagicDNS name: macOS allows plain HTTP to these (Info.plist), and Tailscale encrypts the traffic.
+    public static func isTailscaleName(_ host: String) -> Bool {
+        let name = host.lowercased()
+        return name.hasSuffix(".ts.net") && name.count > ".ts.net".count
+    }
+
+    /// Tailscale's address range, 100.64.0.0/10.
+    public static func isTailscaleIP(_ host: String) -> Bool {
+        let parts = host.split(separator: ".", omittingEmptySubsequences: false).map { Int($0) }
+        guard parts.count == 4, parts.allSatisfy({ (0...255).contains($0 ?? -1) }) else { return false }
+        return parts[0] == 100 && (64...127).contains(parts[1] ?? 0)
+    }
+
+    /// The address to remember for a hub reached at `current`: its MagicDNS name, unless the app already uses one.
+    /// Not its Tailscale IP: the socket connects, but macOS refuses plain HTTP to it, which file access and /health use.
+    public static func address(among addresses: [HubAddress], current: String) -> String? {
+        guard !isTailscaleName(current) else { return nil }
+        for address in addresses where address.kind == .tailscale {
+            guard let host = address.host, isTailscaleName(host) else { continue }
+            let port = ServerAddress(address.address)?.url.port ?? ServerAddress.defaultPort
+            return "\(host):\(port)"
+        }
+        return nil
+    }
+
+    /// The name from `tailscale status --json`'s DNSName, which ends in a dot.
+    public static func name(fromStatus text: String) -> String? {
+        var name = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.hasSuffix(".") { name.removeLast() }
+        return isTailscaleName(name) ? name : nil
+    }
+
+    /// The version a server at `address` reports on /health, if one answers. Carries no key.
+    public static func version(at address: ServerAddress) async -> String? {
+        var components = URLComponents(url: address.url, resolvingAgainstBaseURL: false)
+        components?.scheme = address.url.scheme == "wss" ? "https" : "http"
+        components?.path = "/health"
+        guard let url = components?.url else { return nil }
+        var request = URLRequest(url: url, timeoutInterval: 4)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        guard let (data, _) = try? await URLSession.shared.data(for: request),
+              let health = try? JSONDecoder().decode(Health.self, from: data) else { return nil }
+        return health.version
+    }
+
+    private struct Health: Decodable { let version: String }
+}
+
 public enum Backoff {
     /// 1, 2, 4, 8, 16, 30, 30… seconds for attempt 1, 2, 3…
     public static func delay(attempt: Int) -> TimeInterval {

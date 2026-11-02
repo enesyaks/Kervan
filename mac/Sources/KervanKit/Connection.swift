@@ -37,6 +37,8 @@ public final class KervanConnection {
     @ObservationIgnored public var onConnected: (@MainActor ([AgentInfo]) -> Void)?
     /// Every server message other than the handshake and pongs.
     @ObservationIgnored public var onMessage: (@MainActor (ServerMessage) -> Void)?
+    /// Each time the server couldn't be reached and another try is coming, with the attempt that failed.
+    @ObservationIgnored public var onRetrying: (@MainActor (Int) -> Void)?
 
     private let client: PeerInfo
     private let session: URLSession
@@ -87,6 +89,7 @@ public final class KervanConnection {
             if wasConnected { attempt = 1 }
             let delay = Backoff.delay(attempt: attempt)
             state = .retrying(at: Date().addingTimeInterval(delay), attempt: attempt, reason: failure)
+            onRetrying?(attempt)
             try? await Task.sleep(for: .seconds(delay))
         }
     }
@@ -138,7 +141,7 @@ public final class KervanConnection {
         } catch {
             if (task.response as? HTTPURLResponse)?.statusCode == 401 { return (.unauthorized, connected) }
             if (task.response as? HTTPURLResponse)?.statusCode == 403 {
-                return (.unreachable(L("This server answers only over Tailscale. Use its Tailscale address, with Tailscale on on this Mac.", "Bu sunucu yalnızca Tailscale üzerinden yanıt veriyor. Tailscale adresini kullanın; bu Mac'te Tailscale açık olmalı.")), connected)
+                return (.unreachable(L("This server answers only over Tailscale. Use its Tailscale name, which ends in .ts.net, with Tailscale on on this Mac.", "Bu sunucu yalnızca Tailscale üzerinden yanıt veriyor. .ts.net ile biten Tailscale adını kullanın; bu Mac'te Tailscale açık olmalı.")), connected)
             }
             if task.closeCode.rawValue == 4000 { return (.unsupportedProtocol("protocol mismatch"), connected) }
             return (.unreachable(error.localizedDescription), connected)

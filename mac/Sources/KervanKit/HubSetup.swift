@@ -29,9 +29,10 @@ public enum HubSetup {
         ssh(user, host, "rm -rf \(remoteFolder) && mkdir -m 700 \(remoteFolder) && tar -xzf - -C \(remoteFolder)")
     }
 
-    /// The server's Tailscale address, once it has one; asked over SSH, which stays open on the home network.
+    /// The server's MagicDNS name, once it has one; asked over SSH, which stays open on the home network.
+    /// The first DNSName in the status is the machine's own; its peers come later.
     public static func tailscaleAddressArguments(user: String, host: String) -> [String] {
-        ssh(user, host, "tailscale ip -4 2>/dev/null | head -1")
+        ssh(user, host, "tailscale status --json 2>/dev/null | grep -m1 '\"DNSName\"' | cut -d'\"' -f4")
     }
 
     /// Succeeds when sudo works without a password there, so the app can run the setup itself.

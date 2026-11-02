@@ -53,6 +53,10 @@ final class AppModel {
     /// (`KERVAN_TOKEN=… swift run Kervan`) and leave the saved key alone.
     private let environment = ProcessInfo.processInfo.environment
     private var usesEnvironmentToken: Bool { environment["KERVAN_TOKEN"] != nil }
+    /// The address saved when the app opened. Only this one, not something just typed, is worth asking about over SSH.
+    private var savedHost: String?
+    private var lookingForTailscale = false
+    private var askedOverSSH = false
 
     init() {
         let connection = KervanConnection(client: PeerInfo(name: "Kervan for Mac", version: Self.appVersion))
@@ -61,7 +65,11 @@ final class AppModel {
         self.store = store
         serverInput = environment["KERVAN_SERVER"] ?? UserDefaults.standard.string(forKey: Self.serverKey) ?? ""
 
+        savedHost = ServerAddress(serverInput)?.host
+
         connection.onMessage = { store.handle($0) }
+        connection.onRetrying = { [weak self] attempt in self?.moveToTailscale(afterAttempt: attempt) }
+        store.onHubAddresses = { [weak self] addresses in self?.remember(addresses) }
         showOnboarding = environment["KERVAN_ONBOARDING"] != nil
             || (!UserDefaults.standard.bool(forKey: Self.onboardedKey) && environment["KERVAN_SERVER"] == nil
                 && UserDefaults.standard.string(forKey: Self.serverKey) == nil)
@@ -114,6 +122,55 @@ final class AppModel {
         activeAddress = address
         activeToken = token
         connection.connect(to: address, token: token)
+    }
+
+    /// Keeps the hub's MagicDNS name while it can tell us, for the day the address in use stops answering.
+    private func remember(_ addresses: [HubAddress]) {
+        guard let host = activeAddress?.host, let tailscale = HubFallback.address(among: addresses, current: host) else { return }
+        var known = UserDefaults.standard.dictionary(forKey: HubFallback.storageKey) as? [String: String] ?? [:]
+        if known[host] != tailscale {
+            known[host] = tailscale
+            UserDefaults.standard.set(known, forKey: HubFallback.storageKey)
+        }
+        // Connected by Tailscale IP, HTTP to the hub is refused by macOS, so the name is better right away.
+        guard HubFallback.isTailscaleIP(host), let from = activeAddress, let address = ServerAddress(tailscale) else { return }
+        Task {
+            guard await HubFallback.version(at: address) != nil, activeAddress == from else { return }
+            serverInput = tailscale
+            connect()
+        }
+    }
+
+    /// When the hub stops answering where the app expects it, tries its MagicDNS name and stays there if a server answers.
+    /// Never the other way: only Tailscale's traffic is encrypted, and the access key goes wherever the app connects.
+    private func moveToTailscale(afterAttempt attempt: Int) {
+        guard attempt >= HubFallback.attemptsBeforeLooking, !lookingForTailscale,
+              let from = activeAddress, !HubFallback.isTailscaleName(from.host)
+        else { return }
+        lookingForTailscale = true
+        Task {
+            defer { lookingForTailscale = false }
+            guard let target = await tailscaleAddress(for: from.host), let address = ServerAddress(target),
+                  await HubFallback.version(at: address) != nil
+            else { return }
+            // The user may have moved on while this looked.
+            guard activeAddress == from else { return }
+            switch connection.state {
+            case .connecting, .retrying: break
+            default: return
+            }
+            serverInput = target
+            connect()
+        }
+    }
+
+    /// Remembered, or for a hub that closed its LAN before the app learned the address, asked once over SSH,
+    /// which stays open on the home network. Key-only: ssh here never prompts.
+    private func tailscaleAddress(for host: String) async -> String? {
+        if let known = (UserDefaults.standard.dictionary(forKey: HubFallback.storageKey) as? [String: String])?[host] { return known }
+        guard host == savedHost, !askedOverSSH else { return nil }
+        askedOverSSH = true
+        return await HubInstaller.tailscaleAddress(user: UserDefaults.standard.string(forKey: "serverUpdateUser") ?? "ubuntu", host: host)
     }
 
     /// HTTP access to session workspaces, with the same server and token as the socket.

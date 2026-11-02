@@ -237,8 +237,8 @@ final class HubInstaller {
         throw SetupError(message: L("The server didn't come back as \(KervanVersion.current) within 20 minutes. Check the detailed output or run setup again.", "Sunucu 20 dakika içinde \(KervanVersion.current) olarak geri gelmedi. Ayrıntılı çıktıya bakın ya da kurulumu yeniden deneyin."))
     }
 
-    /// The server's Tailscale address, asked over SSH; nil until it has one.
-    private static func tailscaleAddress(user: String, host: String) async -> String? {
+    /// The server's MagicDNS name, asked over SSH; nil until it has one.
+    static func tailscaleAddress(user: String, host: String) async -> String? {
         await withCheckedContinuation { continuation in
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
@@ -249,8 +249,7 @@ final class HubInstaller {
             process.standardInput = FileHandle.nullDevice
             process.terminationHandler = { _ in
                 let text = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                continuation.resume(returning: text.hasPrefix("100.") ? text : nil)
+                continuation.resume(returning: HubFallback.name(fromStatus: text))
             }
             do { try process.run() } catch { continuation.resume(returning: nil) }
         }
@@ -258,18 +257,7 @@ final class HubInstaller {
 
     /// The version the server at `host` reports on /health, if it answers.
     private static func runningVersion(host: String) async -> String? {
-        var components = URLComponents()
-        components.scheme = "http"
-        components.host = host
-        components.port = ServerAddress.defaultPort
-        components.path = "/health"
-        guard let url = components.url else { return nil }
-        var request = URLRequest(url: url, timeoutInterval: 4)
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-        guard let (data, _) = try? await URLSession.shared.data(for: request),
-              let health = try? JSONDecoder().decode(Health.self, from: data) else { return nil }
-        return health.version
+        guard let address = ServerAddress(host) else { return nil }
+        return await HubFallback.version(at: address)
     }
-
-    private struct Health: Decodable { let version: String }
 }

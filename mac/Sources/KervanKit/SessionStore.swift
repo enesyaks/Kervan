@@ -74,6 +74,8 @@ public final class SessionStore {
 
     /// Called when a live status change deserves a notification (not for lists loaded on connect).
     public var onAlert: (@MainActor (SessionAlert) -> Void)?
+    /// The hub's own addresses, whenever it reports them.
+    public var onHubAddresses: (@MainActor ([HubAddress]) -> Void)?
 
     private let send: Sender
     private var pendingCreates: Set<String> = []
@@ -636,6 +638,7 @@ public final class SessionStore {
         case .nodeListResult(_, let nodes, let addresses), .nodesUpdated(let nodes, let addresses):
             nodeInfos = nodes
             hubAddresses = addresses
+            onHubAddresses?(addresses)
             // A node coming or going changes which nodes agents can be assigned to.
             if !agentConfigs.isEmpty { Task { await loadAgentConfigs() } }
         case .roleListResult(_, let roles):
