@@ -3,7 +3,7 @@ import Foundation
 /// This build's version. The app, its Info.plist and the server it carries (server/src/version.ts) are
 /// released together under one number; a test keeps the three in step.
 public enum KervanVersion {
-    public static let current = "0.3.10"
+    public static let current = "0.3.11"
 }
 
 /// "0.2.0", "v0.10.1": numbers compared one by one, missing parts counting as 0. Anything after a "-" is ignored.

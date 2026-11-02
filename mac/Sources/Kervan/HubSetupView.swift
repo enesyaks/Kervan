@@ -165,7 +165,8 @@ final class HubInstaller {
         let archive = folder.appendingPathComponent("payload.tgz")
         let tar = Process()
         tar.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
-        tar.arguments = ["-czf", archive.path, "-C", stage.path, "."]
+        // Without the Mac's own file labels, which Linux's tar prints a warning about for every file.
+        tar.arguments = ["--no-mac-metadata", "--no-xattrs", "--no-fflags", "-czf", archive.path, "-C", stage.path, "."]
         tar.environment = ["COPYFILE_DISABLE": "1"]
         try tar.run()
         tar.waitUntilExit()
