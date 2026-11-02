@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomInt, randomUUID } from "node:crypto";
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { KervanError, type WebAccessStatus, type WebDevice } from "./protocol.ts";
+import { KervanError, type ChangeSet, type WebAccessStatus, type WebDevice } from "./protocol.ts";
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O or 1/I to misread
 const CODE_LIFETIME_MS = 10 * 60_000;
@@ -155,4 +155,35 @@ export class AttemptLimiter {
     else this.failures.delete(key);
     return list;
   }
+}
+
+// What a browser may read of a session's work. A phone is easier to lose than the Mac, so files that look like secrets
+// stay with the app. Examples and templates are meant to be shared.
+const SECRET_NAME =
+  /^(\.env(\..+)?|\.netrc|\.npmrc|\.pypirc|\.git-credentials|credentials(\.\w+)?|secrets?\.\w+|id_(rsa|dsa|ecdsa|ed25519)|kubeconfig|.*\.(pem|key|p12|pfx|jks|keystore|tfvars|tfstate)|.*service[-_]?account.*\.json)$/i;
+const SHARED_NAME = /\.(example|sample|template|dist)$/i;
+
+export function looksSecret(path: string): boolean {
+  const name = path.split("/").at(-1) ?? "";
+  return SECRET_NAME.test(name) && !SHARED_NAME.test(name);
+}
+
+/** The changes as a browser gets them: every file listed, but no diff for secrets or for a file it can't name. */
+export function changesForBrowser(changes: ChangeSet): ChangeSet {
+  const hidden = changes.files.filter((file) => looksSecret(file.path)).map((file) => file.path);
+  const patch = changes.patch
+    .split(/^(?=diff --git )/m)
+    .filter((part) => {
+      const paths = [/^\+\+\+ b\/(.+)$/m.exec(part)?.[1], /^--- a\/(.+)$/m.exec(part)?.[1], /^diff --git a\/(.+?) b\//.exec(part)?.[1]].filter(Boolean) as string[];
+      return paths.length > 0 && !paths.some(looksSecret);
+    })
+    .join("");
+  return { ...changes, patch, ...(hidden.length > 0 ? { hiddenPaths: hidden } : {}) };
+}
+
+/** Browsers don't show the file texts carried in tool events, so they don't get them, secrets or not. */
+export function eventForBrowser<T extends object>(event: T): T {
+  if (!("diffs" in event)) return event;
+  const { diffs: _diffs, ...rest } = event as T & { diffs: unknown };
+  return rest as T;
 }

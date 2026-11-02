@@ -196,6 +196,8 @@ export interface ChangeSet {
   truncated: boolean;
   /** The user message whose checkpoint the changes are measured from; missing before the first message. */
   sinceSeq?: number;
+  /** Files whose diff was left out for a browser because they look like secrets; still listed in `files`. */
+  hiddenPaths?: string[];
   /** The folder is a git repository, so the changes can be committed there. */
   repository: boolean;
   branch?: string;

@@ -46,12 +46,22 @@ function cli(agent: AccountAgent): string {
 const quiet = () => ({ ...cleanEnv(), BROWSER: "false", NO_COLOR: "1", TERM: "dumb" });
 const plain = (text: string) => text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "");
 
+// The app opens this address on the user's Mac, so only Anthropic's own sign-in pages count.
+const CLAUDE_LOGIN_HOSTS = new Set(["claude.com", "claude.ai", "console.anthropic.com", "platform.claude.com"]);
+const hostOf = (url: string) => {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "";
+  }
+};
+
 /** The sign-in page and code a CLI printed, once it has printed them. */
 export function loginPromptFrom(agent: AccountAgent, output: string): Omit<AgentLoginStart, "agent"> | undefined {
   const text = plain(output);
   if (agent === "claude") {
     const url = /(https:\/\/\S+\/oauth\/authorize\?\S+)/.exec(text)?.[1];
-    return url ? { url, needsCode: true } : undefined;
+    return url && CLAUDE_LOGIN_HOSTS.has(hostOf(url)) ? { url, needsCode: true } : undefined;
   }
   const url = /(https:\/\/auth\.openai\.com\/\S*device\S*)/.exec(text)?.[1];
   const code = /\b([A-Z0-9]{4}-[A-Z0-9]{4,6})\b/.exec(text)?.[1];

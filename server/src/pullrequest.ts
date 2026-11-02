@@ -22,6 +22,12 @@ export function githubRepoURL(remote: string): string | undefined {
   return match ? `https://github.com/${match[1]}/${match[2]}` : undefined;
 }
 
+/** https, ssh or scp-style: anything else is a path on this machine, or a transport Kervan doesn't use. */
+export function isNetworkRemote(remote: string): boolean {
+  const value = remote.trim();
+  return /^(https|ssh):\/\//i.test(value) || /^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[^/]/.test(value);
+}
+
 /** The remote's default branch as git knows it, else main or master, whichever exists. */
 async function baseBranch(cwd: string): Promise<string> {
   const head = await git(cwd, "symbolic-ref", "--short", "refs/remotes/origin/HEAD").catch(() => "");
@@ -45,6 +51,11 @@ export async function openPullRequest(
   if (current === undefined) throw new KervanError("bad_message", "this folder is not a git repository");
   const remote = await git(cwd, "remote", "get-url", "origin").catch(() => "");
   if (!remote) throw new KervanError("bad_message", "this repository has no 'origin' remote to push to");
+
+  // Pushing to a folder runs that repository's own hooks as this server, and an agent can change where origin points.
+  if (!isNetworkRemote(remote) && !process.env.KERVAN_ALLOW_LOCAL_REMOTES) {
+    throw new KervanError("bad_message", `'origin' points at a folder on this server (${remote}), and Kervan only pushes over the network`);
+  }
 
   const base = await baseBranch(cwd);
   let branch = current;

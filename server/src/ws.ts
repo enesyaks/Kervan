@@ -8,6 +8,7 @@ import { MAX_NODE_FRAME_BYTES, NODE_PATH } from "./node-agent.ts";
 import { NODE_NAME, LOCAL_NODE } from "./nodes.ts";
 import type { SessionManager } from "./sessions.ts";
 import { listeningPorts, pipeTunnel, TUNNEL_PATH } from "./tunnel.ts";
+import { changesForBrowser, eventForBrowser } from "./webaccess.ts";
 import { AttemptLimiter, type WebAccess } from "./webaccess.ts";
 import { GitHubAccess } from "./github.ts";
 import { AgentLogin } from "./agentlogin.ts";
@@ -145,6 +146,7 @@ async function handleRequest(
   sessions: SessionManager,
   ownPorts: () => number[],
   web: WebAccess | undefined,
+  browser: boolean,
 ) {
   const requireWeb = () => {
     if (!web) throw new KervanError("bad_message", "this server has no web client");
@@ -246,13 +248,15 @@ async function handleRequest(
           ...(message.shared ? { shared: true } : {}),
         }),
       });
-    case "session.changes":
+    case "session.changes": {
+      const changes = await sessions.changes(message.sessionId, message.since);
       return send(ws, {
         type: "session.changes.result",
         id: message.id,
         sessionId: message.sessionId,
-        changes: await sessions.changes(message.sessionId, message.since),
+        changes: browser ? changesForBrowser(changes) : changes,
       });
+    }
     case "session.revert":
       await sessions.revert(message.sessionId, message.seq, message.paths);
       return send(ws, { type: "ok", id: message.id });
@@ -325,7 +329,7 @@ async function handleRequest(
         type: "session.history.result",
         id: message.id,
         sessionId: message.sessionId,
-        events: sessions.history(message.sessionId),
+        events: browser ? sessions.history(message.sessionId).map(eventForBrowser) : sessions.history(message.sessionId),
       });
     case "session.prompt":
       sessions.prompt(message.sessionId, message.text, message.attachments);
@@ -442,7 +446,8 @@ function handleConnection(
         greeted = true;
         unsubscribe = sessions.subscribe((event) => {
           if (client.kind === "web" && !WEB_EVENTS.has(event.type)) return;
-          if (ws.readyState === ws.OPEN) send(ws, event);
+          if (ws.readyState !== ws.OPEN) return;
+          send(ws, client.kind === "web" && event.type === "session.event" ? { ...event, event: eventForBrowser(event.event) } : event);
         });
       }
       log("info", "ws hello", { remote, client: message.client });
@@ -467,7 +472,7 @@ function handleConnection(
     }
 
     try {
-      await handleRequest(ws, message, sessions, ownPorts, web);
+      await handleRequest(ws, message, sessions, ownPorts, web, client.kind === "web");
     } catch (error) {
       if (!(error instanceof KervanError)) {
         log("error", "request failed", { type: message.type, error: String(error) });

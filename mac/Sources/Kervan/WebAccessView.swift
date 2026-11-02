@@ -18,8 +18,8 @@ struct WebAccessSection: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(L("Allow web access", "Web erişimine izin ver")).font(.headline)
                     Text(L(
-                        "Use Kervan from a phone or another computer's browser. Paired browsers can follow sessions, send messages, answer approvals, start sessions and read what a session changed, secrets in those files included. Settings, agents, nodes, terminals and undoing changes stay with this app.",
-                        "Kervan'ı telefondan ya da başka bir bilgisayarın tarayıcısından kullanın. Eşleştirilen tarayıcılar oturumları izleyebilir, mesaj gönderebilir, onay verebilir, oturum başlatabilir ve bir oturumun değiştirdiklerini okuyabilir; bu dosyalardaki gizli bilgiler de buna dahildir. Ayarlar, ajanlar, node'lar, terminaller ve değişiklikleri geri alma bu uygulamada kalır."
+                        "Use Kervan from a phone or another computer's browser. Paired browsers can follow sessions, send messages, answer approvals, start sessions and read what a session changed, except files that look like secrets. What an agent prints in the conversation can still show there. Settings, agents, nodes, terminals and undoing changes stay with this app.",
+                        "Kervan'ı telefondan ya da başka bir bilgisayarın tarayıcısından kullanın. Eşleştirilen tarayıcılar oturumları izleyebilir, mesaj gönderebilir, onay verebilir, oturum başlatabilir ve bir oturumun değiştirdiklerini okuyabilir; gizli bilgi içeriyor gibi görünen dosyalar bunun dışındadır. Ajanın konuşmada yazdırdıkları yine de görünebilir. Ayarlar, ajanlar, node'lar, terminaller ve değişiklikleri geri alma bu uygulamada kalır."
                     ))
                     .font(.caption)
                     .foregroundStyle(.secondary)

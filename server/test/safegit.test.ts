@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import { commitAll } from "../src/checkpoints.ts";
-import { openPullRequest } from "../src/pullrequest.ts";
+import { isNetworkRemote, openPullRequest } from "../src/pullrequest.ts";
 import { assertSafeRepository, refusedSetting } from "../src/safegit.ts";
 import { addWorktree } from "../src/worktree.ts";
 
@@ -79,7 +79,9 @@ describe("planted commands in a session's repository", () => {
     for (const name of ["pre-push", "post-commit", "post-checkout", "reference-transaction"]) plantHook(dir, name, marker);
     writeFileSync(join(dir, "a.txt"), "two\n");
     rmSync(marker, { force: true });
-    const result = await openPullRequest(dir, { title: "Change", body: "b", sessionId: "abcd1234" });
+    await assert.rejects(openPullRequest(dir, { title: "Change", body: "b", sessionId: "abcd1234" }), /only pushes over the network/);
+    process.env.KERVAN_ALLOW_LOCAL_REMOTES = "1"; // to see the hooks stay quiet on a real push
+    const result = await openPullRequest(dir, { title: "Change", body: "b", sessionId: "abcd1234" }).finally(() => delete process.env.KERVAN_ALLOW_LOCAL_REMOTES);
     assert.match(result.branch, /^kervan\//);
     assert.ok(git(origin, "branch", "--list", result.branch).includes(result.branch), "it was pushed");
     assert.ok(!existsSync(marker), "a hook ran");
@@ -93,6 +95,13 @@ describe("planted commands in a session's repository", () => {
     writeFileSync(join(dir, "a.txt"), "two\n");
     await commitAll(dir, "with husky");
     assert.ok(!existsSync(marker));
+  });
+});
+
+describe("where Kervan pushes", () => {
+  it("takes network remotes and nothing else", () => {
+    for (const remote of ["https://github.com/a/b.git", "git@github.com:a/b.git", "ssh://git@github.com/a/b"]) assert.ok(isNetworkRemote(remote), remote);
+    for (const remote of ["/srv/x.git", "../x.git", "file:///srv/x.git", "ext::sh -c evil", "./x", "git://host/x"]) assert.ok(!isNetworkRemote(remote), remote);
   });
 });
 

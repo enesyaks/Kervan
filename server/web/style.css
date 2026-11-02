@@ -643,6 +643,7 @@ dialog.sheet:not([open]) { display: none; }
 }
 .sheet-body .summary { margin: 0 4px 12px; color: var(--muted); font-size: 14px; }
 .sheet-body .note { margin: 14px 4px 0; color: var(--muted); font-size: 13px; }
+details.file .note { margin: 0; padding: 10px 12px; border-top: 1px solid var(--line); }
 .plus { color: var(--oasis); font-variant-numeric: tabular-nums; }
 .minus { color: var(--coral); font-variant-numeric: tabular-nums; }
 details.file { background: var(--surface); border-radius: var(--r-chip); box-shadow: var(--shadow); margin-bottom: 8px; overflow: hidden; }

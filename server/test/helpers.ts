@@ -21,6 +21,8 @@ import { ProjectRegistry } from "../src/projects.ts";
 import { Scheduler } from "../src/schedules.ts";
 
 export const TEST_TOKEN = "test-token-0123456789";
+// The tests push to a bare repository in a temp folder; the server otherwise only pushes over the network.
+process.env.KERVAN_ALLOW_LOCAL_REMOTES = "1";
 
 export const fakeAgent = { name: "Fake", command: process.execPath, args: [join(import.meta.dirname, "fixtures/fake-agent.ts")] };
 

@@ -1145,7 +1145,9 @@ async function openChanges(sessionId) {
           h("span", { class: "path" }, file.path),
           status[file.status] ? h("span", { class: "badge" }, status[file.status]) : null,
           h("span", { class: "counts" }, h("span", { class: "plus" }, `+${file.additions}`), " ", h("span", { class: "minus" }, `−${file.deletions}`))),
-        parts.has(file.path) ? diffView(parts.get(file.path)) : h("p", { class: "empty" }, L("No text diff for this file.", "Bu dosya için metin farkı yok."))),
+        changes.hiddenPaths?.includes(file.path)
+          ? h("p", { class: "note" }, L("This looks like a secrets file, so it's only shown in the Kervan app.", "Bu dosya gizli bilgi içeriyor gibi görünüyor, bu yüzden yalnızca Kervan uygulamasında gösterilir."))
+          : parts.has(file.path) ? diffView(parts.get(file.path)) : h("p", { class: "empty" }, L("No text diff for this file.", "Bu dosya için metin farkı yok."))),
       ),
       changes.truncated ? h("p", { class: "note" }, L("The diff was cut short; open it in the Kervan app for the rest.", "Fark kısaltıldı; tamamı için Kervan uygulamasında açın.")) : null,
       h("p", { class: "note" }, L("Undoing, committing and pull requests are in the Kervan app.", "Geri alma, commit ve pull request Kervan uygulamasında.")),

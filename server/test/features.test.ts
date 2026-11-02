@@ -13,6 +13,7 @@ import { redact } from "../src/diagnostics.ts";
 import { githubRepoURL, openPullRequest } from "../src/pullrequest.ts";
 import { accountFrom, deviceCodeFrom, GitHubAccess } from "../src/github.ts";
 import { AgentLogin, loginPromptFrom } from "../src/agentlogin.ts";
+import { changesForBrowser, eventForBrowser, looksSecret } from "../src/webaccess.ts";
 import { Board } from "../src/board.ts";
 import { WebAccess as WebAccessStore, type WebAccess } from "../src/webaccess.ts";
 import { log } from "../src/log.ts";
@@ -755,6 +756,36 @@ esac
   });
 });
 
+describe("what a browser may read of a session's work", () => {
+  it("knows what looks like a secret", () => {
+    for (const path of [".env", ".env.production", "config/.env.local", "id_rsa", "deploy/server.pem", "tls.key", "credentials.json", "secrets.yaml", ".npmrc", "gcp-service-account.json"]) {
+      assert.ok(looksSecret(path), path);
+    }
+    for (const path of [".env.example", ".env.sample", "src/keys.ts", "README.md", "environment.ts", "monkey.txt"]) assert.ok(!looksSecret(path), path);
+  });
+
+  it("lists a secret file but leaves out its diff", () => {
+    const part = (path: string, text: string) => `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -0,0 +1 @@\n+${text}\n`;
+    const changes = changesForBrowser({
+      files: [{ path: ".env", status: "added", additions: 1, deletions: 0 }, { path: "app.js", status: "added", additions: 1, deletions: 0 }],
+      patch: part(".env", "API_KEY=SENTINEL") + part("app.js", "hello") + 'diff --git "a/caf\\303\\251" "b/caf\\303\\251"\nBinary files differ\n',
+      truncated: false,
+      repository: true,
+    });
+    assert.deepEqual(changes.hiddenPaths, [".env"]);
+    assert.equal(changes.files.length, 2, "both still listed");
+    assert.ok(!changes.patch.includes("SENTINEL"));
+    assert.ok(changes.patch.includes("hello"));
+    assert.ok(!changes.patch.includes("Binary files"), "a part it can't name is left out");
+  });
+
+  it("takes file texts out of tool events", () => {
+    const event = { seq: 1, at: "", kind: "tool_call", toolCallId: "t", title: "Write .env", toolKind: "edit", status: "done", diffs: [{ path: ".env", newText: "SENTINEL" }] };
+    assert.ok(!JSON.stringify(eventForBrowser(event)).includes("SENTINEL"));
+    assert.equal((eventForBrowser(event) as { title: string }).title, "Write .env");
+  });
+});
+
 describe("agent account sign-in", () => {
   it("reads the sign-in page from Claude's output, and the page and code from Codex's", () => {
     assert.deepEqual(
@@ -766,6 +797,8 @@ describe("agent account sign-in", () => {
       { url: "https://auth.openai.com/codex/device", code: "V5I6-7FSR3", needsCode: false },
     );
     assert.equal(loginPromptFrom("claude", "Opening browser to sign in…"), undefined);
+    assert.equal(loginPromptFrom("claude", "visit: https://evil.example/oauth/authorize?code=true"), undefined, "only Anthropic's own pages");
+    assert.equal(loginPromptFrom("claude", "visit: https://claude.com.evil.example/oauth/authorize?code=true"), undefined);
   });
 
   it("passes Claude the code from the page, and waits for Codex's device sign-in", async () => {
