@@ -1,0 +1,27 @@
+#!/bin/bash
+# Starts a program as the agent user, away from the server's secrets (docs/plans/agent-isolation.md). The server runs it:
+#   sudo -n -u kervan-agent /opt/kervan/server/bin/run-agent <program> <args…>
+# sudo drops the server's environment. What the program should get comes first on stdin, not in its arguments, where
+# `ps` would show it: a count, then one NAME=<base64 value> line each. The rest of stdin is the program's own.
+set -euo pipefail
+
+IFS= read -r count
+[[ "$count" =~ ^[0-9]+$ ]] || { echo "run-agent: bad environment header" >&2; exit 64; }
+for ((i = 0; i < count; i++)); do
+  IFS= read -r line
+  name="${line%%=*}"
+  [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || { echo "run-agent: bad variable name" >&2; exit 64; }
+  value="$(printf %s "${line#*=}" | base64 -d)"
+  export "$name=$value"
+done
+
+# Who it runs as, whatever was passed in.
+user="$(id -un)"
+export USER="$user" LOGNAME="$user"
+HOME="$(getent passwd "$user" | cut -d: -f6)"
+export HOME
+
+# Files it makes stay readable by the server, through the workspaces' group.
+umask 002
+# The server has to be allowed to use sudo; the agent doesn't.
+exec setpriv --no-new-privs -- "$@"

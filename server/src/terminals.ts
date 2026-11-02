@@ -1,5 +1,6 @@
 import { cleanEnv } from "./agentenv.ts";
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawnAgent } from "./agentuser.ts";
+import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { stripAnsi } from "./pty.ts";
 import { KervanError } from "./protocol.ts";
@@ -32,10 +33,9 @@ export class TerminalHub {
   open(sessionId: string, cwd: string): { terminalId: string; backlog: string } {
     const running = [...this.terminals.values()].find((t) => t.sessionId === sessionId);
     if (running) return { terminalId: running.id, backlog: running.backlog };
-    const child = spawn("python3", ["-c", PTY_HELPER, "bash", "--noprofile", "--norc", "-i"], {
+    const child = spawnAgent("python3", ["-c", PTY_HELPER, "bash", "--noprofile", "--norc", "-i"], {
       cwd,
       env: { ...cleanEnv(), TERM: "dumb", NO_COLOR: "1", BASH_SILENCE_DEPRECATION_WARNING: "1", PS1: "\\w $ ", COLUMNS: "120", LINES: "40", PAGER: "cat", GIT_PAGER: "cat" },
-      stdio: ["pipe", "pipe", "pipe"],
     });
     const terminal: Terminal = { id: randomUUID(), sessionId, child, backlog: "" };
     const output = (chunk: Buffer) => {

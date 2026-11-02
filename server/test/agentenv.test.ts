@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { agentEnv, cleanEnv } from "../src/agentenv.ts";
+import { envPrelude } from "../src/agentuser.ts";
 import { parseAgents } from "../src/agents.ts";
 import { HELLO, Inbox, openSocket, opened, send, startServer, TEST_TOKEN } from "./helpers.ts";
 
@@ -34,6 +35,13 @@ describe("what an agent sees of the server's environment", () => {
     const [agent] = parseAgents("agents:\n  mine: { command: mine, inheritEnv: [AWS_*, MY_KEY] }\n", "test");
     assert.deepEqual(agent.inheritEnv, ["AWS_*", "MY_KEY"]);
     assert.throws(() => parseAgents("agents:\n  mine: { command: mine, inheritEnv: ['A B'] }\n", "test"), /inheritEnv/);
+  });
+});
+
+describe("handing the environment to bin/run-agent", () => {
+  it("writes a count and base64 values, so nothing can break a line or reach ps", () => {
+    const prelude = envPrelude({ A: "one two", B: "line\nbreak", "not-a-name": "x", GONE: undefined });
+    assert.equal(prelude, `2\nA=${Buffer.from("one two").toString("base64")}\nB=${Buffer.from("line\nbreak").toString("base64")}\n`);
   });
 });
 

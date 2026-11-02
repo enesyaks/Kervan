@@ -54,7 +54,7 @@ export class AgentCatalog {
   private readonly file: string;
   /** Where agents installed from the app live: tools/ beside agents.json, in the data folder. */
   get toolsDir(): string {
-    return join(dirname(this.file), "tools");
+    return process.env.KERVAN_TOOLS_DIR || join(dirname(this.file), "tools");
   }
   private readonly base: AgentRegistry;
   private readonly probe: (definition: AgentDefinition) => Promise<void>;

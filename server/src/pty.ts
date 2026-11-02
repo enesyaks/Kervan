@@ -1,5 +1,5 @@
 import { agentEnv } from "./agentenv.ts";
-import { spawn } from "node:child_process";
+import { spawnAgent } from "./agentuser.ts";
 import { randomUUID } from "node:crypto";
 import type { AgentProcess, StartOptions } from "./runner.ts";
 
@@ -34,10 +34,9 @@ function underTerminal(command: string, args: string[]): [string, string[]] {
  */
 export async function startPty({ command, cwd, onEvent }: StartOptions): Promise<AgentProcess> {
   const [program, args] = underTerminal(command.command, command.args);
-  const child = spawn(program, args, {
+  const child = spawnAgent(program, args, {
     cwd,
     env: { ...agentEnv(command), TERM: "dumb", NO_COLOR: "1", COLUMNS: "120", LINES: "40" },
-    stdio: ["pipe", "pipe", "pipe"],
   });
   const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
   const quietMs = command.quietMs ?? DEFAULT_QUIET_MS;

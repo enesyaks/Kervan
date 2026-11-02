@@ -1,14 +1,13 @@
-import { spawn } from "node:child_process";
 import { startPty } from "./pty.ts";
-import { mkdtempSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { basename, extname, isAbsolute, join, relative, sep } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { pathToFileURL } from "node:url";
 import * as acp from "@agentclientprotocol/sdk";
 import type { AgentCommand } from "./agents.ts";
 import { agentEnv } from "./agentenv.ts";
+import { probeFolder, spawnAgent } from "./agentuser.ts";
 import { log } from "./log.ts";
 import type { ConfigOption, FileDiff, PermissionChoice, SessionEventBody } from "./protocol.ts";
 
@@ -69,7 +68,7 @@ export interface AgentRunner {
  * proof that an agent added from the app actually works here.
  */
 export async function probeAgent(runner: AgentRunner, command: AgentCommand, timeoutMs = 30_000): Promise<void> {
-  const cwd = mkdtempSync(join(tmpdir(), "kervan-probe-"));
+  const cwd = probeFolder();
   let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error(`no answer within ${timeoutMs / 1000} s`)), timeoutMs);
@@ -81,7 +80,12 @@ export async function probeAgent(runner: AgentRunner, command: AgentCommand, tim
   } finally {
     clearTimeout(timer);
     started.then((agent) => agent.close()).catch(() => {});
-    rmSync(cwd, { recursive: true, force: true });
+    // An agent may leave something only it can remove; a stray scratch folder is no reason to fail.
+    try {
+      rmSync(cwd, { recursive: true, force: true });
+    } catch (error) {
+      log("warn", "couldn't remove a trial folder", { cwd, error: String(error) });
+    }
   }
 }
 
@@ -90,11 +94,7 @@ export class LocalAcpRunner implements AgentRunner {
   async start(options: StartOptions): Promise<AgentProcess> {
     if (options.command.protocol === "pty") return startPty(options);
     const { command, cwd, onEvent, onPermission, resumeSessionId, mcpServers, onUsage, onConfig } = options;
-    const child = spawn(command.command, command.args, {
-      cwd,
-      env: agentEnv(command),
-      stdio: ["pipe", "pipe", "pipe"],
-    });
+    const child = spawnAgent(command.command, command.args, { cwd, env: agentEnv(command) });
     child.stderr.on("data", (chunk: Buffer) => log("debug", "agent stderr", { text: chunk.toString().slice(0, 500) }));
 
     const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));

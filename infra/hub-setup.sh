@@ -86,6 +86,59 @@ fi
 ufw --force enable >/dev/null
 fi
 
+# Agents run as their own user, so what they run can't read the keys in /etc/kervan and /var/lib/kervan. Done on every run:
+# hubs set up before this move here through Server update. Safe to run again. See docs/plans/agent-isolation.md.
+echo "Kervan: separating agents from the server."
+AGENT=kervan-agent
+WORK=kervan-work
+systemctl stop kervan 2>/dev/null || true
+id "$AGENT" >/dev/null 2>&1 || useradd --create-home --shell /bin/bash "$AGENT"
+groupadd -f "$WORK"
+usermod -aG "$WORK" kervan
+usermod -aG "$WORK" "$AGENT"
+chmod 750 /home/kervan "/home/$AGENT"
+apt-get install -y -qq util-linux sudo >/dev/null
+
+# Their sign-ins move with them; gh's stays with the server, which is what pushes.
+for item in .claude .claude.json .codex .gemini; do
+  if [[ -e "/home/kervan/$item" && ! -e "/home/$AGENT/$item" ]]; then
+    mv "/home/kervan/$item" "/home/$AGENT/$item"
+    chown -R "$AGENT:$AGENT" "/home/$AGENT/$item"
+  fi
+done
+for key in user.name user.email; do
+  value="$(sudo -u kervan git config --global "$key" 2>/dev/null || true)"
+  [[ -z "$value" ]] || sudo -u "$AGENT" git config --global "$key" "$value"
+done
+# The server makes some folders here itself (project clones), so they aren't all the agent user's.
+sudo -u "$AGENT" git config --global --replace-all safe.directory '*'
+
+install -d -m 2775 -o "$AGENT" -g "$WORK" /srv/kervan
+for folder in workspaces checkpoints tools run; do install -d -m 2770 -o "$AGENT" -g "$WORK" "/srv/kervan/$folder"; done
+for folder in checkpoints tools; do
+  if [[ -d "/var/lib/kervan/$folder" ]]; then
+    cp -a "/var/lib/kervan/$folder/." "/srv/kervan/$folder/"
+    rm -rf "/var/lib/kervan/$folder"
+  fi
+done
+if [[ -f /var/lib/kervan/agents.json ]]; then sed -i 's#/var/lib/kervan/tools/#/srv/kervan/tools/#g' /var/lib/kervan/agents.json; fi
+chown -R "$AGENT:$WORK" /srv/kervan
+chmod -R g+rwX /srv/kervan
+find /srv/kervan -type d -exec chmod g+s {} +
+
+chmod 755 /opt/kervan/server/bin/run-agent
+cat > /etc/sudoers.d/kervan-agent <<SUDOERS
+Defaults!/opt/kervan/server/bin/run-agent !use_pty, !lecture
+kervan ALL=($AGENT) NOPASSWD: /opt/kervan/server/bin/run-agent
+SUDOERS
+chmod 440 /etc/sudoers.d/kervan-agent
+visudo -cf /etc/sudoers.d/kervan-agent >/dev/null
+
+# Last, so a setup stopped earlier leaves the server starting agents as before.
+for line in "KERVAN_AGENT_USER=$AGENT" KERVAN_CHECKPOINTS_DIR=/srv/kervan/checkpoints KERVAN_TOOLS_DIR=/srv/kervan/tools KERVAN_RUN_DIR=/srv/kervan/run; do
+  grep -qxF "$line" /etc/kervan/env || echo "$line" >> /etc/kervan/env
+done
+
 echo "==> service"
 install -m 644 "$HERE/kervan.service" /etc/systemd/system/kervan.service
 systemctl daemon-reload

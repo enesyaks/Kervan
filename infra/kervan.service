@@ -13,11 +13,14 @@ ExecStart=/usr/bin/node src/main.ts
 Restart=on-failure
 RestartSec=2
 TimeoutStopSec=10
-# Hardening. /home/kervan stays writable because agent CLIs keep their login state there.
-NoNewPrivileges=true
+# Files the server makes in the workspaces stay usable by the agent user, through their group.
+UMask=0002
+# Hardening. Agents run as kervan-agent through sudo (bin/run-agent), so NoNewPrivileges can't be set here; run-agent sets it
+# for them. The homes stay writable because gh and the agent CLIs keep their sign-ins there.
 PrivateTmp=true
 ProtectSystem=strict
-ReadWritePaths=/var/lib/kervan /srv/kervan /home/kervan
+RestrictSUIDSGID=true
+ReadWritePaths=/var/lib/kervan /srv/kervan /home/kervan /home/kervan-agent
 
 [Install]
 WantedBy=multi-user.target

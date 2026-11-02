@@ -4,7 +4,8 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { isSafeRelativePath } from "./files.ts";
-import { gitEnv, workspaceGit } from "./safegit.ts";
+import { agentUser, runAsAgent } from "./agentuser.ts";
+import { agentGitEnv, gitEnv, workspaceGit } from "./safegit.ts";
 import type { ChangeSet, ChangedFile } from "./protocol.ts";
 
 const run = promisify(execFile);
@@ -107,17 +108,18 @@ export class Checkpoints {
   private async ensure(sessionId: string, cwd: string): Promise<void> {
     const dir = this.gitDir(sessionId);
     if (existsSync(join(dir, "HEAD"))) return;
-    await mkdir(dir, { recursive: true, mode: 0o700 });
-    await run("git", ["--git-dir", dir, "init", "-q"], { env: gitEnv() });
+    await mkdir(dir, { recursive: true, mode: agentUser() ? 0o770 : 0o700 });
+    if (agentUser()) await runAsAgent("git", ["--git-dir", dir, "init", "-q"], { env: agentGitEnv() });
+    else await run("git", ["--git-dir", dir, "init", "-q"], { env: gitEnv() });
     await mkdir(join(dir, "info"), { recursive: true });
     await writeFile(join(dir, "info", "exclude"), `${EXCLUDES.join("\n")}\n`);
   }
 
   private async git(sessionId: string, cwd: string, ...args: string[]): Promise<string> {
-    const { stdout } = await run("git", ["--git-dir", this.gitDir(sessionId), "--work-tree", cwd, ...IDENTITY, ...args], {
-      env: gitEnv(),
-      maxBuffer: 64 * 1024 * 1024,
-    });
+    const command = ["--git-dir", this.gitDir(sessionId), "--work-tree", cwd, ...IDENTITY, ...args];
+    const { stdout } = agentUser()
+      ? await runAsAgent("git", command, { env: agentGitEnv(), maxBuffer: 64 * 1024 * 1024 })
+      : await run("git", command, { env: gitEnv(), maxBuffer: 64 * 1024 * 1024 });
     return stdout;
   }
 

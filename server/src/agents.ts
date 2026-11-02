@@ -3,6 +3,7 @@ import { homedir, platform } from "node:os";
 import { delimiter, dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
+import { agentHasFile, agentUser } from "./agentuser.ts";
 import { isSafeRelativePath } from "./files.ts";
 import { log } from "./log.ts";
 
@@ -65,7 +66,9 @@ export function isSignedIn(
   const credentials = CREDENTIALS[id];
   if (!credentials) return undefined;
   if (credentials.env.some((name) => (env[name] ?? serverEnv[name] ?? "").trim() !== "")) return true;
-  if (credentials.files.some((file) => existsSync(join(home, file)))) return true;
+  // The agents' logins are in the agent user's home where there is one, which only that user can look into.
+  const saved = (file: string) => (agentUser() && home === homedir() ? agentHasFile(file) : existsSync(join(home, file)));
+  if (credentials.files.some(saved)) return true;
   // On a Mac the agents keep their login in the Keychain, which can't be checked from here: unknown, not "no".
   return os === "darwin" ? undefined : false;
 }

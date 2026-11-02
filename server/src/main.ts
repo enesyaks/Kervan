@@ -46,7 +46,7 @@ const roles = new RoleRegistry(join(config.dataDir, "roles.json"), {
 const projects = new ProjectRegistry(join(config.dataDir, "projects.json"), join(config.workspacesDir, "projects"));
 sessions = new SessionManager(runner, catalog.live, config.workspacesDir, store, {
   projects,
-  checkpoints: new Checkpoints(resolve(config.dataDir, "checkpoints")),
+  checkpoints: new Checkpoints(process.env.KERVAN_CHECKPOINTS_DIR || resolve(config.dataDir, "checkpoints")),
   nodes,
   skills,
   mcp,
@@ -59,7 +59,7 @@ sessions = new SessionManager(runner, catalog.live, config.workspacesDir, store,
   },
 });
 // Absolute: lead agents' MCP bridges run in their own working folders.
-const orchestra = new OrchestraHub(orchestraSocketPath(resolve(config.dataDir, "orchestra.sock")), sessions);
+const orchestra = new OrchestraHub(orchestraSocketPath(resolve(process.env.KERVAN_RUN_DIR || config.dataDir, "orchestra.sock")), sessions);
 await orchestra.listen();
 sessions.useOrchestra(orchestra);
 const scheduler = new Scheduler(join(config.dataDir, "schedules.json"), {

@@ -1,9 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
-import { rmSync } from "node:fs";
+import { chmodSync, rmSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type * as acp from "@agentclientprotocol/sdk";
+import { agentUser } from "./agentuser.ts";
 import { log } from "./log.ts";
 import { KervanError } from "./protocol.ts";
 import type { HelperSummary, SessionManager } from "./sessions.ts";
@@ -151,7 +152,11 @@ export class OrchestraHub {
     rmSync(this.socketPath, { force: true }); // left over from a server that didn't shut down cleanly
     return new Promise((resolve, reject) => {
       this.server.once("error", reject);
-      this.server.listen({ path: this.socketPath, readableAll: false, writableAll: false }, () => resolve());
+      this.server.listen({ path: this.socketPath, readableAll: false, writableAll: false }, () => {
+        // A separate agent user reaches it through the shared group; the token still says who is calling.
+        if (agentUser()) chmodSync(this.socketPath, 0o660);
+        resolve();
+      });
     });
   }
 

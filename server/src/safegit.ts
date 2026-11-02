@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { cleanEnv } from "./agentenv.ts";
+import { agentUser, runAsAgent } from "./agentuser.ts";
 import { KervanError } from "./protocol.ts";
 
 const run = promisify(execFile);
@@ -53,6 +54,20 @@ export function gitEnv(): NodeJS.ProcessEnv {
   const env = cleanEnv(["GH_*", "GITHUB_*"]);
   env.GIT_TERMINAL_PROMPT = "0"; // never wait on a password prompt: the server has no one to type it
   env.GH_PROMPT_DISABLED = "1";
+  // With a separate agent user the folder isn't this user's, which git refuses unless told; the checks here stand instead.
+  const overrides = agentUser() ? [...OVERRIDES, ["safe.directory", "*"] as [string, string]] : OVERRIDES;
+  env.GIT_CONFIG_COUNT = String(overrides.length);
+  overrides.forEach(([key, value], index) => {
+    env[`GIT_CONFIG_KEY_${index}`] = key;
+    env[`GIT_CONFIG_VALUE_${index}`] = value;
+  });
+  return env;
+}
+
+/** The same for git run as the agent user: it has no business with GitHub's sign-in. */
+export function agentGitEnv(): NodeJS.ProcessEnv {
+  const env = cleanEnv();
+  env.GIT_TERMINAL_PROMPT = "0";
   env.GIT_CONFIG_COUNT = String(OVERRIDES.length);
   OVERRIDES.forEach(([key, value], index) => {
     env[`GIT_CONFIG_KEY_${index}`] = key;
@@ -97,7 +112,12 @@ export async function workspaceGit(
   options: { config?: string[]; timeout?: number; maxBuffer?: number } = {},
 ): Promise<{ stdout: string; stderr: string }> {
   if (RUNS_SETTINGS.has(args[0])) await assertSafeRepository(cwd);
-  return run("git", ["-C", cwd, ...(options.config ?? []), ...args], {
+  const command = ["-C", cwd, ...(options.config ?? []), ...args];
+  // As the agent user, so nothing it planted runs as the server; a push needs the server's sign-in, and the checks above.
+  if (agentUser() && args[0] !== "push") {
+    return runAsAgent("git", command, { env: agentGitEnv(), ...(options.timeout ? { timeout: options.timeout } : {}), maxBuffer: options.maxBuffer ?? 16 * 1024 * 1024 });
+  }
+  return run("git", command, {
     env: gitEnv(),
     maxBuffer: options.maxBuffer ?? 16 * 1024 * 1024,
     ...(options.timeout ? { timeout: options.timeout } : {}),

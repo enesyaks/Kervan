@@ -1,7 +1,6 @@
 # Running agents apart from the server
 
-Status: steps 1 and 2 are built; the separate user (steps 3 to 6) is proposed. Comes from a security review; the problem
-below was reproduced on a local server.
+Status: built on hubs, step 6 (nodes) open. Comes from a security review; the problem below was reproduced on a local server.
 
 ## The problem
 
@@ -50,8 +49,7 @@ wrapper, only as `kervan-agent`.
 **Files.**
 - `/srv/kervan/workspaces`: owned by `kervan-agent`, group `kervan`, setgid, so the server can read diffs and uploads.
 - Agent logins move to `/home/kervan-agent`. `agentlogin.ts` runs through the wrapper.
-- Catalog agents move from `/var/lib/kervan/tools` to `/opt/kervan/agents`: owned by `kervan`, readable by the agent, so
-  an agent can't replace a program that later runs for other sessions.
+- Catalog agents move from `/var/lib/kervan/tools` to `/srv/kervan/tools`, and checkpoints to `/srv/kervan/checkpoints`.
 - The orchestra socket becomes `660` with group `kervan-agent`; its per-session token still says who is calling.
 - `gh`'s sign-in stays with `kervan`. **Agents can no longer push or open pull requests with it themselves**; the app's
   pull request button still can. This is a behaviour change to call out in the release notes.
@@ -68,25 +66,25 @@ as today, with the cleaned environment. The app says agents aren't separated on 
 
 ## Steps
 
-Each can ship alone; 1 and 2 are worthwhile even if the rest slips.
-
-1. **Clean environment. Done** (`agentenv.ts`). Allowed list in `runner.ts`, `pty.ts`, `terminals.ts`, and for npm in
-   `agentregistry.ts`. Takes the key out of `env`; the files stay readable until step 4. An agent that needs a variable
-   names it with `inheritEnv` in `agents.yaml`.
+1. **Clean environment. Done** (`agentenv.ts`). An agent that needs a variable names it with `inheritEnv` in `agents.yaml`.
 2. **Git helper. Done** (`safegit.ts`). Hooks, fsmonitor and signing are overridden through `GIT_CONFIG_*`, so gh's git is
    covered too. What can't be overridden (`filter.*`, `diff.*.command`, `url.*`, `credential.*`, …) makes Kervan refuse to
-   run git in that repository, Git LFS's own filter excepted. **Still open for step 4:** pushing to a remote that is a
-   local path runs that repository's server-side hooks as `kervan`, and an agent can set `remote.origin.url`. The tests use
-   such a remote, so refusing it needs a decision; after the split it must be limited.
-3. **Spike on the VM, nothing merged.** Run real Claude Code through sudo and the wrapper. Must hold: stdio and ACP work,
-   stopping a turn kills the whole process tree, PTY agents work, `NoNewPrivileges` is really back on for the agent.
-   If any fails, switch to the launcher service.
-4. **Server side**, behind `KERVAN_AGENT_USER`.
-5. **Setup and migration** in `hub-setup.sh`, in every mode including `update`, so existing hubs move through the app's
-   Server update: create the user, the wrapper and sudoers line (checked with `visudo -cf`), `chown` workspaces, move
-   `~/.claude` and `~/.codex`, move `tools/`, rewrite absolute command paths in `agents.json`. Must be safe to run twice.
-   If it stops midway, `KERVAN_AGENT_USER` stays unset and the server keeps working as before.
-6. **Nodes.** `kervan-node` gets the same split, or the app states clearly that it isn't separated yet.
+   run git in that repository, Git LFS's own filter excepted. Kervan also refuses to push to a folder on the server, since
+   that runs that repository's hooks as `kervan`.
+3. **Spike. Done**, in an Ubuntu 24.04 container with systemd. sudo works under `ProtectSystem=strict`; its real user stays
+   `kervan`, so a plain SIGTERM reaches it and it passes it on; PTY agents work.
+4. **Server side. Done** (`agentuser.ts`), active when `KERVAN_AGENT_USER` is set.
+5. **Setup and migration. Done** in `hub-setup.sh`, in every mode. Tried by installing the previous version and updating.
+6. **Nodes. Not done.** `kervan-node` still runs agents as one user, with the clean environment. The node has only its own
+   token to protect, which can't drive the app's API.
+
+Two things came out differently from the first draft of this plan:
+
+- **Workspace git runs as the agent user**, not as the server with safeguards: nothing the agent planted can then run as
+  the server. Only `git push` and `gh` run as `kervan`, because they need its sign-in, and they stay behind `safegit.ts`.
+- **Catalog agents live in `/srv/kervan/tools`, writable by the agent user**, not in a folder it can only read, because npm's
+  install scripts must not run as the server. An agent can therefore change a program other sessions use. All sessions
+  share one user anyway; see below.
 
 ## Acceptance
 
@@ -94,7 +92,7 @@ Through the real entry points, on a VM under systemd, as an agent's own command:
 
 - `$KERVAN_TOKEN` is empty, and another agent's API key isn't in the environment.
 - Reading `/etc/kervan/env` and `/var/lib/kervan/agents.json` fails with permission denied.
-- `sudo` and writing to `/opt/kervan/agents` fail.
+- `sudo` and writing to the server's code fail.
 - A hook and an fsmonitor planted by the agent don't run when the app commits or opens a pull request.
 - Still working: Claude and Codex sign-in, approvals, changes, undo, commit, PR, review, worktrees, helpers, terminals,
   uploads, catalog installs. An existing hub upgraded with Server update keeps its sessions and logins.
@@ -106,9 +104,4 @@ Through the real entry points, on a VM under systemd, as an agent's own command:
 - **Network.** An agent can still reach the internet and Kervan's own port; it just has no key for it. Exfiltrating the
   code it can read remains possible.
 - **Approved commands** still do what they do inside what `kervan-agent` can reach.
-
-## Decisions for the owner
-
-1. Is losing `gh` for agents acceptable? Recommended: yes. Agents that need to push could be given their own, narrower
-   credential later.
-2. Dropping `NoNewPrivileges` on the server, for a far stronger line around agents. Recommended: yes, if the spike holds.
+- **A file an agent makes readable only by itself** (`chmod 600`) can't be downloaded or copied for a review by the server.

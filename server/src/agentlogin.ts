@@ -1,9 +1,10 @@
-import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { execFile, type ChildProcess } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { cleanEnv } from "./agentenv.ts";
+import { agentUser, runAsAgent, spawnAgent } from "./agentuser.ts";
 import { KervanError } from "./protocol.ts";
 
 const run = promisify(execFile);
@@ -87,7 +88,7 @@ export class AgentLogin {
     if (!isAccountAgent(agent)) throw new KervanError("bad_message", `${agent} can't sign in with an account; give it a key`);
     this.cancel(agent);
     const args = agent === "claude" ? ["auth", "login", "--claudeai"] : ["login", "--device-auth"];
-    const child = spawn(cli(agent), args, { env: quiet(), stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawnAgent(cli(agent), args, { env: quiet() });
     this.running.set(agent, child);
     let output = "";
     return new Promise((resolve, reject) => {
@@ -152,7 +153,8 @@ export class AgentLogin {
     if (!isAccountAgent(agent)) throw new KervanError("bad_message", `${agent} has no account sign-in`);
     this.cancel(agent);
     const args = agent === "claude" ? ["auth", "logout"] : ["logout"];
-    await run(cli(agent), args, { env: quiet(), timeout: 20_000 }).catch((error: { stderr?: string }) => {
+    const options = { env: quiet(), timeout: 20_000 };
+    await (agentUser() ? runAsAgent(cli(agent), args, options) : run(cli(agent), args, options)).catch((error: { stderr?: string }) => {
       throw new KervanError("bad_message", `signing out failed: ${error.stderr?.trim() || String(error)}`);
     });
   }

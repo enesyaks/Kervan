@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { basename, delimiter, dirname, join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import { cleanEnv } from "./agentenv.ts";
+import { agentUser, runAsAgent } from "./agentuser.ts";
 import { log } from "./log.ts";
 import { KervanError } from "./protocol.ts";
 
@@ -328,11 +329,10 @@ export class AcpRegistry {
     if (npx && how === "npm") {
       rmSync(folder, { recursive: true, force: true });
       mkdirSync(folder, { recursive: true });
-      await run("npm", ["install", "--prefix", folder, "--no-audit", "--no-fund", "--loglevel=error", npx.package], {
-        // A package's install scripts run here, so they get no more than an agent would.
-        env: cleanEnv(["npm_config_*", "NPM_*"]),
-        timeout: 10 * 60_000,
-      }).catch(
+      const npmArgs = ["install", "--prefix", folder, "--no-audit", "--no-fund", "--loglevel=error", npx.package];
+      // A package's install scripts run here, so they run as an agent would, and see no more.
+      const npmOptions = { env: cleanEnv(["npm_config_*", "NPM_*"]), timeout: 10 * 60_000 };
+      await (agentUser() ? runAsAgent("npm", npmArgs, npmOptions) : run("npm", npmArgs, npmOptions)).catch(
         (error: { stderr?: string }) => {
           throw new KervanError("bad_message", `npm couldn't install ${npx.package}: ${error.stderr?.trim().split("\n").pop() || String(error)}`);
         },
