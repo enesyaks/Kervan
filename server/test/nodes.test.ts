@@ -141,6 +141,16 @@ describe("agents on another node", () => {
 });
 
 describe("hub addresses offered to new nodes", () => {
+  it("notices when an address appears, as when Tailscale signs in after Kervan started", async () => {
+    const { NodeHub } = await import("../src/nodes.ts");
+    const entry = (address: string, cidr: string) => ({ address, cidr, internal: false, family: "IPv4", netmask: "", mac: "", scopeid: 0 }) as never;
+    const hub = new NodeHub(join(mkdtempSync(join(tmpdir(), "kervan-nodes-")), "nodes.json"));
+    const lan = { enp6s18: [entry("192.168.1.32", "192.168.1.32/24")] };
+    assert.equal(hub.addressesChanged(lan), true, "the first look counts as a change");
+    assert.equal(hub.addressesChanged(lan), false);
+    assert.equal(hub.addressesChanged({ ...lan, tailscale0: [entry("100.92.238.61", "100.92.238.61/32")] }), true);
+  });
+
   it("lists Tailscale first, then private LAN addresses with their network, and skips the rest", async () => {
     const { hubAddresses } = await import("../src/nodes.ts");
     const entry = (address: string, cidr: string, internal = false) =>

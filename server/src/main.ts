@@ -30,6 +30,7 @@ const nodes = new NodeHub(join(config.dataDir, "nodes.json"), () => {
   sessions?.nodesChanged();
 });
 nodes.port = config.port;
+nodes.watchAddresses();
 const runner = nodes.runner(new LocalAcpRunner());
 const catalog = new AgentCatalog(
   join(config.dataDir, "agents.json"),

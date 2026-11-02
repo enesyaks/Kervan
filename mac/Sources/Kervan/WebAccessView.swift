@@ -75,7 +75,10 @@ struct WebAccessSection: View {
             }
         }
         .task(id: model.connection.state.isConnected) {
-            if model.connection.state.isConnected { failure = await model.store.loadWebAccess() }
+            guard model.connection.state.isConnected else { return }
+            failure = await model.store.loadWebAccess()
+            // The addresses, Tailscale's among them, may have changed since the app connected.
+            await model.store.refreshNodes()
         }
         .sheet(item: $pairing, onDismiss: { Task { await model.store.loadWebAccess() } }) { pairing in
             let before = Set(model.store.webAccess?.devices.map(\.id) ?? [])
@@ -241,7 +244,7 @@ private struct WebAddressList: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .softSurface(radius: Radius.chip)
-        .sheet(isPresented: $settingUpTailscale) {
+        .sheet(isPresented: $settingUpTailscale, onDismiss: { Task { await model.store.refreshNodes() } }) {
             ServerUpdateSheet(access: .both).environment(model)
         }
     }

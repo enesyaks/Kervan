@@ -124,6 +124,11 @@ public final class SessionStore {
         Transcript.build(events[id] ?? [])
     }
 
+    /// Asks again for the nodes and this server's addresses (they change when e.g. Tailscale signs in).
+    public func refreshNodes() async {
+        await request(.nodeList(id: Self.newID()))
+    }
+
     /// Call after every (re)connect: refreshes the list, and with it every session's history.
     public func connected(agents: [AgentInfo]) async {
         self.agents = agents

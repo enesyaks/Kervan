@@ -116,6 +116,8 @@ export class NodeHub {
   private readonly onChange: () => void;
   /** The port this hub listens on, for the addresses it suggests to new nodes. */
   port = 7420;
+  private lastAddresses = "";
+  private addressTimer?: ReturnType<typeof setInterval>;
 
   constructor(file: string, onChange: () => void = () => {}) {
     this.file = file;
@@ -257,8 +259,29 @@ export class NodeHub {
   }
 
   close(): void {
+    if (this.addressTimer) clearInterval(this.addressTimer);
     for (const { ws } of this.connections.values()) ws.terminate();
     this.connections.clear();
+  }
+
+  /**
+   * Tells clients when this machine's addresses change, e.g. Tailscale signing in after Kervan has started (setup
+   * restarts Kervan before the Tailscale sign-in), so the app shows the new address without reconnecting.
+   */
+  watchAddresses(everyMs = 15_000): void {
+    this.addressesChanged();
+    this.addressTimer = setInterval(() => {
+      if (this.addressesChanged()) this.onChange();
+    }, everyMs);
+    this.addressTimer.unref();
+  }
+
+  /** Whether the addresses differ from the last look. */
+  addressesChanged(interfaces = networkInterfaces()): boolean {
+    const now = JSON.stringify(hubAddresses(this.port, interfaces));
+    const changed = now !== this.lastAddresses;
+    this.lastAddresses = now;
+    return changed;
   }
 
   /** Runs agents assigned to a node there, everything else with `local`. */
