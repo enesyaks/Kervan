@@ -4,11 +4,10 @@ import Security
 /// Setting up a hub on a new machine from the app: what runs over SSH, and how to read its progress.
 public enum HubSetup {
     public enum Access: String, CaseIterable, Sendable {
-        /// Reachable from this network only.
-        case lan
-        /// This network and Tailscale, for reaching it from anywhere.
-        case both
-        /// An existing hub: only its code and service are replaced; settings, firewall and Tailscale stay.
+        /// Reachable over Tailscale only, which encrypts the traffic.
+        case tailscale
+        /// An existing hub: its code and service are replaced and its settings stay. The home network closes if
+        /// Tailscale is up there; if not it stays open, so an update never locks anyone out.
         case update
     }
 
@@ -28,6 +27,11 @@ public enum HubSetup {
     /// Unpacks the setup files sent on stdin into a folder only the SSH user can read.
     public static func uploadArguments(user: String, host: String) -> [String] {
         ssh(user, host, "rm -rf \(remoteFolder) && mkdir -m 700 \(remoteFolder) && tar -xzf - -C \(remoteFolder)")
+    }
+
+    /// The server's Tailscale address, once it has one; asked over SSH, which stays open on the home network.
+    public static func tailscaleAddressArguments(user: String, host: String) -> [String] {
+        ssh(user, host, "tailscale ip -4 2>/dev/null | head -1")
     }
 
     /// Succeeds when sudo works without a password there, so the app can run the setup itself.

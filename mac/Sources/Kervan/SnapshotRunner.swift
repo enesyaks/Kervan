@@ -114,7 +114,7 @@ enum SnapshotRunner {
                 print("[SnapshotRunner] Wrote \(catalogName)")
 
                 // 1d. Setting up Tailscale on the server, from Web access.
-                let tailscale = ServerUpdateSheet(access: .both)
+                let tailscale = ServerUpdateSheet(access: .tailscale)
                     .environment(model)
                     .fontDesign(.rounded)
                     .preferredColorScheme(app.scheme)

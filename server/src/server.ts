@@ -1,3 +1,4 @@
+import { allowedConnection, tailnetOnly } from "./tailnet.ts";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { log } from "./log.ts";
 import type { SessionManager } from "./sessions.ts";
@@ -68,6 +69,11 @@ export function createKervanServer({
   const limiter = new AttemptLimiter();
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? "/", "http://localhost");
+
+    if (tailnetOnly() && !allowedConnection(req.socket.remoteAddress, req.socket.localAddress)) {
+      sendJson(res, 403, { error: "tailscale_only" });
+      return;
+    }
 
     if (req.method === "GET" && url.pathname === "/health") {
       sendJson(res, 200, {

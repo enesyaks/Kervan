@@ -274,13 +274,13 @@ uygulamadan eklenebilir.
 ## Güvenlik
 
 - Sunucu yalnızca **token'lı** bağlantı kabul eder; token yanlışsa WebSocket açılmadan `401` döner.
-- Tasarım gereği yerel ağ ya da **Tailscale** içinde çalışır; internete açmayın.
+- İnternete açmayın.
 - API anahtarları ve MCP sırları sunucuda `0600` izinli dosyalarda durur; istemciye yalnızca adları gider.
 - Mac'te erişim anahtarı yalnızca sizin okuyabildiğiniz bir dosyada (`0600`, Application Support altında) durur; böylece uygulama güncellemeleri onu bir daha sormaz.
 - İzin isteyen araç çağrıları siz onaylayana kadar bekler.
 - Kervan'ın kurduğu hub'da ajanlar ve terminalleri kendi kullanıcılarıyla (`kervan-agent`) çalışır: çalıştırdıkları şeyler sunucunun anahtarlarını okuyamaz ve anahtarını kullanamaz. Tüm oturumlar bu kullanıcıyı paylaştığı için birbirlerinin klasörlerini görebilir.
 - Eşleştirilen tarayıcı yalnızca oturumlarını duyar; gizli bilgi içeriyor gibi görünen dosyalar Değişiklikler ekranına girmez. Ajanın konuşmada yazdırdıkları yine de görünür.
-- Yerel ağdaki trafik şifreli değildir; ağı izleyebilen biri anahtarı okuyabilir. Tailscale trafiği şifreler.
+- Kervan'ın kurduğu hub yalnızca **Tailscale** üzerinden yanıt verir; Tailscale trafiği şifreler. Sunucuda, Mac'inizde ve telefonunuzda olması gerekir. SSH ev ağında açık kalır. Tailscale olmayan bir hub, güncellemeden sonra da ev ağında şifresiz yanıt vermeye devam eder; Ayarlar › Web erişimi'nden kurana kadar.
 - Port önizleme tüneli de aynı token'ı ister ve yalnızca sunucunun kendi `localhost`'una bağlanır.
 - Web sürümü varsayılan olarak kapalıdır. Tarayıcı tek kullanımlık bir kodla (on dakika geçerli) eşleştirilir ve
   kendine ait bir anahtar alır; anahtar sunucuda hash'lenmiş olarak durur ve uygulamadan iptal edilebilir. Sunucunun

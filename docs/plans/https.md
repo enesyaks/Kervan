@@ -1,5 +1,8 @@
 # HTTPS for the web client
 
+Since then, hubs set up by Kervan answer only over Tailscale (see `tailnet.ts`), so the plain traffic on the home network this
+plan worried about is gone. HTTPS itself is still only needed for Web Push and installing the web client as an app.
+
 Step 5 of [next-features.md](next-features.md). The web client works over plain HTTP today. That's fine on a home
 network or over Tailscale (WireGuard encrypts the traffic), but browsers hold back two things from HTTP pages:
 **Web Push** (alerts straight to the browser, without the ntfy app) and **installing as an app** with a service worker.

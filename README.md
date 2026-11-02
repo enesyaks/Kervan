@@ -274,13 +274,13 @@ back to the app. Other ACP agents or command-line tools can be added with an `ag
 ## Security
 
 - The server accepts only connections with the **token**; with a wrong one it answers `401` before any WebSocket opens.
-- It's designed for your local network or **Tailscale**; don't expose it to the internet.
+- Don't expose it to the internet.
 - API keys and MCP secrets stay on the server in files with `0600` permissions; clients only see their names.
 - On the Mac, the access key is kept in a file only you can read (`0600`, under Application Support), so app updates never ask for it again.
 - Tool calls that need approval wait until you answer.
 - On a hub set up by Kervan, agents and their terminals run as their own user (`kervan-agent`): what they run can't read the server's keys or use its key. All sessions share that user, so they can see each other's folders.
 - A paired browser hears only its sessions, and files that look like secrets stay out of its Changes view. What an agent prints in a conversation still shows there.
-- Traffic on the local network isn't encrypted, so anyone able to watch it could read the key; Tailscale encrypts it.
+- A hub set up by Kervan answers only over **Tailscale**, which encrypts the traffic; the server, your Mac and your phone all need it. SSH stays open on the home network. A hub without Tailscale keeps answering on the home network after an update, unencrypted, until you set it up in Settings › Web access.
 - The port preview tunnel needs the same token and only connects to the server's own `localhost`.
 - The web version is off by default. A browser is paired with a one-time code (valid ten minutes) and gets its own
   key, stored hashed on the server and revocable from the app; the server's key never reaches a browser. Paired

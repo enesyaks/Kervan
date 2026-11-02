@@ -65,6 +65,8 @@ final class HubInstaller {
     private(set) var startedAt: Date?
     private(set) var step: HubSetupStep = .uploading
     private(set) var tailscaleURL: URL?
+    /// The server's Tailscale address while this Mac can't reach it yet, which usually means Tailscale is off here.
+    private(set) var waitingOnTailscale: String?
     /// macOS keeps the app off the local network: the screen offers the settings page.
     private(set) var localNetworkBlocked = false
     var started: Bool { startedAt != nil }
@@ -72,7 +74,8 @@ final class HubInstaller {
     private var process: Process?
 
     /// `token`: the hub's existing token when updating it; a new one is made for a fresh hub.
-    func run(user: String, host: String, access: HubSetup.Access, token existing: String? = nil, connect: @escaping (String) -> Void) {
+    /// `connect` gets the token and the address the server answered on: its Tailscale one, once it has one.
+    func run(user: String, host: String, access: HubSetup.Access, token existing: String? = nil, connect: @escaping (String, String) -> Void) {
         reset()
         startedAt = Date()
         isRunning = true
@@ -96,11 +99,11 @@ final class HubInstaller {
                     // sudo wants a password: the user runs the setup in their own Terminal; we wait for the server.
                     self.waitingForTerminal = true
                 }
-                try await self.waitUntilAnswering(host: host)
+                let reached = try await self.waitUntilAnswering(user: user, host: host)
                 self.step = .ready
                 self.isRunning = false
                 self.waitingForTerminal = false
-                connect(token)
+                connect(token, reached)
             } catch is CancellationError {
                 self.isRunning = false
             } catch {
@@ -119,6 +122,7 @@ final class HubInstaller {
         startedAt = nil
         step = .uploading
         tailscaleURL = nil
+        waitingOnTailscale = nil
         localNetworkBlocked = false
         waitingForTerminal = false
         isRunning = false
@@ -199,14 +203,43 @@ final class HubInstaller {
     /// Waits for the server to answer as the version this app carries. Answering alone isn't enough: during an
     /// update the old server answers until the setup has run, and when sudo wants a password that is only once the
     /// user has run it in Terminal.
-    private func waitUntilAnswering(host: String) async throws {
+    private func waitUntilAnswering(user: String, host: String) async throws -> String {
         let deadline = Date().addingTimeInterval(20 * 60)
+        var tailscale: String?
+        var round = 0
         while Date() < deadline {
             try Task.checkCancellation()
-            if await Self.runningVersion(host: host) == KervanVersion.current { return }
+            // Over SSH, and not every time: it stays reachable when the server's own port has closed.
+            if tailscale == nil, round % 4 == 0 { tailscale = await Self.tailscaleAddress(user: user, host: host) }
+            round += 1
+            if let tailscale, await Self.runningVersion(host: tailscale) == KervanVersion.current {
+                waitingOnTailscale = nil
+                return tailscale
+            }
+            if await Self.runningVersion(host: host) == KervanVersion.current { return host }
+            waitingOnTailscale = round > 10 ? tailscale : nil
             try await Task.sleep(for: .seconds(3))
         }
         throw SetupError(message: L("The server didn't come back as \(KervanVersion.current) within 20 minutes. Check the detailed output or run setup again.", "Sunucu 20 dakika içinde \(KervanVersion.current) olarak geri gelmedi. Ayrıntılı çıktıya bakın ya da kurulumu yeniden deneyin."))
+    }
+
+    /// The server's Tailscale address, asked over SSH; nil until it has one.
+    private static func tailscaleAddress(user: String, host: String) async -> String? {
+        await withCheckedContinuation { continuation in
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+            process.arguments = HubSetup.tailscaleAddressArguments(user: user, host: host)
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = FileHandle.nullDevice
+            process.standardInput = FileHandle.nullDevice
+            process.terminationHandler = { _ in
+                let text = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                continuation.resume(returning: text.hasPrefix("100.") ? text : nil)
+            }
+            do { try process.run() } catch { continuation.resume(returning: nil) }
+        }
     }
 
     /// The version the server at `host` reports on /health, if it answers.

@@ -140,6 +140,33 @@ describe("agents on another node", () => {
   });
 });
 
+describe("answering only over Tailscale", () => {
+  it("takes the tailnet and this machine, and nothing else", async () => {
+    const { allowedConnection, isTailnetAddress } = await import("../src/tailnet.ts");
+    for (const address of ["100.64.0.1", "100.92.238.61", "100.127.255.255", "::ffff:100.92.238.61", "fd7a:115c:a1e0::1"]) assert.ok(isTailnetAddress(address), address);
+    for (const address of ["100.63.255.255", "100.128.0.1", "192.168.1.21", "10.0.0.1", "fd00::1", "100.64.0"]) assert.ok(!isTailnetAddress(address), address);
+    assert.ok(allowedConnection("100.84.142.87", "100.92.238.61"));
+    assert.ok(allowedConnection("::ffff:127.0.0.1", "::ffff:127.0.0.1"));
+    assert.ok(allowedConnection("::1", "::1"));
+    assert.ok(!allowedConnection("192.168.1.5", "192.168.1.32"), "from the home network");
+    assert.ok(!allowedConnection("192.168.1.5", "100.92.238.61"), "a home address asking for the Tailscale one");
+    assert.ok(!allowedConnection("100.84.142.87", "192.168.1.32"), "a Tailscale address arriving on the home side");
+    assert.ok(!allowedConnection("127.0.0.1", "192.168.1.32"), "a spoofed loopback");
+    assert.ok(!allowedConnection(undefined, "100.92.238.61"));
+  });
+
+  it("offers only Tailscale addresses when that's all it answers on", async () => {
+    const { NodeHub } = await import("../src/nodes.ts");
+    process.env.KERVAN_TAILNET_ONLY = "1";
+    try {
+      const hub = new NodeHub(join(mkdtempSync(join(tmpdir(), "kervan-nodes-")), "nodes.json"));
+      assert.ok(hub.addresses().every((address) => address.kind === "tailscale"));
+    } finally {
+      delete process.env.KERVAN_TAILNET_ONLY;
+    }
+  });
+});
+
 describe("hub addresses offered to new nodes", () => {
   it("notices when an address appears, as when Tailscale signs in after Kervan started", async () => {
     const { NodeHub } = await import("../src/nodes.ts");

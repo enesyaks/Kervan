@@ -12,6 +12,7 @@ import { changesForBrowser, eventForBrowser } from "./webaccess.ts";
 import { AttemptLimiter, type WebAccess } from "./webaccess.ts";
 import { GitHubAccess } from "./github.ts";
 import { AgentLogin } from "./agentlogin.ts";
+import { allowedConnection, tailnetOnly } from "./tailnet.ts";
 import { AcpRegistry } from "./agentregistry.ts";
 
 /** One per server: the gh sign-in belongs to the user the server runs as. */
@@ -512,6 +513,10 @@ export function attachWebSocket(
   const alive = new WeakSet<WebSocket>();
 
   server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
+    if (tailnetOnly() && !allowedConnection(req.socket.remoteAddress, req.socket.localAddress)) {
+      rejectUpgrade(socket, 403, "Tailscale Only");
+      return;
+    }
     const path = new URL(req.url ?? "/", "http://localhost").pathname;
     // Nodes use their own token, so a leaked node token can't drive the app's API.
     if (path === NODE_PATH && sessions.nodes) {

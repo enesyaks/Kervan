@@ -208,8 +208,8 @@ private struct WebAddressList: View {
             Label(L("Away from home", "Evden uzaktayken"), systemImage: "airplane")
                 .font(.caption.weight(.semibold))
             Text(L(
-                "These addresses work only on the same network as the server. To use Kervan from anywhere, set up Tailscale on the server and on the phone, signed in with the same account; a Tailscale address then shows up here.",
-                "Bu adresler yalnızca sunucuyla aynı ağdayken çalışır. Her yerden kullanmak için sunucuya ve telefona Tailscale kurup ikisinde aynı hesapla giriş yapın; ardından burada bir Tailscale adresi görünür."
+                "This server still answers on the home network, where the traffic isn't encrypted and your key can be read. Set up Tailscale on the server, this Mac and the phone, signed in with the same account: Kervan then answers only there, from anywhere.",
+                "Bu sunucu hâlâ ev ağında yanıt veriyor; orada trafik şifreli değil ve anahtarınız okunabilir. Sunucuya, bu Mac'e ve telefona Tailscale kurup aynı hesapla giriş yapın: Kervan bundan sonra yalnızca orada, her yerden yanıt verir."
             ))
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -245,7 +245,7 @@ private struct WebAddressList: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .softSurface(radius: Radius.chip)
         .sheet(isPresented: $settingUpTailscale, onDismiss: { Task { await model.store.refreshNodes() } }) {
-            ServerUpdateSheet(access: .both).environment(model)
+            ServerUpdateSheet(access: .tailscale).environment(model)
         }
     }
 }

@@ -96,8 +96,8 @@ struct SidebarNotices: View {
 
 /// Brings the connected hub to the version this app carries, over SSH, keeping its token, settings and firewall.
 struct ServerUpdateSheet: View {
-    /// `.update` replaces the code; `.both` also installs Tailscale on the server and signs it in, for web access
-    /// from anywhere.
+    /// `.update` replaces the code; `.tailscale` also installs Tailscale on the server and signs it in, and closes the
+    /// home network.
     var access: HubSetup.Access = .update
 
     @Environment(AppModel.self) private var model
@@ -105,7 +105,7 @@ struct ServerUpdateSheet: View {
     @AppStorage("serverUpdateUser") private var user = "ubuntu"
     @State private var host = ""
 
-    private var tailscale: Bool { access == .both }
+    private var tailscale: Bool { access == .tailscale }
     private var steps: [HubSetupStep] {
         tailscale ? [.uploading, .packages, .files, .firewall, .service, .tailscaleLogin, .ready] : [.uploading, .packages, .files, .service, .ready]
     }
@@ -121,12 +121,12 @@ struct ServerUpdateSheet: View {
                 Text(tailscale ? L("Set up Tailscale on the server", "Sunucuya Tailscale kur") : L("Update the server", "Sunucuyu güncelle")).font(.title2.weight(.semibold))
                 Text(tailscale
                     ? L(
-                        "Installs Tailscale on the server over SSH, lets it through the firewall and signs it in with your Tailscale account, so Kervan answers wherever your phone is on Tailscale. Kervan restarts with the code this app carries; sessions and keys stay, running turns are cut off.",
-                        "Tailscale'i sunucuya SSH ile kurar, güvenlik duvarından geçirir ve Tailscale hesabınızla giriş yapar; böylece telefonunuz Tailscale'deyken Kervan her yerden yanıt verir. Kervan bu uygulamanın taşıdığı kodla yeniden başlar; oturumlar ve anahtarlar kalır, süren turlar kesilir."
+                        "Installs Tailscale on the server over SSH and signs it in with your account. Kervan then answers only over Tailscale, encrypted and from anywhere, and no longer on the home network, so this Mac needs Tailscale on too. Kervan restarts with the code this app carries; sessions and keys stay, running turns are cut off.",
+                        "Tailscale'i sunucuya SSH ile kurar ve hesabınızla giriş yapar. Kervan bundan sonra yalnızca Tailscale üzerinden, şifreli ve her yerden yanıt verir, ev ağından vermez; bu yüzden bu Mac'te de Tailscale açık olmalı. Kervan bu uygulamanın taşıdığı kodla yeniden başlar; oturumlar ve anahtarlar kalır, süren turlar kesilir."
                     )
                     : L(
-                        "The server runs \(model.outdatedServer ?? "an older version"); this app carries \(KervanVersion.current). The update replaces Kervan's code over SSH and restarts it. Settings, firewall, sessions and keys stay as they are; running turns are cut off.",
-                        "Sunucu \(model.outdatedServer ?? "eski bir sürüm") çalıştırıyor; bu uygulama \(KervanVersion.current) taşıyor. Güncelleme Kervan'ın kodunu SSH ile değiştirip yeniden başlatır. Ayarlar, güvenlik duvarı, oturumlar ve anahtarlar olduğu gibi kalır; süren turlar kesilir."
+                        "The server runs \(model.outdatedServer ?? "an older version"); this app carries \(KervanVersion.current). The update replaces Kervan's code over SSH and restarts it. Settings, sessions and keys stay; running turns are cut off. If Tailscale is on the server, Kervan answers only over Tailscale from now on, and the app moves there by itself; this Mac needs Tailscale on too.",
+                        "Sunucu \(model.outdatedServer ?? "eski bir sürüm") çalıştırıyor; bu uygulama \(KervanVersion.current) taşıyor. Güncelleme Kervan'ın kodunu SSH ile değiştirip yeniden başlatır. Ayarlar, oturumlar ve anahtarlar kalır; süren turlar kesilir. Sunucuda Tailscale varsa Kervan bundan sonra yalnızca Tailscale üzerinden yanıt verir ve uygulama oraya kendisi geçer; bu Mac'te de Tailscale açık olmalı."
                     ))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -152,6 +152,9 @@ struct ServerUpdateSheet: View {
                     Button(L("Sign in to Tailscale", "Tailscale'e giriş yap")) { NSWorkspace.shared.open(url) }
                         .buttonStyle(.borderedProminent)
                         .tint(.kervanLapis)
+                }
+                if let address = installer.waitingOnTailscale {
+                    TailscaleHint(address: address)
                 }
                 if installer.waitingForTerminal {
                     Guidance(
@@ -210,8 +213,13 @@ struct ServerUpdateSheet: View {
         guard let token = model.activeToken else { return }
         let host = host.trimmingCharacters(in: .whitespaces)
         let user = user.trimmingCharacters(in: .whitespaces)
-        // The restart drops the connection; it comes back on its own, and with it the new version.
-        model.serverUpdater.run(user: user, host: host, access: access, token: token) { _ in }
+        // The restart drops the connection, which comes back on its own, unless the server has moved to Tailscale.
+        model.serverUpdater.run(user: user, host: host, access: access, token: token) { [model] token, reached in
+            guard reached != host else { return }
+            model.serverInput = reached
+            model.tokenInput = token
+            model.connect()
+        }
     }
 }
 

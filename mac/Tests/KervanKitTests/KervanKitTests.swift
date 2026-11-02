@@ -747,8 +747,8 @@ import Testing
         #expect(token.count == 64 && token.allSatisfy(\.isHexDigit))
         #expect(HubSetup.makeToken() != token)
         #expect(HubSetup.uploadArguments(user: "ubuntu", host: "192.168.1.30").contains("BatchMode=yes"))
-        #expect(HubSetup.runArguments(user: "ubuntu", host: "h", access: .both).last == "sudo -n env ACCESS=both bash /tmp/kervan-setup/hub-setup.sh")
-        #expect(HubSetup.terminalCommand(user: "ubuntu", host: "h", access: .lan) == "ssh -t ubuntu@h \"sudo env ACCESS=lan bash /tmp/kervan-setup/hub-setup.sh\"")
+        #expect(HubSetup.runArguments(user: "ubuntu", host: "h", access: .tailscale).last == "sudo -n env ACCESS=tailscale bash /tmp/kervan-setup/hub-setup.sh")
+        #expect(HubSetup.terminalCommand(user: "ubuntu", host: "h", access: .tailscale) == "ssh -t ubuntu@h \"sudo env ACCESS=tailscale bash /tmp/kervan-setup/hub-setup.sh\"")
     }
 
     @Test func followsTheSetupScript() {

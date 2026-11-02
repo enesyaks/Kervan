@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # Sets up a Kervan hub on a fresh Debian/Ubuntu machine without questions. The Mac app copies this
 # folder to /tmp/kervan-setup over SSH (with server.tar.gz, kervan.service and the access token it
-# generated) and runs:  sudo env ACCESS=lan|tailscale|both bash /tmp/kervan-setup/hub-setup.sh
+# generated) and runs:  sudo env ACCESS=tailscale bash /tmp/kervan-setup/hub-setup.sh
 # Safe to run again: it updates the code and keeps going. Prints "==> step" lines the app follows.
-# ACCESS=update only replaces the code and the service: settings, firewall and Tailscale stay as they are.
+# Kervan answers only over Tailscale, which encrypts the traffic. SSH stays open on the home network, for setup itself.
+# ACCESS=update replaces the code and the service, keeps the settings, and closes the home network if Tailscale is up
+# here; if it isn't, that stays open, so an update never locks anyone out.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-ACCESS="${ACCESS:-lan}"          # lan: this network only; tailscale: Tailscale only; both; update
+ACCESS="${ACCESS:-tailscale}"    # tailscale; update
 PORT=7420
 NODE_MAJOR=24
 OWNER="${SUDO_USER:-root}"
@@ -66,24 +68,34 @@ chown root:kervan /etc/kervan/env
 chmod 640 /etc/kervan/env
 umask 022
 
-if [[ "$ACCESS" != lan ]]; then
-  echo "==> Tailscale"
-  command -v tailscale >/dev/null || curl -fsSL https://tailscale.com/install.sh | sh >/dev/null
-fi
+echo "==> Tailscale"
+command -v tailscale >/dev/null || curl -fsSL https://tailscale.com/install.sh | sh >/dev/null
 
 echo "==> firewall"
 ufw default deny incoming >/dev/null
 ufw default allow outgoing >/dev/null
 ufw allow OpenSSH >/dev/null
-if [[ "$ACCESS" != lan ]]; then ufw allow in on tailscale0 >/dev/null; fi
-if [[ "$ACCESS" != tailscale ]]; then
-  DEV="$(ip route show default | awk '{print $5; exit}')"
-  CIDR="$(ip -4 -o addr show dev "$DEV" | awk '{print $4; exit}')"
-  NET="$(python3 -c 'import ipaddress, sys; print(ipaddress.ip_interface(sys.argv[1]).network)' "$CIDR")"
-  ufw allow from "$NET" to any port "$PORT" proto tcp >/dev/null
-  echo "Kervan: devices on $NET can connect to port $PORT."
-fi
+ufw allow in on tailscale0 >/dev/null
 ufw --force enable >/dev/null
+fi
+
+# Closes the home network: the rule older setups made, and the setting the server checks for itself.
+close_home_network() {
+  local dev cidr net
+  ufw allow in on tailscale0 >/dev/null
+  dev="$(ip route show default | awk '{print $5; exit}')"
+  cidr="$(ip -4 -o addr show dev "$dev" | awk '{print $4; exit}')"
+  if [[ -n "$cidr" ]]; then
+    net="$(python3 -c 'import ipaddress, sys; print(ipaddress.ip_interface(sys.argv[1]).network)' "$cidr")"
+    ufw delete allow from "$net" to any port "$PORT" proto tcp >/dev/null 2>&1 || true
+  fi
+  grep -qxF KERVAN_TAILNET_ONLY=1 /etc/kervan/env || echo KERVAN_TAILNET_ONLY=1 >> /etc/kervan/env
+}
+if [[ "$ACCESS" != update ]] || { command -v tailscale >/dev/null && [[ -n "$(tailscale ip -4 2>/dev/null)" ]]; }; then
+  close_home_network
+  echo "Kervan: answers only over Tailscale now."
+else
+  echo "Kervan: Tailscale isn't set up here, so the home network stays open. Set it up in Settings > Web access."
 fi
 
 # Agents run as their own user, so what they run can't read the keys in /etc/kervan and /var/lib/kervan. Done on every run:
@@ -150,7 +162,7 @@ for _ in $(seq 1 30); do
 done
 curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null || { echo "Kervan: the service didn't start; see journalctl -u kervan." >&2; exit 1; }
 
-if [[ "$ACCESS" != lan && "$ACCESS" != update ]] && ! tailscale status >/dev/null 2>&1; then
+if [[ "$ACCESS" != update ]] && ! tailscale status >/dev/null 2>&1; then
   echo "==> Tailscale sign-in"
   echo "Kervan: sign in with your Tailscale account at the link below."
   tailscale up

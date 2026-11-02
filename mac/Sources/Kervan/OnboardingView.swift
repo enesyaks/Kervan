@@ -34,7 +34,6 @@ struct OnboardingView: View {
     @State private var path: Path = .connect
     @State private var host = ""
     @State private var user = "ubuntu"
-    @State private var access: HubSetup.Access = .lan
     @State private var installer = HubInstaller()
     @State private var permission: Permission = .ask
     /// Keys typed on the agents step, by agent id; they go to the server and are cleared once saved.
@@ -181,8 +180,8 @@ struct OnboardingView: View {
 
     private func install() {
         let host = host.trimmed
-        installer.run(user: user.trimmed, host: host, access: access) { token in
-            model.serverInput = host
+        installer.run(user: user.trimmed, host: host, access: .tailscale) { token, reached in
+            model.serverInput = reached
             model.tokenInput = token
             model.connect()
         }
@@ -258,8 +257,8 @@ struct OnboardingView: View {
         return VStack(alignment: .leading, spacing: 28) {
             heading(L("Connect to your server", "Sunucunuza bağlanalım"), L("You only need to enter these once. The access key stays on this Mac, where only you can read it.", "Bunları yalnızca bir kez girmeniz yeterli. Erişim anahtarı bu Mac'te, yalnızca sizin okuyabileceğiniz şekilde saklanır."))
             VStack(alignment: .leading, spacing: 18) {
-                Field(title: L("Server address", "Sunucu adresi"), hint: L("IP address, Tailscale name or network name. Port 7420 is used if you leave it out.", "IP adresi, Tailscale adı ya da ağdaki adı. Port yazmazsanız 7420 kullanılır.")) {
-                    TextField(L("Server address", "Sunucu adresi"), text: $model.serverInput, prompt: Text(L("e.g. 192.168.1.21", "ör. 192.168.1.21")))
+                Field(title: L("Server address", "Sunucu adresi"), hint: L("Its Tailscale address or name; Tailscale has to be on on this Mac. Port 7420 is used if you leave it out.", "Tailscale adresi ya da adı; bu Mac'te Tailscale açık olmalı. Port yazmazsanız 7420 kullanılır.")) {
+                    TextField(L("Server address", "Sunucu adresi"), text: $model.serverInput, prompt: Text(L("e.g. 100.92.238.61", "ör. 100.92.238.61")))
                         .textContentType(.URL)
                         .focused($focusedField, equals: .server)
                 }
@@ -326,15 +325,16 @@ struct OnboardingView: View {
             .padding(20)
             .softSurface(radius: Radius.panel)
 
-            VStack(alignment: .leading, spacing: 10) {
-                Text(L("Where will you connect from?", "Nereden bağlanacaksınız?"))
-                    .font(.headline)
-                    .accessibilityAddTraits(.isHeader)
-                HStack(alignment: .top, spacing: 12) {
-                    ChoiceTile(symbol: "wifi", title: L("This network", "Bu ağdan"), text: L("The port is open only to devices on this local network.", "Port yalnızca bu yerel ağdaki cihazlara açılır."), selected: access == .lan, compact: true) { access = .lan }
-                    ChoiceTile(symbol: "globe", title: L("Anywhere", "Her yerden"), text: L("Tailscale is installed too, so you can connect when you're away.", "Tailscale de kurulur; evden uzaktayken de bağlanırsınız."), selected: access == .both, compact: true) { access = .both }
-                }
-            }
+            Promise(
+                symbol: "lock.shield",
+                title: L("You reach it over Tailscale", "Ona Tailscale üzerinden ulaşırsınız"),
+                text: L(
+                    "Tailscale encrypts the traffic and works from anywhere, so nothing is sent in the clear on your network. Setup installs it on the machine; this Mac needs it too, signed in to the same account.",
+                    "Tailscale trafiği şifreler ve her yerden çalışır; böylece ağınızda hiçbir şey açık gitmez. Kurulum onu makineye kurar; bu Mac'te de aynı hesapla giriş yapılmış olması gerekir."
+                )
+            )
+            Link(L("Get Tailscale for this Mac", "Bu Mac için Tailscale'i indirin"), destination: URL(string: "https://tailscale.com/download/mac")!)
+                .font(.callout)
 
             Actions {
                 Button(L("Back", "Geri")) { go(.choose) }
@@ -422,7 +422,7 @@ struct OnboardingView: View {
     }
 
     private var setupProgress: some View {
-        let steps = HubSetupStep.allCases.filter { $0 != .tailscaleLogin || access == .both }
+        let steps = HubSetupStep.allCases
         let failed = installer.failure != nil
         let target = host.trimmed.isEmpty ? L("your server", "sunucunuz") : host.trimmed
         return VStack(alignment: .leading, spacing: 28) {
@@ -447,8 +447,11 @@ struct OnboardingView: View {
                 if installer.waitingForTerminal {
                     Guidance(
                         text: L("sudo needs a password on this machine. Run this in Terminal; it asks for your password there, and this screen connects by itself when setup is done.", "Bu makinede sudo parola istiyor. Terminal'de şunu çalıştırın; parolanız orada sorulur, kurulum bitince bu ekran kendiliğinden bağlanır."),
-                        command: HubSetup.terminalCommand(user: user.trimmed, host: host.trimmed, access: access)
+                        command: HubSetup.terminalCommand(user: user.trimmed, host: host.trimmed, access: .tailscale)
                     )
+                }
+                if let address = installer.waitingOnTailscale {
+                    TailscaleHint(address: address)
                 }
                 if let failure = installer.failure {
                     Label(failure, systemImage: "exclamationmark.triangle.fill")
@@ -822,6 +825,24 @@ private struct RailCaravan: View {
 }
 
 // MARK: - Pieces
+
+/// The server is up on Tailscale, and this Mac isn't reaching it there.
+struct TailscaleHint: View {
+    let address: String
+
+    var body: some View {
+        Label(
+            L(
+                "The server answers on \(address). If this stays, turn on Tailscale on this Mac and sign in to the same account.",
+                "Sunucu \(address) adresinde yanıt veriyor. Bu ekran böyle kalırsa bu Mac'te Tailscale'i açıp aynı hesapla giriş yapın."
+            ),
+            systemImage: "lock.shield"
+        )
+        .font(.callout)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+}
 
 private struct Heading: View {
     let title: String

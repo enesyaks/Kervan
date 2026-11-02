@@ -1,3 +1,4 @@
+import { tailnetOnly } from "./tailnet.ts";
 import { execFileSync } from "node:child_process";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -133,7 +134,8 @@ export class NodeHub {
 
   /** Where a new node could reach this hub. */
   addresses(): HubAddress[] {
-    const found = hubAddresses(this.port);
+    // Addresses this server wouldn't answer on aren't worth offering.
+    const found = hubAddresses(this.port).filter((address) => !tailnetOnly() || address.kind === "tailscale");
     // Asking the tailscale CLI only makes sense when this machine is on a tailnet.
     if (!found.some((a) => a.kind === "tailscale")) return found;
     const host = tailscaleName();

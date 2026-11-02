@@ -137,6 +137,9 @@ public final class KervanConnection {
             return (.unreachable("cancelled"), connected)
         } catch {
             if (task.response as? HTTPURLResponse)?.statusCode == 401 { return (.unauthorized, connected) }
+            if (task.response as? HTTPURLResponse)?.statusCode == 403 {
+                return (.unreachable(L("This server answers only over Tailscale. Use its Tailscale address, with Tailscale on on this Mac.", "Bu sunucu yalnızca Tailscale üzerinden yanıt veriyor. Tailscale adresini kullanın; bu Mac'te Tailscale açık olmalı.")), connected)
+            }
             if task.closeCode.rawValue == 4000 { return (.unsupportedProtocol("protocol mismatch"), connected) }
             return (.unreachable(error.localizedDescription), connected)
         }
