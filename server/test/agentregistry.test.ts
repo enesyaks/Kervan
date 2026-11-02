@@ -52,6 +52,11 @@ describe("agents from the ACP registry", () => {
 
     files = createServer((req, res) => {
       if (req.url === "/agent.tar.gz") return res.end(archive);
+      // No content-length: only counting the bytes can catch this one.
+      if (req.url === "/streamed.tar.gz") {
+        res.write(archive);
+        return res.end(archive);
+      }
       if (req.url === "/api/tags") return res.end(JSON.stringify({ models: ollamaModels.map((name) => ({ name })) }));
       res.statusCode = 404;
       res.end();
@@ -69,6 +74,12 @@ describe("agents from the ACP registry", () => {
         { id: "unsigned", name: "Unsigned", distribution: { binary: download() } },
         { id: "tampered", name: "Tampered", distribution: { binary: download("0".repeat(64)) } },
         { id: "goose", name: "goose", distribution: { binary: { [platform]: { archive: "x", cmd: "./goose", args: ["acp"] } } } },
+        { id: "../climber", name: "Climber", distribution: { binary: { [platform]: { archive: `${base}/agent.tar.gz`, cmd: "./zz-none", sha256: sum } } } },
+        { id: "unpinned", name: "Unpinned", distribution: { npx: { package: "some-package" } } },
+        { id: "by-url", name: "By URL", distribution: { npx: { package: "https://example.com/evil.tgz" } } },
+        { id: "flagged", name: "Flagged", distribution: { npx: { package: "--foreground-scripts@1" } } },
+        { id: "plain-http", name: "Plain HTTP", distribution: { binary: { [platform]: { archive: "http://example.com/a.tar.gz", cmd: "./zz-none2", sha256: sum } } } },
+        { id: "streamed", name: "Streamed", distribution: { binary: { [platform]: { archive: `${base}/streamed.tar.gz`, cmd: "./fake-acp", sha256: sum } } } },
       ],
     };
     writeFileSync(join(work, "registry.json"), JSON.stringify(registry));
@@ -124,6 +135,34 @@ describe("agents from the ACP registry", () => {
     assert.deepEqual(installed.env, { GOOSE_PROVIDER: "ollama", GOOSE_MODEL: "qwen3-coder:30b", OLLAMA_HOST: base });
     await assert.rejects(registry.install({ agentId: "goose", ollamaModel: "missing:7b" }), /no model 'missing:7b'/);
     await assert.rejects(registry.install({ agentId: "found-agent", ollamaModel: "qwen3-coder:30b" }), /can't be set up for Ollama/);
+  });
+
+  it("ignores registry entries whose id could leave tools/, and leaves the folder beside it alone", async () => {
+    const root = join(work, "climb");
+    execFileSync("mkdir", ["-p", join(root, "climber")]);
+    writeFileSync(join(root, "climber", "keep.txt"), "keep");
+    const registry = new AcpRegistry(join(root, "tools"));
+    assert.ok(!(await registry.offer(new Set())).some((agent) => agent.id.includes("..")));
+    await assert.rejects(registry.install({ agentId: "../climber" }), /no agent/);
+    assert.equal(readFileSync(join(root, "climber", "keep.txt"), "utf8"), "keep");
+  });
+
+  it("won't install what isn't pinned or comes over plain HTTP", async () => {
+    const registry = new AcpRegistry(join(work, "tools-e"));
+    const by = Object.fromEntries((await registry.offer(new Set())).map((agent) => [agent.id, agent]));
+    for (const id of ["unpinned", "by-url", "flagged"]) {
+      assert.equal(by[id].status, "unavailable", id);
+      assert.match(by[id].reason ?? "", /pinned/, id);
+      await assert.rejects(registry.install({ agentId: id }), /isn't pinned/, id);
+    }
+    assert.equal(by["plain-http"].status, "unavailable");
+    await assert.rejects(registry.install({ agentId: "plain-http" }), /isn't over HTTPS/);
+  });
+
+  it("stops reading a download once it passes the limit, with or without a stated length", async () => {
+    const small = new AcpRegistry(join(work, "tools-f"), 16);
+    await assert.rejects(small.install({ agentId: "downloadable" }), /too large/);
+    await assert.rejects(small.install({ agentId: "streamed" }), /too large/);
   });
 
   it("installs and adds an agent from the app, which then lists it", async () => {

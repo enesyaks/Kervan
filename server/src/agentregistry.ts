@@ -14,6 +14,11 @@ export const REGISTRY_URL = "https://cdn.agentclientprotocol.com/registry/v1/lat
 const REGISTRY_TTL_MS = 60 * 60 * 1000;
 const MAX_DOWNLOAD_BYTES = 500 * 1024 * 1024;
 
+// What the registry says becomes folder names and command arguments, so it has to look like what it should be.
+const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const PINNED_NPM = /^(@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*@[A-Za-z0-9][A-Za-z0-9._+-]*$/;
+const PINNED_UV = /^[A-Za-z0-9][A-Za-z0-9._-]*(==|@)[A-Za-z0-9][A-Za-z0-9._+-]*$/;
+
 interface Launch {
   args?: string[];
   env?: Record<string, string>;
@@ -173,9 +178,11 @@ export class AcpRegistry {
   private readonly installing = new Set<string>();
 
   readonly toolsDir: string;
+  private readonly maxDownloadBytes: number;
 
-  constructor(toolsDir: string) {
+  constructor(toolsDir: string, maxDownloadBytes = MAX_DOWNLOAD_BYTES) {
     this.toolsDir = toolsDir;
+    this.maxDownloadBytes = maxDownloadBytes;
   }
 
   /** The registry, at most an hour old; the last copy on disk when it can't be reached. */
@@ -202,7 +209,11 @@ export class AcpRegistry {
     const parsed = JSON.parse(text) as { agents?: unknown };
     const entries = (Array.isArray(parsed.agents) ? parsed.agents : []).filter(
       (entry): entry is RegistryEntry =>
-        typeof entry === "object" && entry !== null && typeof (entry as RegistryEntry).id === "string" && typeof (entry as RegistryEntry).name === "string",
+        typeof entry === "object" &&
+        entry !== null &&
+        typeof (entry as RegistryEntry).id === "string" &&
+        SAFE_ID.test((entry as RegistryEntry).id) &&
+        typeof (entry as RegistryEntry).name === "string",
     );
     this.cached = { at: Date.now(), entries };
     return entries;
@@ -285,11 +296,14 @@ export class AcpRegistry {
   private installMethod(entry: RegistryEntry, tools: { npm: boolean; uvx: boolean }): { source?: OfferedAgent["source"]; reason?: string } {
     const { npx, uvx, binary } = entry.distribution;
     const download = binary?.[platformKey()];
-    if (npx && tools.npm) return { source: "npm" };
-    if (download?.sha256) return { source: "download" };
-    if (uvx && tools.uvx) return { source: "uvx" };
+    if (npx && tools.npm && PINNED_NPM.test(npx.package)) return { source: "npm" };
+    if (download?.sha256 && isSecureDownload(download.archive)) return { source: "download" };
+    if (uvx && tools.uvx && PINNED_UV.test(uvx.package)) return { source: "uvx" };
+    if (download?.sha256) return { reason: "its download isn't over HTTPS" };
     if (download) return { reason: "its download has no published checksum" };
+    if (uvx && tools.uvx) return { reason: "its package isn't pinned to a version" };
     if (uvx) return { reason: "needs uv on the server" };
+    if (npx && tools.npm) return { reason: "its package isn't pinned to a version" };
     if (npx) return { reason: "needs npm on the server" };
     return { reason: `no build for ${platformKey()}` };
   }
@@ -309,7 +323,8 @@ export class AcpRegistry {
       return { command: found, args: launch?.args ?? [], ...(launch?.env ? { env: launch.env } : {}) };
     }
     const folder = join(this.toolsDir, entry.id);
-    if (npx && tools.npm) {
+    const how = this.installMethod(entry, tools).source;
+    if (npx && how === "npm") {
       rmSync(folder, { recursive: true, force: true });
       mkdirSync(folder, { recursive: true });
       await run("npm", ["install", "--prefix", folder, "--no-audit", "--no-fund", "--loglevel=error", npx.package], { timeout: 10 * 60_000 }).catch(
@@ -319,13 +334,13 @@ export class AcpRegistry {
       );
       return { command: npmBinary(folder, npx.package, commandNames(entry)), args: npx.args ?? [], ...(npx.env ? { env: npx.env } : {}) };
     }
-    if (download?.sha256) {
+    if (download && how === "download") {
       rmSync(folder, { recursive: true, force: true });
       mkdirSync(folder, { recursive: true });
-      const command = await fetchArchive(download, folder);
+      const command = await fetchArchive(download, folder, this.maxDownloadBytes);
       return { command, args: download.args ?? [], ...(download.env ? { env: download.env } : {}) };
     }
-    if (uvx && tools.uvx) {
+    if (uvx && how === "uvx") {
       return { command: findCommand(["uvx"])!, args: [uvx.package, ...(uvx.args ?? [])], ...(uvx.env ? { env: uvx.env } : {}) };
     }
     throw new KervanError("bad_message", `${entry.name} can't be installed on this server: ${this.installMethod(entry, tools).reason}`);
@@ -345,14 +360,38 @@ function npmBinary(folder: string, spec: string, names: string[]): string {
   return path;
 }
 
+/** HTTPS only; plain HTTP just for this machine itself. */
+function isSecureDownload(address: string): boolean {
+  try {
+    const url = new URL(address);
+    return url.protocol === "https:" || (url.protocol === "http:" && ["127.0.0.1", "[::1]", "localhost"].includes(url.hostname));
+  } catch {
+    return false;
+  }
+}
+
+/** The whole body, giving up as soon as it passes the limit rather than after holding it all in memory. */
+async function readLimited(response: Response, maxBytes: number): Promise<Buffer> {
+  const tooLarge = () => new KervanError("bad_message", "the download is too large");
+  if (Number(response.headers.get("content-length") ?? 0) > maxBytes) throw tooLarge();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for await (const chunk of response.body ?? []) {
+    size += chunk.length;
+    if (size > maxBytes) {
+      void response.body?.cancel().catch(() => {});
+      throw tooLarge();
+    }
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
 /** Downloads an archive, checks it against the registry's checksum, unpacks it into `folder` and returns the command. */
-async function fetchArchive(download: BinaryLaunch, folder: string): Promise<string> {
+async function fetchArchive(download: BinaryLaunch, folder: string, maxBytes: number): Promise<string> {
   const response = await fetch(download.archive, { signal: AbortSignal.timeout(10 * 60_000) });
   if (!response.ok) throw new KervanError("bad_message", `the download failed (HTTP ${response.status})`);
-  const length = Number(response.headers.get("content-length") ?? 0);
-  if (length > MAX_DOWNLOAD_BYTES) throw new KervanError("bad_message", "the download is too large");
-  const data = Buffer.from(await response.arrayBuffer());
-  if (data.length > MAX_DOWNLOAD_BYTES) throw new KervanError("bad_message", "the download is too large");
+  const data = await readLimited(response, maxBytes);
   const sum = createHash("sha256").update(data).digest("hex");
   if (sum.toLowerCase() !== download.sha256!.toLowerCase()) {
     throw new KervanError("bad_message", "the download doesn't match the checksum the registry publishes; nothing was installed");

@@ -572,7 +572,8 @@ describe("web client", () => {
   let port = 0;
   let stop: () => Promise<void>;
   let web: WebAccess;
-  before(async () => ({ port, stop, web } = await startServer()));
+  let sessions: SessionManager;
+  before(async () => ({ port, stop, web, sessions } = await startServer()));
   after(async () => await stop());
 
   const url = (path: string) => `http://127.0.0.1:${port}${path}`;
@@ -634,6 +635,19 @@ describe("web client", () => {
       send(ws, { type, id: type, name: "x" });
       assert.equal((await inbox.waitFor((m) => m.id === type)).code, "forbidden", type);
     }
+    // What's the app's alone doesn't reach a browser unasked either; what it shows does.
+    sessions.broadcast({ type: "terminal.output", terminalId: "t", data: "TERMINAL-SECRET" });
+    sessions.broadcast({ type: "schedules.updated", schedules: [{ prompt: "SCHEDULE-SECRET" } as never] });
+    sessions.broadcast({ type: "nodes.updated", nodes: [], hubAddresses: [] });
+    sessions.broadcast({ type: "github.updated", github: { available: true, signedIn: true, signingIn: false, account: "someone" } });
+    sessions.broadcast({ type: "agent.login.finished", agent: "claude", signedIn: true });
+    sessions.broadcast({ type: "agents.updated", agents: ["last"], agentDetails: [] });
+    await inbox.waitFor((m) => m.type === "agents.updated" && m.agents[0] === "last");
+    const heard = new Set(inbox.received.map((m) => m.type));
+    for (const type of ["terminal.output", "schedules.updated", "nodes.updated", "github.updated", "agent.login.finished"]) {
+      assert.ok(!heard.has(type), `a browser heard ${type}`);
+    }
+
     // A browser may read what a session changed, but undoing and committing stay with the app.
     send(ws, { type: "session.changes", id: "read", sessionId: "no-such-session" });
     assert.equal((await inbox.waitFor((m) => m.id === "read")).code, "unknown_session", "allowed: it gets as far as looking for the session");

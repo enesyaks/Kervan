@@ -73,6 +73,12 @@ const WEB_ALLOWED = new Set<string>([
   "session.changes",
 ]);
 
+/**
+ * What a browser hears unasked: its sessions, and the names it shows. A list of what's allowed, so a new broadcast
+ * stays with the app until it's added here. Terminals, schedules, nodes and sign-ins are the app's.
+ */
+const WEB_EVENTS = new Set<ServerMessage["type"]>(["session.updated", "session.event", "agents.updated", "projects.updated", "board.updated"]);
+
 function rejectUpgrade(socket: Duplex, status: number, reason: string): void {
   socket.end(`HTTP/1.1 ${status} ${reason}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
 }
@@ -435,6 +441,7 @@ function handleConnection(
       if (!greeted) {
         greeted = true;
         unsubscribe = sessions.subscribe((event) => {
+          if (client.kind === "web" && !WEB_EVENTS.has(event.type)) return;
           if (ws.readyState === ws.OPEN) send(ws, event);
         });
       }
