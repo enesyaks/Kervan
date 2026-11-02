@@ -1,5 +1,6 @@
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
+import { cleanEnv } from "./agentenv.ts";
 import { log } from "./log.ts";
 import { KervanError, type GitHubStatus } from "./protocol.ts";
 
@@ -7,7 +8,7 @@ const run = promisify(execFile);
 const HOST = "github.com";
 // gh keeps its sign-in under the service user's own home, which is exactly who pushes and opens pull requests.
 // Read on every call, so PATH changes (and tests with a stand-in gh) are seen.
-const quiet = () => ({ ...process.env, GH_PROMPT_DISABLED: "1", GIT_TERMINAL_PROMPT: "0", NO_COLOR: "1" });
+const quiet = () => ({ ...cleanEnv(["GH_*", "GITHUB_*"]), GH_PROMPT_DISABLED: "1", GIT_TERMINAL_PROMPT: "0", NO_COLOR: "1" });
 
 /** The account in `gh auth status` output, in the wording of newer ("account x") and older ("as x") versions. */
 export function accountFrom(statusOutput: string): string | undefined {

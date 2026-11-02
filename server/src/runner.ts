@@ -8,6 +8,7 @@ import { Readable, Writable } from "node:stream";
 import { pathToFileURL } from "node:url";
 import * as acp from "@agentclientprotocol/sdk";
 import type { AgentCommand } from "./agents.ts";
+import { agentEnv } from "./agentenv.ts";
 import { log } from "./log.ts";
 import type { ConfigOption, FileDiff, PermissionChoice, SessionEventBody } from "./protocol.ts";
 
@@ -91,7 +92,7 @@ export class LocalAcpRunner implements AgentRunner {
     const { command, cwd, onEvent, onPermission, resumeSessionId, mcpServers, onUsage, onConfig } = options;
     const child = spawn(command.command, command.args, {
       cwd,
-      env: { ...process.env, ...command.env },
+      env: agentEnv(command),
       stdio: ["pipe", "pipe", "pipe"],
     });
     child.stderr.on("data", (chunk: Buffer) => log("debug", "agent stderr", { text: chunk.toString().slice(0, 500) }));

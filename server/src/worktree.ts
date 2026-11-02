@@ -1,13 +1,11 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { workspaceGit } from "./safegit.ts";
 
-const run = promisify(execFile);
 // Kervan's own commits (snapshots, merges) need an identity even where the kervan user has none.
 const IDENTITY = ["-c", "user.name=Kervan", "-c", "user.email=kervan@localhost"];
 const MAX_PATCH_CHARS = 20_000;
 
 async function git(cwd: string, ...args: string[]): Promise<string> {
-  const { stdout } = await run("git", ["-C", cwd, ...IDENTITY, ...args], { maxBuffer: 16 * 1024 * 1024 });
+  const { stdout } = await workspaceGit(cwd, args, { config: IDENTITY });
   return stdout;
 }
 

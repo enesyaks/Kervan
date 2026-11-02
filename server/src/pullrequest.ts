@@ -2,14 +2,12 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { commitAll, repositoryBranch } from "./checkpoints.ts";
 import { KervanError, type PullRequestInfo } from "./protocol.ts";
+import { gitEnv, workspaceGit } from "./safegit.ts";
 import { branchName } from "./worktree.ts";
 
 const run = promisify(execFile);
-// Never wait on a password prompt: the server has no one to type it.
-const QUIET = { ...process.env, GIT_TERMINAL_PROMPT: "0", GH_PROMPT_DISABLED: "1" };
-
 async function git(cwd: string, ...args: string[]): Promise<string> {
-  const { stdout } = await run("git", ["-C", cwd, ...args], { env: QUIET, timeout: 90_000 });
+  const { stdout } = await workspaceGit(cwd, args, { timeout: 90_000 });
   return stdout.trim();
 }
 
@@ -76,7 +74,7 @@ export async function openPullRequest(
 
   const created = await run("gh", ["pr", "create", "--title", request.title, "--body", request.body, "--base", base, "--head", branch], {
     cwd,
-    env: QUIET,
+    env: gitEnv(),
     timeout: 60_000,
   }).then(
     ({ stdout }) => stdout.trim().split("\n").pop(),

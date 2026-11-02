@@ -11,6 +11,8 @@ export interface AgentCommand {
   command: string;
   args: string[];
   env?: Record<string, string>;
+  /** Names from the server's environment this agent also gets (exact, or `PREFIX*`); see agentenv.ts. */
+  inheritEnv?: string[];
   /** ACP auth method to select right after `initialize`, for agents that wait for one (Gemini). */
   authMethod?: string;
   /** Workspace folder the agent loads Agent Skills from; others get them in `.kervan/skills`. */
@@ -36,10 +38,10 @@ const bin = (name: string) => join(serverRoot, "node_modules/.bin", name);
 
 /** Adapters shipped in server/package.json; `command: builtin` in agents.yaml refers to these. */
 const BUILTIN: Record<string, AgentDefinition> = {
-  claude: { name: "Claude Code", command: bin("claude-agent-acp"), args: [], skillsDir: ".claude/skills" },
-  codex: { name: "Codex", command: bin("codex-acp"), args: [], skillsDir: ".agents/skills" },
+  claude: { name: "Claude Code", command: bin("claude-agent-acp"), args: [], inheritEnv: ["ANTHROPIC_*", "CLAUDE_*"], skillsDir: ".claude/skills" },
+  codex: { name: "Codex", command: bin("codex-acp"), args: [], inheritEnv: ["OPENAI_*", "CODEX_*"], skillsDir: ".agents/skills" },
   // Gemini blocks on its first prompt until a method is chosen; Google account login is closed to individuals.
-  gemini: { name: "Gemini", command: bin("gemini"), args: ["--acp"], authMethod: "gemini-api-key", skillsDir: ".gemini/skills" },
+  gemini: { name: "Gemini", command: bin("gemini"), args: ["--acp"], inheritEnv: ["GEMINI_*", "GOOGLE_*"], authMethod: "gemini-api-key", skillsDir: ".gemini/skills" },
 };
 
 /** How each builtin agent signs in: an API key or token in its environment, or a login it saved under the home folder. */
@@ -110,6 +112,10 @@ export function parseAgents(text: string, file = "agents.yaml"): AgentDefinition
     const args = entry.args ?? base?.args ?? [];
     if (!Array.isArray(args) || !args.every((a) => typeof a === "string")) fail(file, `agent '${id}': 'args' must be a list of strings`);
     if (entry.env !== undefined && !isStringRecord(entry.env)) fail(file, `agent '${id}': 'env' must map names to strings`);
+    const inheritEnv = entry.inheritEnv ?? base?.inheritEnv;
+    if (inheritEnv !== undefined && (!Array.isArray(inheritEnv) || !inheritEnv.every((n) => typeof n === "string" && /^[A-Za-z_][A-Za-z0-9_]*\*?$/.test(n)))) {
+      fail(file, `agent '${id}': 'inheritEnv' must be a list of variable names, optionally ending in *`);
+    }
     const name = entry.name ?? base?.name ?? id;
     if (typeof name !== "string") fail(file, `agent '${id}': 'name' must be text`);
     const authMethod = entry.authMethod ?? base?.authMethod;
@@ -132,6 +138,7 @@ export function parseAgents(text: string, file = "agents.yaml"): AgentDefinition
       command,
       args,
       ...(entry.env ? { env: entry.env as Record<string, string> } : {}),
+      ...(inheritEnv ? { inheritEnv: inheritEnv as string[] } : {}),
       ...(authMethod ? { authMethod } : {}),
       ...(skillsDir ? { skillsDir: skillsDir as string } : {}),
       ...(protocol === "pty" ? { protocol: "pty" as const, ...(quietMs !== undefined ? { quietMs: quietMs as number } : {}) } : {}),

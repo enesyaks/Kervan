@@ -4,6 +4,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { isSafeRelativePath } from "./files.ts";
+import { gitEnv, workspaceGit } from "./safegit.ts";
 import type { ChangeSet, ChangedFile } from "./protocol.ts";
 
 const run = promisify(execFile);
@@ -107,13 +108,14 @@ export class Checkpoints {
     const dir = this.gitDir(sessionId);
     if (existsSync(join(dir, "HEAD"))) return;
     await mkdir(dir, { recursive: true, mode: 0o700 });
-    await run("git", ["--git-dir", dir, "init", "-q"]);
+    await run("git", ["--git-dir", dir, "init", "-q"], { env: gitEnv() });
     await mkdir(join(dir, "info"), { recursive: true });
     await writeFile(join(dir, "info", "exclude"), `${EXCLUDES.join("\n")}\n`);
   }
 
   private async git(sessionId: string, cwd: string, ...args: string[]): Promise<string> {
     const { stdout } = await run("git", ["--git-dir", this.gitDir(sessionId), "--work-tree", cwd, ...IDENTITY, ...args], {
+      env: gitEnv(),
       maxBuffer: 64 * 1024 * 1024,
     });
     return stdout;
@@ -129,12 +131,12 @@ export class Checkpoints {
 /** The branch of the folder's own repository; undefined when the folder is not in one. */
 export async function repositoryBranch(cwd: string): Promise<string | undefined> {
   try {
-    const { stdout } = await run("git", ["-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"]);
+    const { stdout } = await workspaceGit(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]);
     return stdout.trim();
   } catch {
     try {
       // A repository without commits yet has no HEAD to name, but is still a repository.
-      await run("git", ["-C", cwd, "rev-parse", "--git-dir"]);
+      await workspaceGit(cwd, ["rev-parse", "--git-dir"]);
       return "main";
     } catch {
       return undefined;
@@ -144,12 +146,12 @@ export async function repositoryBranch(cwd: string): Promise<string | undefined>
 
 /** Commits everything in the folder's repository; returns "<short hash> <subject>". */
 export async function commitAll(cwd: string, message: string): Promise<string> {
-  await run("git", ["-C", cwd, "add", "-A"]);
-  const staged = await run("git", ["-C", cwd, "diff", "--cached", "--quiet"]).then(() => false, () => true);
+  await workspaceGit(cwd, ["add", "-A"]);
+  const staged = await workspaceGit(cwd, ["diff", "--cached", "--quiet"]).then(() => false, () => true);
   if (!staged) throw new Error("nothing to commit");
   // The server's own git identity when it has one; Kervan's otherwise.
-  const own = await run("git", ["-C", cwd, "config", "user.email"]).then(() => true, () => false);
-  await run("git", ["-C", cwd, ...(own ? [] : IDENTITY), "commit", "--no-verify", "-q", "-m", message]);
-  const { stdout } = await run("git", ["-C", cwd, "log", "-1", "--format=%h %s"]);
+  const own = await workspaceGit(cwd, ["config", "user.email"]).then(() => true, () => false);
+  await workspaceGit(cwd, ["commit", "--no-verify", "-q", "-m", message], { config: own ? [] : IDENTITY });
+  const { stdout } = await workspaceGit(cwd, ["log", "-1", "--format=%h %s"]);
   return stdout.trim();
 }

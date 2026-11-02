@@ -1,3 +1,4 @@
+import { cleanEnv } from "./agentenv.ts";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
@@ -90,7 +91,7 @@ export class ProjectRegistry {
         try {
           await run("git", ["clone", "--quiet", "--", gitUrl, folder], {
             timeout: CLONE_TIMEOUT_MS,
-            env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+            env: { ...cleanEnv(["GH_*", "GITHUB_*"]), GIT_TERMINAL_PROMPT: "0" },
           });
         } catch (error) {
           const detail = error instanceof Error && "stderr" in error ? String((error as { stderr: unknown }).stderr).trim() : String(error);

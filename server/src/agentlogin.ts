@@ -3,6 +3,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { cleanEnv } from "./agentenv.ts";
 import { KervanError } from "./protocol.ts";
 
 const run = promisify(execFile);
@@ -42,7 +43,7 @@ function cli(agent: AccountAgent): string {
 }
 
 // No browser on a server: the CLIs print the address instead, and the app opens it on the Mac.
-const quiet = () => ({ ...process.env, BROWSER: "false", NO_COLOR: "1", TERM: "dumb" });
+const quiet = () => ({ ...cleanEnv(), BROWSER: "false", NO_COLOR: "1", TERM: "dumb" });
 const plain = (text: string) => text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "");
 
 /** The sign-in page and code a CLI printed, once it has printed them. */

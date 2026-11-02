@@ -1,3 +1,4 @@
+import { agentEnv } from "./agentenv.ts";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { AgentProcess, StartOptions } from "./runner.ts";
@@ -35,7 +36,7 @@ export async function startPty({ command, cwd, onEvent }: StartOptions): Promise
   const [program, args] = underTerminal(command.command, command.args);
   const child = spawn(program, args, {
     cwd,
-    env: { ...process.env, ...command.env, TERM: "dumb", NO_COLOR: "1", COLUMNS: "120", LINES: "40" },
+    env: { ...agentEnv(command), TERM: "dumb", NO_COLOR: "1", COLUMNS: "120", LINES: "40" },
     stdio: ["pipe", "pipe", "pipe"],
   });
   const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));

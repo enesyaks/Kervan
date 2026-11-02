@@ -1,6 +1,7 @@
 # Running agents apart from the server
 
-Status: proposed, nothing built. Comes from a security review; the problem below was reproduced on a local server.
+Status: steps 1 and 2 are built; the separate user (steps 3 to 6) is proposed. Comes from a security review; the problem
+below was reproduced on a local server.
 
 ## The problem
 
@@ -69,10 +70,14 @@ as today, with the cleaned environment. The app says agents aren't separated on 
 
 Each can ship alone; 1 and 2 are worthwhile even if the rest slips.
 
-1. **Clean environment.** Allowed list in `runner.ts`, `pty.ts`, `terminals.ts`, and for npm in `agentregistry.ts`. Takes
-   the key out of `env`; the files stay readable until step 4. Risk: an agent that needs a variable we drop, so
-   `agents.yaml` can name extras.
-2. **Git helper**, as above. Test: a hook and an fsmonitor planted in a workspace don't run on commit or PR.
+1. **Clean environment. Done** (`agentenv.ts`). Allowed list in `runner.ts`, `pty.ts`, `terminals.ts`, and for npm in
+   `agentregistry.ts`. Takes the key out of `env`; the files stay readable until step 4. An agent that needs a variable
+   names it with `inheritEnv` in `agents.yaml`.
+2. **Git helper. Done** (`safegit.ts`). Hooks, fsmonitor and signing are overridden through `GIT_CONFIG_*`, so gh's git is
+   covered too. What can't be overridden (`filter.*`, `diff.*.command`, `url.*`, `credential.*`, …) makes Kervan refuse to
+   run git in that repository, Git LFS's own filter excepted. **Still open for step 4:** pushing to a remote that is a
+   local path runs that repository's server-side hooks as `kervan`, and an agent can set `remote.origin.url`. The tests use
+   such a remote, so refusing it needs a decision; after the split it must be limited.
 3. **Spike on the VM, nothing merged.** Run real Claude Code through sudo and the wrapper. Must hold: stdio and ACP work,
    stopping a turn kills the whole process tree, PTY agents work, `NoNewPrivileges` is really back on for the agent.
    If any fails, switch to the launcher service.
