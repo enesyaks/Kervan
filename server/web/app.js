@@ -41,6 +41,10 @@ const state = {
   boards: new Map(),
   flash: null,
   menu: false,
+  // The open session's own menu (changes, rename, archive).
+  sessionMenu: false,
+  // Searching every conversation: what's typed, and the server's answer for it.
+  search: { query: "", hits: null },
   drafts: new Map(),
   attachments: new Map(), // sessionId → Array<{ id, name, path?, state, error? }>
 };
@@ -114,6 +118,11 @@ function signOut() {
 function connect() {
   clearTimeout(retryTimer);
   if (!state.key) return;
+  if (socket) {
+    socket.onclose = null;
+    socket.close();
+    socket = null;
+  }
   state.connection = "connecting";
   render();
   const scheme = location.protocol === "https:" ? "wss" : "ws";
@@ -164,6 +173,36 @@ function request(message) {
     socket.send(JSON.stringify({ ...message, id }));
   });
 }
+
+/**
+ * Back from the background (the phone was locked, the tab slept): the socket can be dead without saying so, and
+ * waiting out the retry timer would leave the page stale. Reconnect now, or check the socket and catch up.
+ */
+async function wake() {
+  if (!state.key) return;
+  if (!socket || socket.readyState !== WebSocket.OPEN || state.connection !== "connected") {
+    retry = 0;
+    connect();
+    return;
+  }
+  const alive = await Promise.race([
+    request({ type: "ping" }).then(() => true, () => false),
+    new Promise((resolve) => setTimeout(() => resolve(false), 3000)),
+  ]);
+  if (!alive) {
+    for (const { reject } of pending.values()) reject(new Error(L("The connection dropped.", "Bağlantı koptu.")));
+    pending.clear();
+    retry = 0;
+    connect();
+    return;
+  }
+  // What happened while away: the list, and with it the open conversation.
+  void loadSessions();
+}
+
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") void wake(); });
+window.addEventListener("online", () => void wake());
+window.addEventListener("pageshow", (event) => { if (event.persisted) void wake(); });
 
 function receive(message) {
   if (message.id && pending.has(message.id)) {
@@ -237,8 +276,9 @@ async function loadHistory(sessionId) {
   }
 }
 
-function showFlash(text) {
+function showFlash(text, kind = "problem") {
   state.flash = text;
+  state.flashKind = kind;
   render();
   setTimeout(() => {
     if (state.flash === text) {
@@ -317,6 +357,48 @@ async function create(agent, split = false) {
   }
 }
 
+let searchTimer = null;
+
+/** Searches every conversation as the user types, once there are two characters. */
+function searchFor(value) {
+  state.search.query = value;
+  clearTimeout(searchTimer);
+  const query = value.trim();
+  if (query.length < 2) {
+    state.search.hits = null;
+    render();
+    return;
+  }
+  searchTimer = setTimeout(async () => {
+    try {
+      const answer = await request({ type: "session.search", query });
+      if (state.search.query.trim() !== query) return;
+      state.search.hits = answer.hits;
+      render();
+    } catch (error) {
+      showFlash(error.message);
+    }
+  }, 250);
+}
+
+async function rename(sessionId, title) {
+  try { await request({ type: "session.rename", sessionId, title }); } catch (error) { showFlash(error.message); }
+}
+
+async function archive(sessionId) {
+  try {
+    await request({ type: "session.archive", sessionId, archived: true });
+    location.hash = "#/";
+    showFlash(L("Archived. It's still in the Kervan app.", "Arşivlendi. Kervan uygulamasında duruyor."), "info");
+  } catch (error) {
+    showFlash(error.message);
+  }
+}
+
+async function configure(sessionId, configId, value) {
+  try { await request({ type: "session.config", sessionId, configId, value }); } catch (error) { showFlash(error.message); }
+}
+
 // MARK: Routing
 
 function route() {
@@ -325,6 +407,7 @@ function route() {
   state.open = match ? decodeURIComponent(match[1]) : null;
   state.board = board ? decodeURIComponent(board[1]) : null;
   state.menu = false;
+  state.sessionMenu = false;
   if (state.board && state.connection === "connected") void loadBoard(state.board);
   if (state.open && !state.events.has(state.open) && state.connection === "connected") void loadHistory(state.open);
   render(true);
@@ -356,6 +439,7 @@ const ICONS = {
   more: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>',
   send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
   stop: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
+  search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>',
   paperclip: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>',
 };
 
@@ -651,12 +735,23 @@ function render(toEnd = false) {
     return;
   }
   if (!shell) {
-    shell = { root: h("div", { class: "shell" }), list: h("section", { class: "list-pane" }), pane: h("section", { class: "session-pane" }) };
+    shell = {
+      root: h("div", { class: "shell" }),
+      list: h("section", { class: "list-pane" }),
+      listHead: h("div", { class: "list-head" }),
+      // Built once, so typing in it isn't interrupted by the list redrawing.
+      search: searchBox(),
+      listBody: h("div", { class: "sessions" }),
+      pane: h("section", { class: "session-pane" }),
+    };
+    shell.list.append(shell.listHead, shell.search, shell.listBody);
     shell.root.append(shell.list, shell.pane);
     root.replaceChildren(shell.root);
   }
   shell.root.classList.toggle("open", Boolean(state.open || state.board));
-  shell.list.replaceChildren(...listPane());
+  const list = listPane();
+  shell.listHead.replaceChildren(list.head);
+  shell.listBody.replaceChildren(...list.body.flat(Infinity).filter(Boolean));
   renderSessionPane();
 }
 
@@ -730,14 +825,19 @@ function listPane() {
     ...helpersOf(session.id).map(helperRow),
   ];
 
-  return [
-    h("header", { class: "bar" },
-      h("h1", {}, "Kervan"),
-      h("span", { class: "connection" }, h("span", { class: `dot ${state.connection === "connected" ? "connected" : state.connection}` }), connectionLabel),
-      h("span", { class: "spacer" }),
-      h("button", { class: "icon-button", title: L("New session", "Yeni oturum"), "aria-label": L("New session", "Yeni oturum"), disabled: state.connection !== "connected", onclick: openNewSession }, icon("plus")),
-      menu()),
-    h("div", { class: "sessions" },
+  const head = h("header", { class: "bar" },
+    h("h1", {}, "Kervan"),
+    state.connection === "connected"
+      ? h("span", { class: "connection" }, h("span", { class: "dot connected" }), connectionLabel)
+      : h("button", { class: "connection retry", onclick: () => void wake(), title: L("Try now", "Şimdi dene") }, h("span", { class: `dot ${state.connection}` }), connectionLabel),
+    h("span", { class: "spacer" }),
+    h("button", { class: "icon-button", title: L("New session", "Yeni oturum"), "aria-label": L("New session", "Yeni oturum"), disabled: state.connection !== "connected", onclick: openNewSession }, icon("plus")),
+    menu());
+  // On the list too, for what happens as it comes back here (archiving) and when no session is open.
+  const flash = state.flash ? h("div", { class: state.flashKind === "info" ? "list-note" : "failure list-note", role: "status" }, state.flash) : null;
+  if (state.search.hits) return { head, body: [flash, searchResults()] };
+  return { head, body: [
+      flash,
       sessions.length === 0
         ? h("p", { class: "empty" }, state.connection === "connected" ? L("No sessions yet. Start one with +.", "Henüz oturum yok. + ile başlatın.") : "")
         : [
@@ -753,7 +853,39 @@ function listPane() {
       },
         h("span", { class: "text" },
           h("div", { class: "title" }, project.name),
-          h("div", { class: "meta" }, L("Task board", "Görev panosu")))))),
+          h("div", { class: "meta" }, L("Task board", "Görev panosu"))))),
+  ] };
+}
+
+function searchBox() {
+  const input = h("input", {
+    type: "search",
+    enterkeyhint: "search",
+    placeholder: L("Search conversations", "Konuşmalarda ara"),
+    "aria-label": L("Search conversations", "Konuşmalarda ara"),
+    oninput: () => searchFor(input.value),
+  });
+  return h("form", { class: "search", role: "search", onsubmit: (event) => { event.preventDefault(); input.blur(); } }, icon("search"), input);
+}
+
+/** Matches across every conversation, newest session first; a match opens its session. */
+function searchResults() {
+  const hits = state.search.hits;
+  if (hits.length === 0) return [h("p", { class: "empty" }, L(`Nothing matches “${state.search.query.trim()}”.`, `“${state.search.query.trim()}” ile eşleşen bir şey yok.`))];
+  const snippet = (text) => escapeHTML(text).replace(/\u0001/g, "<mark>").replace(/\u0002/g, "</mark>");
+  return [
+    h("h3", {}, hits.length === 1 ? L("1 match", "1 sonuç") : L(`${hits.length} matches`, `${hits.length} sonuç`)),
+    hits.map((hit) => {
+      const session = state.sessions.get(hit.sessionId);
+      return h("button", {
+        class: `session-row hit${hit.sessionId === state.open ? " selected" : ""}`,
+        onclick: () => { location.hash = `#/s/${encodeURIComponent(hit.sessionId)}`; },
+      },
+        h("span", { class: "text" },
+          h("div", { class: "title" }, session ? session.title || agentName(session.agent) : L("Archived session", "Arşivlenmiş oturum"),
+            h("span", { class: "who" }, hit.role === "user" ? L(" · you", " · siz") : session ? ` · ${agentName(session.agent)}` : "")),
+          h("div", { class: "snippet", html: snippet(hit.snippet) })));
+    }),
   ];
 }
 
@@ -846,7 +978,7 @@ function renderSessionPane() {
   if (paneFor !== session.id) {
     paneFor = session.id;
     paneParts = buildPane(session.id);
-    shell.pane.replaceChildren(paneParts.header, paneParts.flash, paneParts.transcript, paneParts.composer);
+    shell.pane.replaceChildren(paneParts.header, paneParts.banner, paneParts.flash, paneParts.transcript, paneParts.composer);
     scrollToEnd = true;
   }
   const busy = session.status === "running" || session.status === "starting" || session.status === "waiting";
@@ -855,6 +987,19 @@ function renderSessionPane() {
   paneParts.statusText.textContent = `${agentName(session.agent)} · ${statusText(session)}`;
   paneParts.flash.hidden = !state.flash;
   paneParts.flash.textContent = state.flash ?? "";
+  paneParts.banner.hidden = state.connection === "connected";
+  if (state.connection !== "connected") {
+    paneParts.banner.replaceChildren(
+      h("span", { class: `dot ${state.connection}` }),
+      h("span", {}, state.connection === "connecting" ? L("Connecting…", "Bağlanıyor…") : L("Not connected. What you've written stays here.", "Bağlantı yok. Yazdıklarınız burada kalır.")),
+      state.connection === "offline" ? h("button", { class: "quiet", onclick: () => void wake() }, L("Try now", "Şimdi dene")) : null);
+  }
+  paneParts.menuBox.replaceChildren(...sessionMenu(session).filter(Boolean));
+  const optionsSig = JSON.stringify(session.config ?? []);
+  if (paneParts.optionsSig !== optionsSig) {
+    paneParts.optionsSig = optionsSig;
+    paneParts.options.replaceChildren(...configMenus(session));
+  }
   paneParts.button.className = `send${busy ? " stop" : ""}`;
   paneParts.button.replaceChildren(icon(busy ? "stop" : "send"));
   paneParts.button.setAttribute("aria-label", busy ? L("Stop", "Durdur") : L("Send", "Gönder"));
@@ -898,13 +1043,129 @@ function renderSessionPane() {
   scrollToEnd = false;
 }
 
+/** The open session's menu: its changes, rename, archive. */
+function sessionMenu(session) {
+  const close = () => { state.sessionMenu = false; render(); };
+  return [
+    h("button", { class: "icon-button", "aria-label": L("Session actions", "Oturum işlemleri"), "aria-expanded": String(state.sessionMenu), onclick: () => { state.sessionMenu = !state.sessionMenu; render(); } }, icon("more")),
+    state.sessionMenu
+      ? h("div", { class: "menu-list", role: "menu" },
+          h("button", { role: "menuitem", onclick: () => { close(); void openChanges(session.id); } }, L("Changes", "Değişiklikler")),
+          h("button", { role: "menuitem", onclick: () => { close(); openRename(session); } }, L("Rename…", "Yeniden adlandır…")),
+          h("button", { role: "menuitem", class: "danger", onclick: () => { close(); void archive(session.id); } }, L("Archive", "Arşivle")))
+      : null,
+  ];
+}
+
+/** One menu per setting the agent offers for this session, model first. */
+function configMenus(session) {
+  const order = { model: 0, mode: 1, thought_level: 2 };
+  const settings = [...(session.config ?? [])].sort((a, b) => (order[a.category] ?? 9) - (order[b.category] ?? 9));
+  return settings.filter((option) => option.choices.length > 1).map((option) => {
+    const select = h("select", {
+      "aria-label": option.name,
+      title: option.name,
+      onchange: () => void configure(session.id, option.id, select.value),
+    }, option.choices.map((choice) => h("option", { value: choice.value, selected: choice.value === option.value }, choice.name)));
+    return h("label", { class: "setting" }, select);
+  });
+}
+
+function openRename(session) {
+  const input = h("input", { type: "text", value: session.title || "", maxlength: "120", "aria-label": L("Name", "Ad"), enterkeyhint: "done" });
+  const dialog = h("dialog", { "aria-label": L("Rename the session", "Oturumu yeniden adlandır") },
+    h("form", {
+      method: "dialog",
+      onsubmit: (event) => {
+        event.preventDefault();
+        const title = input.value.trim();
+        dialog.close();
+        if (title && title !== session.title) void rename(session.id, title);
+      },
+    },
+      h("h2", {}, L("Rename", "Yeniden adlandır")),
+      h("label", { class: "field" }, input),
+      h("div", { class: "row" },
+        h("span", { class: "spacer" }),
+        h("button", { type: "button", class: "quiet", onclick: () => dialog.close() }, L("Cancel", "Vazgeç")),
+        h("button", { type: "submit", class: "primary" }, L("Save", "Kaydet")))));
+  dialog.addEventListener("close", () => dialog.remove());
+  document.body.append(dialog);
+  dialog.showModal();
+  input.select();
+}
+
+/** A unified diff split per file, keyed by the file's path. */
+function patchByFile(patch) {
+  const files = new Map();
+  for (const part of patch.split(/^(?=diff --git )/m)) {
+    const path = /^\+\+\+ b\/(.+)$/m.exec(part)?.[1] ?? /^--- a\/(.+)$/m.exec(part)?.[1] ?? /^diff --git a\/(.+?) b\//.exec(part)?.[1];
+    if (path) files.set(path, part);
+  }
+  return files;
+}
+
+function diffView(text) {
+  // From the first hunk on: on a phone git's header lines only take up room.
+  const lines = text.replace(/\n$/, "").split("\n");
+  const first = lines.findIndex((line) => line.startsWith("@@"));
+  const kind = (line) => line.startsWith("@@") ? "hunk" : line.startsWith("+") ? "add" : line.startsWith("-") ? "del" : line.startsWith("\\") ? "meta" : "";
+  return h("pre", { class: "diff" }, lines.slice(Math.max(first, 0)).map((line) => h("span", { class: kind(line) }, line || " ")));
+}
+
+/** What the session changed in its folder, file by file, to read on the go; undoing and committing stay in the app. */
+async function openChanges(sessionId) {
+  const body = h("div", { class: "sheet-body" }, h("p", { class: "empty" }, L("Loading…", "Yükleniyor…")));
+  const dialog = h("dialog", { class: "sheet", "aria-label": L("Changes", "Değişiklikler") },
+    h("div", { class: "sheet-head" },
+      h("h2", {}, L("Changes", "Değişiklikler")),
+      h("span", { class: "spacer" }),
+      h("button", { class: "quiet", onclick: () => dialog.close() }, L("Close", "Kapat"))),
+    body);
+  dialog.addEventListener("close", () => dialog.remove());
+  document.body.append(dialog);
+  dialog.showModal();
+  try {
+    const { changes } = await request({ type: "session.changes", sessionId });
+    if (changes.files.length === 0) {
+      body.replaceChildren(h("p", { class: "empty" }, L("No changes in this session's folder yet.", "Bu oturumun klasöründe henüz değişiklik yok.")));
+      return;
+    }
+    const added = changes.files.reduce((sum, f) => sum + f.additions, 0);
+    const removed = changes.files.reduce((sum, f) => sum + f.deletions, 0);
+    const parts = patchByFile(changes.patch);
+    const status = { added: L("new", "yeni"), deleted: L("deleted", "silindi"), modified: "" };
+    body.replaceChildren(...[
+      h("p", { class: "summary" },
+        L(`${changes.files.length} files`, `${changes.files.length} dosya`), " · ",
+        h("span", { class: "plus" }, `+${added}`), " ", h("span", { class: "minus" }, `−${removed}`),
+        changes.branch ? ` · ${changes.branch}` : ""),
+      changes.files.map((file) => h("details", { class: "file" },
+        h("summary", {},
+          h("span", { class: "path" }, file.path),
+          status[file.status] ? h("span", { class: "badge" }, status[file.status]) : null,
+          h("span", { class: "counts" }, h("span", { class: "plus" }, `+${file.additions}`), " ", h("span", { class: "minus" }, `−${file.deletions}`))),
+        parts.has(file.path) ? diffView(parts.get(file.path)) : h("p", { class: "empty" }, L("No text diff for this file.", "Bu dosya için metin farkı yok."))),
+      ),
+      changes.truncated ? h("p", { class: "note" }, L("The diff was cut short; open it in the Kervan app for the rest.", "Fark kısaltıldı; tamamı için Kervan uygulamasında açın.")) : null,
+      h("p", { class: "note" }, L("Undoing, committing and pull requests are in the Kervan app.", "Geri alma, commit ve pull request Kervan uygulamasında.")),
+    ].flat(Infinity).filter(Boolean));
+  } catch (error) {
+    body.replaceChildren(h("p", { class: "error-text" }, error.message));
+  }
+}
+
 function buildPane(sessionId) {
   const title = h("h2", {});
   const status = h("span", { class: "dot" });
   const statusText = h("span", {});
+  const menuBox = h("div", { class: "menu" });
   const header = h("header", { class: "bar" },
     h("button", { class: "icon-button back", "aria-label": L("Back to sessions", "Oturumlara dön"), onclick: () => { location.hash = "#/"; } }, icon("back")),
-    h("div", { class: "head-text" }, title, h("div", { class: "connection" }, status, statusText)));
+    h("div", { class: "head-text" }, title, h("div", { class: "connection" }, status, statusText)),
+    menuBox);
+  // Shown while the connection is down, with a way to try again at once.
+  const banner = h("div", { class: "banner", role: "status", hidden: true });
   const flash = h("div", { class: "failure flash", role: "alert", hidden: true });
   const transcript = h("div", { class: "transcript" });
   const chips = h("div", { class: "composer-chips" });
@@ -998,21 +1259,26 @@ function buildPane(sessionId) {
   });
 
   const inputRow = h("div", { class: "composer-input-row" }, attachBtn, fileInput, textarea, button);
+  // The agent's own settings for this session (model, mode, …), as the Mac app shows under its message box.
+  const options = h("div", { class: "composer-options" });
   const composer = h("div", { class: "composer" },
     h("form", {
       onsubmit: (event) => { event.preventDefault(); submit(); },
       ondragover: handleDragOver,
       ondrop: handleDrop,
-    }, chips, inputRow));
+    }, chips, inputRow, options));
   requestAnimationFrame(grow);
-  return { header, title, status, statusText, flash, transcript, composer, button, chips };
+  return { header, menuBox, banner, title, status, statusText, flash, transcript, composer, button, chips, options, optionsSig: null };
 }
 
 // MARK: Start
 
 document.addEventListener("click", (event) => {
-  if (state.menu && !event.target.closest(".menu")) {
+  // The path as it was when clicked: the menu button itself may have been redrawn by its own click.
+  const inMenu = event.composedPath().some((element) => element.classList?.contains("menu"));
+  if ((state.menu || state.sessionMenu) && !inMenu) {
     state.menu = false;
+    state.sessionMenu = false;
     render();
   }
 });

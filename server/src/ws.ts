@@ -67,6 +67,8 @@ const WEB_ALLOWED = new Set<string>([
   "session.archive",
   "session.search",
   "session.config",
+  // To read what a session changed; undoing, committing and pull requests stay with the app.
+  "session.changes",
 ]);
 
 function rejectUpgrade(socket: Duplex, status: number, reason: string): void {

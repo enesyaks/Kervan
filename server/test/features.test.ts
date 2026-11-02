@@ -634,6 +634,13 @@ describe("web client", () => {
       send(ws, { type, id: type, name: "x" });
       assert.equal((await inbox.waitFor((m) => m.id === type)).code, "forbidden", type);
     }
+    // A browser may read what a session changed, but undoing and committing stay with the app.
+    send(ws, { type: "session.changes", id: "read", sessionId: "no-such-session" });
+    assert.equal((await inbox.waitFor((m) => m.id === "read")).code, "unknown_session", "allowed: it gets as far as looking for the session");
+    for (const type of ["session.revert", "session.commit", "session.pullRequest"]) {
+      send(ws, { type, id: type, sessionId: "no-such-session" });
+      assert.equal((await inbox.waitFor((m) => m.id === type)).code, "forbidden", type);
+    }
     // Malformed restricted requests are refused the same way, without saying what a valid one looks like.
     send(ws, { type: "node.invite", id: "bare" });
     assert.equal((await inbox.waitFor((m) => m.id === "bare")).code, "forbidden");
