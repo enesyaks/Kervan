@@ -722,6 +722,15 @@ function scheduleRender(toEnd = false) {
   });
 }
 
+/** The search box and the composer are built once and keep their words, so both are built anew in the new language. */
+function switchLanguage() {
+  lang = lang === "tr" ? "en" : "tr";
+  stored.set(LANG_STORE, lang);
+  shell = null;
+  paneFor = null;
+  render();
+}
+
 function render(toEnd = false) {
   scrollToEnd ||= toEnd;
   const root = document.getElementById("app");
@@ -753,6 +762,7 @@ function render(toEnd = false) {
   shell.listHead.replaceChildren(list.head);
   shell.listBody.replaceChildren(...list.body.flat(Infinity).filter(Boolean));
   renderSessionPane();
+  placeMenuFocus();
 }
 
 function signInScreen() {
@@ -783,7 +793,7 @@ function signInScreen() {
       h("label", { class: "field" }, h("span", {}, L("Pairing code", "Eşleştirme kodu")), input),
       state.signInError ? h("p", { class: "error-text", role: "alert" }, state.signInError) : null,
       h("div", { class: "row" },
-        h("button", { type: "button", class: "quiet", onclick: () => { lang = lang === "tr" ? "en" : "tr"; stored.set(LANG_STORE, lang); render(); } }, lang === "tr" ? "English" : "Türkçe"),
+        h("button", { type: "button", class: "quiet", onclick: switchLanguage }, lang === "tr" ? "English" : "Türkçe"),
         h("span", { class: "spacer" }),
         h("button", { type: "submit", class: "primary", disabled: state.checking }, state.checking ? L("Pairing…", "Eşleştiriliyor…") : L("Pair this browser", "Bu tarayıcıyı eşleştir")))));
 }
@@ -791,7 +801,7 @@ function signInScreen() {
 function listPane() {
   const connectionLabel = state.connection === "connected"
     ? (state.server ? `${state.server.name} · ${state.server.version}` : L("Connected", "Bağlı"))
-    : state.connection === "connecting" ? L("Connecting…", "Bağlanıyor…") : L("Offline, retrying", "Bağlantı yok, yeniden deneniyor");
+    : state.connection === "connecting" ? L("Connecting…", "Bağlanıyor…") : L("Offline", "Bağlantı yok");
   const sessions = listedSessions();
   const helpersOf = (leadId) => [...state.sessions.values()]
     .filter((s) => !s.archived && s.parentId === leadId)
@@ -828,8 +838,8 @@ function listPane() {
   const head = h("header", { class: "bar" },
     h("h1", {}, "Kervan"),
     state.connection === "connected"
-      ? h("span", { class: "connection" }, h("span", { class: "dot connected" }), connectionLabel)
-      : h("button", { class: "connection retry", onclick: () => void wake(), title: L("Try now", "Şimdi dene") }, h("span", { class: `dot ${state.connection}` }), connectionLabel),
+      ? h("span", { class: "connection" }, h("span", { class: "dot connected" }), h("span", { class: "connection-label" }, connectionLabel))
+      : h("button", { class: "connection retry", onclick: () => void wake(), title: L("Try now", "Şimdi dene") }, h("span", { class: `dot ${state.connection}` }), h("span", { class: "connection-label" }, connectionLabel)),
     h("span", { class: "spacer" }),
     h("button", { class: "icon-button", title: L("New session", "Yeni oturum"), "aria-label": L("New session", "Yeni oturum"), disabled: state.connection !== "connected", onclick: openNewSession }, icon("plus")),
     menu());
@@ -865,6 +875,7 @@ function searchBox() {
     "aria-label": L("Search conversations", "Konuşmalarda ara"),
     oninput: () => searchFor(input.value),
   });
+  input.value = state.search.query;
   return h("form", { class: "search", role: "search", onsubmit: (event) => { event.preventDefault(); input.blur(); } }, icon("search"), input);
 }
 
@@ -924,12 +935,41 @@ function boardPane(projectId) {
   ];
 }
 
+/** Menus are drawn anew with each render, so where the keyboard is goes through these. */
+let menuIndex = 0;
+let menuButton = null; // which menu's button gets the focus back once it's closed
+
+function toggleMenu(name) {
+  const opening = !state[name];
+  closeMenus(!opening);
+  state[name] = opening;
+  menuIndex = 0;
+  menuButton = opening ? name : menuButton;
+  render();
+}
+
+function closeMenus(giveFocusBack) {
+  state.menu = false;
+  state.sessionMenu = false;
+  if (!giveFocusBack) menuButton = null;
+}
+
+function placeMenuFocus() {
+  const open = document.querySelector('[role="menu"]');
+  if (open) {
+    if (!open.contains(document.activeElement)) open.querySelectorAll('[role="menuitem"]')[menuIndex]?.focus();
+  } else if (menuButton) {
+    document.querySelector(`[data-menu-button="${menuButton}"]`)?.focus();
+    menuButton = null;
+  }
+}
+
 function menu() {
   return h("div", { class: "menu" },
-    h("button", { class: "icon-button", "aria-label": L("More", "Diğer"), "aria-expanded": String(state.menu), onclick: () => { state.menu = !state.menu; render(); } }, icon("more")),
+    h("button", { class: "icon-button", "aria-label": L("More", "Diğer"), "aria-haspopup": "menu", "aria-expanded": String(state.menu), "data-menu-button": "menu", onclick: () => toggleMenu("menu") }, icon("more")),
     state.menu
       ? h("div", { class: "menu-list", role: "menu" },
-          h("button", { role: "menuitem", onclick: () => { lang = lang === "tr" ? "en" : "tr"; stored.set(LANG_STORE, lang); state.menu = false; render(); } }, lang === "tr" ? "English" : "Türkçe"),
+          h("button", { role: "menuitem", onclick: () => { closeMenus(true); switchLanguage(); } }, lang === "tr" ? "English" : "Türkçe"),
           h("button", { role: "menuitem", onclick: signOut, title: L("Forgets this browser's key here; remove the device in the app to end it there too.", "Bu tarayıcıdaki anahtarı siler; tamamen kaldırmak için cihazı uygulamadan da silin.") }, L("Sign out", "Çıkış yap")))
       : null);
 }
@@ -1045,9 +1085,9 @@ function renderSessionPane() {
 
 /** The open session's menu: its changes, rename, archive. */
 function sessionMenu(session) {
-  const close = () => { state.sessionMenu = false; render(); };
+  const close = () => { closeMenus(true); render(); };
   return [
-    h("button", { class: "icon-button", "aria-label": L("Session actions", "Oturum işlemleri"), "aria-expanded": String(state.sessionMenu), onclick: () => { state.sessionMenu = !state.sessionMenu; render(); } }, icon("more")),
+    h("button", { class: "icon-button", "aria-label": L("Session actions", "Oturum işlemleri"), "aria-haspopup": "menu", "aria-expanded": String(state.sessionMenu), "data-menu-button": "sessionMenu", onclick: () => toggleMenu("sessionMenu") }, icon("more")),
     state.sessionMenu
       ? h("div", { class: "menu-list", role: "menu" },
           h("button", { role: "menuitem", onclick: () => { close(); void openChanges(session.id); } }, L("Changes", "Değişiklikler")),
@@ -1284,9 +1324,26 @@ document.addEventListener("click", (event) => {
   // The path as it was when clicked: the menu button itself may have been redrawn by its own click.
   const inMenu = event.composedPath().some((element) => element.classList?.contains("menu"));
   if ((state.menu || state.sessionMenu) && !inMenu) {
-    state.menu = false;
-    state.sessionMenu = false;
+    closeMenus(false);
     render();
+  }
+});
+
+document.addEventListener("keydown", (event) => {
+  const open = document.querySelector('[role="menu"]');
+  if (!open) return;
+  const items = [...open.querySelectorAll('[role="menuitem"]')];
+  const at = items.indexOf(document.activeElement);
+  const moves = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: items.length - 1 };
+  if (event.key === "Escape" || event.key === "Tab") {
+    // Tab carries on from the menu's button, where it would have gone from.
+    if (event.key === "Escape") event.preventDefault();
+    closeMenus(true);
+    render();
+  } else if (event.key in moves) {
+    event.preventDefault();
+    menuIndex = (moves[event.key] + items.length) % items.length;
+    items[menuIndex].focus();
   }
 });
 
