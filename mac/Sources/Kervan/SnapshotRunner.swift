@@ -113,6 +113,16 @@ enum SnapshotRunner {
                 render(view: catalog, size: CGSize(width: 580, height: 560), appearance: NSAppearance(named: app.ns)!, to: outURL.appendingPathComponent(catalogName))
                 print("[SnapshotRunner] Wrote \(catalogName)")
 
+                // 1d. Setting up Tailscale on the server, from Web access.
+                let tailscale = ServerUpdateSheet(access: .both)
+                    .environment(model)
+                    .fontDesign(.rounded)
+                    .preferredColorScheme(app.scheme)
+                    .environment(\.colorScheme, app.scheme)
+                let tailscaleName = "16-tailscale-setup-\(lang.name)-\(app.name).png"
+                render(view: tailscale, size: CGSize(width: 520, height: 330), appearance: NSAppearance(named: app.ns)!, to: outURL.appendingPathComponent(tailscaleName))
+                print("[SnapshotRunner] Wrote \(tailscaleName)")
+
                 // 2. Tour cards
                 for card in tourCards {
                     let view = WelcomeTourView(close: {}, initialPage: card.page)

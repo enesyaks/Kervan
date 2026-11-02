@@ -96,12 +96,19 @@ struct SidebarNotices: View {
 
 /// Brings the connected hub to the version this app carries, over SSH, keeping its token, settings and firewall.
 struct ServerUpdateSheet: View {
+    /// `.update` replaces the code; `.both` also installs Tailscale on the server and signs it in, for web access
+    /// from anywhere.
+    var access: HubSetup.Access = .update
+
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @AppStorage("serverUpdateUser") private var user = "ubuntu"
     @State private var host = ""
 
-    private static let steps: [HubSetupStep] = [.uploading, .packages, .files, .service, .ready]
+    private var tailscale: Bool { access == .both }
+    private var steps: [HubSetupStep] {
+        tailscale ? [.uploading, .packages, .files, .firewall, .service, .tailscaleLogin, .ready] : [.uploading, .packages, .files, .service, .ready]
+    }
 
     var body: some View {
         let installer = model.serverUpdater
@@ -111,11 +118,16 @@ struct ServerUpdateSheet: View {
 
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 6) {
-                Text(L("Update the server", "Sunucuyu güncelle")).font(.title2.weight(.semibold))
-                Text(L(
-                    "The server runs \(model.outdatedServer ?? "an older version"); this app carries \(KervanVersion.current). The update replaces Kervan's code over SSH and restarts it. Settings, firewall, sessions and keys stay as they are; running turns are cut off.",
-                    "Sunucu \(model.outdatedServer ?? "eski bir sürüm") çalıştırıyor; bu uygulama \(KervanVersion.current) taşıyor. Güncelleme Kervan'ın kodunu SSH ile değiştirip yeniden başlatır. Ayarlar, güvenlik duvarı, oturumlar ve anahtarlar olduğu gibi kalır; süren turlar kesilir."
-                ))
+                Text(tailscale ? L("Set up Tailscale on the server", "Sunucuya Tailscale kur") : L("Update the server", "Sunucuyu güncelle")).font(.title2.weight(.semibold))
+                Text(tailscale
+                    ? L(
+                        "Installs Tailscale on the server over SSH, lets it through the firewall and signs it in with your Tailscale account, so Kervan answers wherever your phone is on Tailscale. Kervan restarts with the code this app carries; sessions and keys stay, running turns are cut off.",
+                        "Tailscale'i sunucuya SSH ile kurar, güvenlik duvarından geçirir ve Tailscale hesabınızla giriş yapar; böylece telefonunuz Tailscale'deyken Kervan her yerden yanıt verir. Kervan bu uygulamanın taşıdığı kodla yeniden başlar; oturumlar ve anahtarlar kalır, süren turlar kesilir."
+                    )
+                    : L(
+                        "The server runs \(model.outdatedServer ?? "an older version"); this app carries \(KervanVersion.current). The update replaces Kervan's code over SSH and restarts it. Settings, firewall, sessions and keys stay as they are; running turns are cut off.",
+                        "Sunucu \(model.outdatedServer ?? "eski bir sürüm") çalıştırıyor; bu uygulama \(KervanVersion.current) taşıyor. Güncelleme Kervan'ın kodunu SSH ile değiştirip yeniden başlatır. Ayarlar, güvenlik duvarı, oturumlar ve anahtarlar olduğu gibi kalır; süren turlar kesilir."
+                    ))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             }
@@ -130,19 +142,29 @@ struct ServerUpdateSheet: View {
                 .frame(height: 124)
             } else {
                 StepList(
-                    steps: Self.steps.map { ($0.title, $0.detail) },
-                    reached: Self.steps.firstIndex(of: installer.step) ?? Self.steps.count - 1,
+                    steps: steps.map { ($0.title, $0.detail) },
+                    reached: steps.firstIndex(of: installer.step) ?? steps.count - 1,
                     running: installer.isRunning || installer.waitingForTerminal,
                     failed: failed,
                     startedAt: installer.startedAt
                 )
+                if let url = installer.tailscaleURL {
+                    Button(L("Sign in to Tailscale", "Tailscale'e giriş yap")) { NSWorkspace.shared.open(url) }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.kervanLapis)
+                }
                 if installer.waitingForTerminal {
                     Guidance(
-                        text: L(
-                            "sudo needs a password on the server. Run this in Terminal; it asks for your password there, and this window carries on when it's done.",
-                            "Sunucuda sudo parola istiyor. Terminal'de şunu çalıştırın; parolanız orada sorulur, bitince bu pencere kendiliğinden devam eder."
-                        ),
-                        command: HubSetup.terminalCommand(user: user, host: host, access: .update)
+                        text: tailscale
+                            ? L(
+                                "sudo needs a password on the server. Run this in Terminal; it asks for your password there and then prints Tailscale's sign-in link. This window carries on when it's done.",
+                                "Sunucuda sudo parola istiyor. Terminal'de şunu çalıştırın; parolanız orada sorulur, ardından Tailscale'in giriş bağlantısı çıkar. Bitince bu pencere kendiliğinden devam eder."
+                            )
+                            : L(
+                                "sudo needs a password on the server. Run this in Terminal; it asks for your password there, and this window carries on when it's done.",
+                                "Sunucuda sudo parola istiyor. Terminal'de şunu çalıştırın; parolanız orada sorulur, bitince bu pencere kendiliğinden devam eder."
+                            ),
+                        command: HubSetup.terminalCommand(user: user, host: host, access: access)
                     )
                 }
                 if let failure = installer.failure {
@@ -151,7 +173,9 @@ struct ServerUpdateSheet: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if done {
-                    Label(L("The server is updated and reconnecting.", "Sunucu güncellendi, yeniden bağlanılıyor."), systemImage: "checkmark.circle.fill")
+                    Label(tailscale
+                        ? L("Tailscale is set up. Its address shows up under Web access in a moment.", "Tailscale kuruldu. Adresi birazdan Web erişimi'nde görünür.")
+                        : L("The server is updated and reconnecting.", "Sunucu güncellendi, yeniden bağlanılıyor."), systemImage: "checkmark.circle.fill")
                         .foregroundStyle(Color.kervanOasis)
                 }
             }
@@ -167,7 +191,7 @@ struct ServerUpdateSheet: View {
                     }
                     .keyboardShortcut(.cancelAction)
                     if !done {
-                        Button(failed ? L("Try again", "Yeniden dene") : L("Update", "Güncelle")) { start() }
+                        Button(failed ? L("Try again", "Yeniden dene") : (tailscale ? L("Set up", "Kur") : L("Update", "Güncelle"))) { start() }
                             .buttonStyle(.borderedProminent)
                             .tint(.kervanLapis)
                             .keyboardShortcut(.defaultAction)
@@ -187,7 +211,7 @@ struct ServerUpdateSheet: View {
         let host = host.trimmingCharacters(in: .whitespaces)
         let user = user.trimmingCharacters(in: .whitespaces)
         // The restart drops the connection; it comes back on its own, and with it the new version.
-        model.serverUpdater.run(user: user, host: host, access: .update, token: token) { _ in }
+        model.serverUpdater.run(user: user, host: host, access: access, token: token) { _ in }
     }
 }
 

@@ -146,6 +146,8 @@ extension WebPairing: Identifiable {
 private struct WebAddressList: View {
     let links: [WebLink]
     let hasTailscale: Bool
+    @Environment(AppModel.self) private var model
+    @State private var settingUpTailscale = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -203,21 +205,31 @@ private struct WebAddressList: View {
             Label(L("Away from home", "Evden uzaktayken"), systemImage: "airplane")
                 .font(.caption.weight(.semibold))
             Text(L(
-                "These addresses work only on the same network as the server. To use Kervan from anywhere, install Tailscale on the server and on the phone and sign in to both with the same account; a Tailscale address then shows up here. Run this once on the server:",
-                "Bu adresler yalnızca sunucuyla aynı ağdayken çalışır. Her yerden kullanmak için sunucuya ve telefona Tailscale kurup ikisinde de aynı hesapla giriş yapın; ardından burada bir Tailscale adresi görünür. Sunucuda bir kez şunu çalıştırın:"
+                "These addresses work only on the same network as the server. To use Kervan from anywhere, set up Tailscale on the server and on the phone, signed in with the same account; a Tailscale address then shows up here.",
+                "Bu adresler yalnızca sunucuyla aynı ağdayken çalışır. Her yerden kullanmak için sunucuya ve telefona Tailscale kurup ikisinde aynı hesapla giriş yapın; ardından burada bir Tailscale adresi görünür."
             ))
             .font(.caption)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 8) {
-                Text(NodeSetup.tailscaleCommand).font(.caption.monospaced()).textSelection(.enabled).lineLimit(2)
+            HStack(spacing: 10) {
+                Button(L("Set up Tailscale on the server…", "Sunucuya Tailscale kur…")) { settingUpTailscale = true }
+                    .disabled(!model.connection.state.isConnected)
                 Spacer()
-                Button(L("Copy", "Kopyala")) {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(NodeSetup.tailscaleCommand, forType: .string)
-                }
-                .buttonStyle(.borderless)
             }
+            .padding(.vertical, 2)
+            DisclosureGroup(L("Or run it on the server yourself", "Ya da sunucuda kendiniz çalıştırın")) {
+                HStack(spacing: 8) {
+                    Text(NodeSetup.tailscaleCommand).font(.caption.monospaced()).textSelection(.enabled).lineLimit(2)
+                    Spacer()
+                    Button(L("Copy", "Kopyala")) {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(NodeSetup.tailscaleCommand, forType: .string)
+                    }
+                    .buttonStyle(.borderless)
+                }
+                .padding(.top, 4)
+            }
+            .font(.caption)
             Text(L(
                 "On the phone, get the Tailscale app from the App Store or Google Play. Don't forward the port on your router instead: Kervan's web access isn't meant to face the internet.",
                 "Telefona Tailscale uygulamasını App Store ya da Google Play'den yükleyin. Bunun yerine modemden port yönlendirmeyin: Kervan'ın web erişimi internete açık olacak şekilde tasarlanmadı."
@@ -229,6 +241,9 @@ private struct WebAddressList: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .softSurface(radius: Radius.chip)
+        .sheet(isPresented: $settingUpTailscale) {
+            ServerUpdateSheet(access: .both).environment(model)
+        }
     }
 }
 
