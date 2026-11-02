@@ -1229,6 +1229,11 @@ function buildPane(sessionId) {
     const text = textarea.value.trim();
     const readyAttachments = atts.filter((a) => a.state === "ready").map((a) => a.path || a.name);
     if (!text && readyAttachments.length === 0) return;
+    // The server closes the connection on a frame over 1 MiB; the draft stays, so nothing is lost.
+    if (new Blob([JSON.stringify(text)]).size > 1_000_000) {
+      showFlash(L("This message is too long to send (the limit is about 1 MB). Attach the text as a file instead.", "Bu mesaj göndermek için fazla uzun (sınır yaklaşık 1 MB). Metni dosya olarak ekleyin."));
+      return;
+    }
     textarea.value = "";
     grow();
     scrollToEnd = true;

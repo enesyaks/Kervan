@@ -476,8 +476,10 @@ function handleConnection(
       await handleRequest(ws, message, sessions, ownPorts, web, client.kind === "web");
     } catch (error) {
       if (!(error instanceof KervanError)) {
+        // This handler's promise has no one to catch it: thrown on, one failed request would end every session.
         log("error", "request failed", { type: message.type, error: String(error) });
-        throw error;
+        send(ws, { type: "error", code: "internal", message: "the server couldn't do that; its log has the details", id: message.id });
+        return;
       }
       send(ws, { type: "error", code: error.code, message: error.message, id: message.id });
     }
@@ -487,6 +489,20 @@ function handleConnection(
     unsubscribe?.();
     log("info", "ws closed", { remote, code });
   });
+}
+
+/** The request's URL, or undefined for one that doesn't parse: `GET //` is a valid request line but no valid URL. */
+export function requestUrl(req: IncomingMessage): URL | undefined {
+  try {
+    return new URL(req.url ?? "/", "http://localhost");
+  } catch {
+    return undefined;
+  }
+}
+
+/** A frame over the limit or a broken one ends up here; without a listener it would take the whole server down. */
+function closeOnError(ws: WebSocket, remote: string | undefined): void {
+  ws.on("error", (error) => log("warn", "ws error", { remote, error: error.message }));
 }
 
 export function attachWebSocket(
@@ -517,7 +533,12 @@ export function attachWebSocket(
       rejectUpgrade(socket, 403, "Tailscale Only");
       return;
     }
-    const path = new URL(req.url ?? "/", "http://localhost").pathname;
+    const url = requestUrl(req);
+    if (!url) {
+      rejectUpgrade(socket, 400, "Bad Request");
+      return;
+    }
+    const path = url.pathname;
     // Nodes use their own token, so a leaked node token can't drive the app's API.
     if (path === NODE_PATH && sessions.nodes) {
       const name = req.headers["x-kervan-node"];
@@ -536,6 +557,7 @@ export function attachWebSocket(
         return;
       }
       nodeServer.handleUpgrade(req, socket, head, (ws) => {
+        closeOnError(ws, req.socket.remoteAddress);
         alive.add(ws);
         ws.on("pong", () => alive.add(ws));
         sessions.nodes!.accept(name, ws, req.headers.host);
@@ -544,7 +566,7 @@ export function attachWebSocket(
     }
     // A forwarded connection to a port on this machine (the app's port preview).
     if (path === TUNNEL_PATH) {
-      const port = Number(new URL(req.url ?? "/", "http://localhost").searchParams.get("port"));
+      const port = Number(url.searchParams.get("port"));
       if (!isAuthorized(req.headers.authorization, token)) {
         rejectUpgrade(socket, 401, "Unauthorized");
         return;
@@ -553,7 +575,10 @@ export function attachWebSocket(
         rejectUpgrade(socket, 400, "Bad Port");
         return;
       }
-      tunnels.handleUpgrade(req, socket, head, (ws) => pipeTunnel(ws, port));
+      tunnels.handleUpgrade(req, socket, head, (ws) => {
+        closeOnError(ws, req.socket.remoteAddress);
+        pipeTunnel(ws, port);
+      });
       return;
     }
     if (path !== WS_PATH) {
@@ -596,6 +621,7 @@ export function attachWebSocket(
   });
 
   wss.on("connection", (ws: WebSocket, req: IncomingMessage, client: Client = { kind: "app" }) => {
+    closeOnError(ws, req.socket.remoteAddress);
     ws.on("close", () => webClients.delete(ws));
     alive.add(ws);
     ws.on("pong", () => alive.add(ws));

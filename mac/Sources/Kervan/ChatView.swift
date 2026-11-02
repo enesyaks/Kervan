@@ -292,6 +292,11 @@ struct ChatView: View {
     private func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, model.store.session(sessionID)?.status == .idle, attachments.allSatisfy(\.isReady) else { return }
+        // The draft stays, so nothing typed or pasted is lost.
+        guard SessionStore.fitsInOneMessage(text) else {
+            model.store.lastError = L("This message is too long to send (the limit is about 1 MB). Attach the text as a file instead.", "Bu mesaj göndermek için fazla uzun (sınır yaklaşık 1 MB). Metni dosya olarak ekleyin.")
+            return
+        }
         // Files mentioned with "@" go along as attachments, so the agent gets them as files, not just names.
         let mentioned = fileNames.filter { text.contains("@\($0)") }
         let paths = Array(NSOrderedSet(array: attachments.map(\.remotePath) + mentioned)) as? [String] ?? attachments.map(\.remotePath)

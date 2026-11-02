@@ -67,3 +67,12 @@ import Testing
         #expect(HubFallback.name(fromStatus: "something else") == nil)
     }
 }
+
+@Suite struct MessageSizeTests {
+    @Test func staysUnderTheServersFrameLimit() {
+        #expect(SessionStore.fitsInOneMessage("merhaba"))
+        #expect(SessionStore.fitsInOneMessage(String(repeating: "x", count: 900_000)))
+        #expect(!SessionStore.fitsInOneMessage(String(repeating: "x", count: 1_100_000)))
+        #expect(!SessionStore.fitsInOneMessage(String(repeating: "\n", count: 600_000)), "line breaks double in JSON")
+    }
+}

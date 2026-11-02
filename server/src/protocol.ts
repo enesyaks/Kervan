@@ -413,7 +413,9 @@ export type ErrorCode =
   /** The agent's node isn't connected right now. */
   | "node_offline"
   /** A paired browser asked for something only the app may do. */
-  | "forbidden";
+  | "forbidden"
+  /** The request failed in a way the server didn't expect; its log has the details. */
+  | "internal";
 
 export type ServerMessage =
   | { type: "welcome"; protocol: number; server: PeerInfo; agents: string[]; agentDetails: AgentDetail[] }

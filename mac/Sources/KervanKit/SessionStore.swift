@@ -501,6 +501,11 @@ public final class SessionStore {
         await request(.mcpDelete(id: Self.newID(), name: name))
     }
 
+    /// Whether a message fits in one frame: the server closes the connection on anything over its 1 MiB limit.
+    public nonisolated static func fitsInOneMessage(_ text: String) -> Bool {
+        ((try? JSONEncoder().encode(text).count) ?? .max) <= 1_000_000
+    }
+
     public func prompt(_ sessionID: String, text: String, attachments: [String] = []) async {
         await request(.sessionPrompt(id: Self.newID(), sessionId: sessionID, text: text, attachments: attachments))
     }

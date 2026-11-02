@@ -5,7 +5,7 @@ import type { SessionManager } from "./sessions.ts";
 import { VERSION } from "./version.ts";
 import { handleFiles } from "./files.ts";
 import { handleSkills, type SkillLibrary } from "./skills.ts";
-import { attachWebSocket, isAuthorized } from "./ws.ts";
+import { attachWebSocket, isAuthorized, requestUrl } from "./ws.ts";
 import { handleOnboarding } from "./onboarding.ts";
 import { handleWeb } from "./web.ts";
 import { AttemptLimiter, type WebAccess } from "./webaccess.ts";
@@ -68,12 +68,23 @@ export function createKervanServer({
   // One count of failed browser sign-ins, shared by the key check, pairing and the WebSocket.
   const limiter = new AttemptLimiter();
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
-    const url = new URL(req.url ?? "/", "http://localhost");
-
     if (tailnetOnly() && !allowedConnection(req.socket.remoteAddress, req.socket.localAddress)) {
       sendJson(res, 403, { error: "tailscale_only" });
       return;
     }
+
+    const url = requestUrl(req);
+    if (!url) {
+      sendJson(res, 400, { error: "bad_request" });
+      return;
+    }
+
+    // Nothing a single request does may take the server, and every session on it, down with it.
+    const failed = (error: unknown) => {
+      log("error", "request failed", { method: req.method, path: url.pathname, error: String(error) });
+      if (res.headersSent) res.destroy();
+      else sendJson(res, 500, { error: "internal" });
+    };
 
     if (req.method === "GET" && url.pathname === "/health") {
       sendJson(res, 200, {
@@ -129,7 +140,7 @@ export function createKervanServer({
 
     // Node setup: the invite code in the request is the credential (see onboarding.ts).
     if (url.pathname.startsWith("/v1/node/") && sessions.nodes) {
-      void handleOnboarding(req, res, sessions.nodes);
+      handleOnboarding(req, res, sessions.nodes).catch(failed);
       return;
     }
 
@@ -142,7 +153,7 @@ export function createKervanServer({
         sendJson(res, 404, { error: "not_found" });
         return;
       }
-      void handleSkills(req, res, skills, maxUploadBytes);
+      handleSkills(req, res, skills, maxUploadBytes).catch(failed);
       return;
     }
 
@@ -167,17 +178,17 @@ export function createKervanServer({
           return;
         }
       }
-      void handleFiles(req, res, sessions, maxUploadBytes).then((handled) => {
+      handleFiles(req, res, sessions, maxUploadBytes).then((handled) => {
         if (!handled) sendJson(res, 404, { error: "not_found" });
-      });
+      }).catch(failed);
       return;
     }
 
-    void (web?.enabled ? handleWeb(req, res, url.pathname) : Promise.resolve(false)).then((served) => {
+    (web?.enabled ? handleWeb(req, res, url.pathname) : Promise.resolve(false)).then((served) => {
       if (served) return;
       log("debug", "not found", { method: req.method, path: url.pathname });
       sendJson(res, 404, { error: "not_found" });
-    });
+    }).catch(failed);
   });
 
   const closeClients = attachWebSocket(server, token, sessions, heartbeatMs, nodeToken, web, limiter);

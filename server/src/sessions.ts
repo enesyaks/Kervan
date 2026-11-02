@@ -354,7 +354,7 @@ export class SessionManager {
     else if (node === LOCAL_NODE) await mkdir(session.cwd, { recursive: true });
     if (session.info.skills.length > 0) {
       const target = this.agents.get(agent)!.skillsDir ?? FALLBACK_SKILLS_DIR;
-      await this.skills!.copyInto(session.info.skills, join(session.cwd, target));
+      await this.skills!.copyInto(session.info.skills, session.cwd, target);
     }
     this.sessions.set(id, session);
     this.save(session);

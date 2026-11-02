@@ -1,9 +1,9 @@
 import { existsSync, mkdirSync } from "node:fs";
-import { cp, mkdir, readdir, readFile, rm } from "node:fs/promises";
+import { cp, lstat, mkdir, readdir, readFile, rm } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { join } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import { parse } from "yaml";
-import { listTree, resolveInside, sendJson, TooLargeError, upload } from "./files.ts";
+import { decode, isSafeRelativePath, listTree, makeDirsInside, realRootOf, sendJson, TooLargeError, upload } from "./files.ts";
 import { log } from "./log.ts";
 import { KervanError } from "./protocol.ts";
 
@@ -69,10 +69,55 @@ export class SkillLibrary {
     await rm(this.dir(name), { recursive: true, force: true });
   }
 
-  /** Copies the skills into `target/<name>`: a snapshot, so later library edits don't change a running session. */
-  async copyInto(names: string[], target: string): Promise<void> {
-    await mkdir(target, { recursive: true });
-    for (const name of names) await cp(this.dir(name), join(target, name), { recursive: true });
+  /**
+   * Copies the skills into `<workspace>/<folder>/<name>`: a snapshot, so later library edits don't change a running
+   * session. The folder can come from a cloned repository, and the server copies with more rights than the agent has, so
+   * a link there would write the skill wherever the repository chose: that's refused.
+   */
+  async copyInto(names: string[], workspace: string, folder: string): Promise<void> {
+    if (!isSafeRelativePath(folder)) throw new KervanError("bad_message", "the skills folder must be inside the workspace");
+    const realRoot = await realRootOf(workspace);
+    const target = resolve(realRoot, folder);
+    await refuseLinks(realRoot, target);
+    await makeDirsInside(realRoot, target);
+    for (const name of names) {
+      await refuseLinks(target, join(target, name));
+      await refuseLinksBelow(join(target, name));
+      await cp(this.dir(name), join(target, name), { recursive: true });
+    }
+  }
+}
+
+const linkRefused = (path: string) =>
+  new KervanError("bad_message", `${path} is a symbolic link, so Kervan won't copy skills there. Remove the link and try again.`);
+
+const isLink = (path: string) =>
+  lstat(path).then(
+    (info) => info.isSymbolicLink(),
+    (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return false;
+      throw error;
+    },
+  );
+
+/** Refuses a link on the way from `from` down to `path`. */
+async function refuseLinks(from: string, path: string): Promise<void> {
+  let current = from;
+  for (const part of relative(from, path).split(sep).filter(Boolean)) {
+    current = join(current, part);
+    if (await isLink(current)) throw linkRefused(relative(from, current));
+  }
+}
+
+/** Refuses a link anywhere inside a skill's folder from an earlier copy: `cp` would write through it. */
+async function refuseLinksBelow(dir: string): Promise<void> {
+  const entries = await readdir(dir, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return [];
+    throw error;
+  });
+  for (const entry of entries) {
+    if (entry.isSymbolicLink()) throw linkRefused(join(dir, entry.name));
+    if (entry.isDirectory()) await refuseLinksBelow(join(dir, entry.name));
   }
 }
 
@@ -88,16 +133,16 @@ export async function handleSkills(
 ): Promise<boolean> {
   const match = ROUTE.exec(new URL(req.url ?? "/", "http://localhost").pathname);
   if (!match) return false;
-  const name = match[1] ? decodeURIComponent(match[1]) : undefined;
-  const relPath = match[2] ? decodeURIComponent(match[2]) : undefined;
 
   try {
+    const name = match[1] ? decode(match[1]) : undefined;
+    const relPath = match[2] ? decode(match[2]) : undefined;
     if (req.method === "GET" && !name) {
       sendJson(res, 200, { skills: await library.list() });
     } else if (req.method === "PUT" && name && relPath) {
       const dir = library.dir(name);
       await mkdir(dir, { recursive: true });
-      const size = await upload(req, await resolveInside(dir, relPath), maxUploadBytes);
+      const size = await upload(req, dir, relPath, maxUploadBytes);
       sendJson(res, 201, { name, path: relPath, size });
     } else if (req.method === "DELETE" && name && !relPath) {
       await library.remove(name);

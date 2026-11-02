@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, readdir, realpath, rename, rm, stat } from "node:fs/promises";
+import { constants, type Stats } from "node:fs";
+import { lstat, mkdir, open, readdir, readlink, realpath, rename, rm, type FileHandle } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { agentUser } from "./agentuser.ts";
 import { log } from "./log.ts";
 import { KervanError } from "./protocol.ts";
 import type { SessionManager } from "./sessions.ts";
@@ -31,20 +32,71 @@ export function isSafeRelativePath(path: string): boolean {
 }
 
 const isInside = (root: string, path: string) => path === root || path.startsWith(root + sep);
+const outside = () => new KervanError("bad_message", "path must stay inside the workspace");
+
+/**
+ * The folder `root` really is. An agent user owns the folders above its workspace, so it could swap the workspace for a
+ * link to anywhere, and everything would then look "inside". Setup uses no links on these paths, so there any is refused.
+ */
+export async function realRootOf(root: string, isolated = agentUser() !== undefined): Promise<string> {
+  const real = await realpath(root);
+  if (isolated && real !== resolve(root)) throw outside();
+  return real;
+}
+
+/**
+ * Where an open file really is, whatever its path has been swapped for since. Linux says so itself; a Mac has no /proc,
+ * but no second user there either, so an agent has nothing to gain from a swap and the path is good enough.
+ */
+async function pathOfOpen(handle: FileHandle, path: string): Promise<string> {
+  try {
+    return await readlink(`/proc/self/fd/${handle.fd}`);
+  } catch {
+    return realpath(path);
+  }
+}
+
+/**
+ * Opens a file for reading and only then checks where it turned out to be: an agent can swap a link between any check
+ * and any open, but not what's already open. Non-blocking, so a FIFO planted in the folder can't hang a thread.
+ */
+export async function openInside(realRoot: string, target: string): Promise<{ handle: FileHandle; info: Stats }> {
+  const handle = await open(target, constants.O_RDONLY | constants.O_NONBLOCK);
+  try {
+    if (!isInside(realRoot, await pathOfOpen(handle, target))) throw outside();
+    const info = await handle.stat();
+    if (!info.isFile()) throw new KervanError("bad_message", "not a file");
+    return { handle, info };
+  } catch (error) {
+    await handle.close();
+    throw error;
+  }
+}
+
+/** `mkdir -p` that checks each folder as it goes, so a link on the way can't make it build outside `realRoot`. */
+export async function makeDirsInside(realRoot: string, dir: string): Promise<void> {
+  const parts = relative(realRoot, dir).split(sep).filter(Boolean);
+  let current = realRoot;
+  for (const part of parts) {
+    current = join(current, part);
+    await mkdir(current).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "EEXIST") throw error;
+    });
+    if (!isInside(realRoot, await realpath(current))) throw outside();
+  }
+}
 
 /** Maps a client path into the workspace, refusing anything that would end up outside it. */
 export async function resolveInside(root: string, relPath: string): Promise<string> {
-  if (!isSafeRelativePath(relPath)) throw new KervanError("bad_message", "path must stay inside the workspace");
+  if (!isSafeRelativePath(relPath)) throw outside();
   const target = resolve(root, relPath);
-  if (!isInside(root, target)) throw new KervanError("bad_message", "path must stay inside the workspace");
+  if (!isInside(root, target)) throw outside();
 
   // A symlink inside the workspace could still point out of it: check the deepest part that exists.
-  const realRoot = await realpath(root);
+  const realRoot = await realRootOf(root);
   for (let probe = target; ; probe = dirname(probe)) {
     try {
-      if (!isInside(realRoot, await realpath(probe))) {
-        throw new KervanError("bad_message", "path must stay inside the workspace");
-      }
+      if (!isInside(realRoot, await realpath(probe))) throw outside();
       return target;
     } catch (error) {
       if (error instanceof KervanError || (error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -55,7 +107,8 @@ export async function resolveInside(root: string, relPath: string): Promise<stri
 
 export async function listTree(root: string): Promise<{ entries: FileEntry[]; truncated: boolean }> {
   const entries: FileEntry[] = [];
-  const queue = [root];
+  const realRoot = await realRootOf(root);
+  const queue = [realRoot];
   while (queue.length > 0) {
     const dir = queue.shift()!;
     for (const dirent of await readdir(dir, { withFileTypes: true })) {
@@ -63,9 +116,10 @@ export async function listTree(root: string): Promise<{ entries: FileEntry[]; tr
       if (!dirent.isDirectory() && !dirent.isFile()) continue; // symlinks and specials are not followed
       if (entries.length >= MAX_ENTRIES) return { entries, truncated: true };
       const full = join(dir, dirent.name);
-      const info = await stat(full);
+      const info = await lstat(full);
+      if (info.isDirectory() !== dirent.isDirectory() || info.isSymbolicLink()) continue; // swapped since the listing
       entries.push({
-        path: relative(root, full).split(sep).join("/"),
+        path: relative(realRoot, full).split(sep).join("/"),
         type: dirent.isDirectory() ? "dir" : "file",
         size: dirent.isDirectory() ? 0 : info.size,
         modifiedAt: info.mtime.toISOString(),
@@ -83,9 +137,14 @@ export function sendJson(res: ServerResponse, status: number, body: unknown): vo
   res.end(payload);
 }
 
-/** Streams a request body to `target` via a temp file, so readers never see half a file. */
-export async function upload(req: IncomingMessage, target: string, maxBytes: number): Promise<number> {
-  await mkdir(dirname(target), { recursive: true });
+/**
+ * Streams a request body to `relPath` under `root` via a temp file, so readers never see half a file. The temp file is
+ * checked once open, and `rename` looks it up by name again: moved elsewhere by a swapped link, it isn't there to rename.
+ */
+export async function upload(req: IncomingMessage, root: string, relPath: string, maxBytes: number): Promise<number> {
+  const target = await resolveInside(root, relPath);
+  const realRoot = await realRootOf(root);
+  await makeDirsInside(realRoot, resolve(realRoot, dirname(relPath)));
   const temp = join(dirname(target), `${TEMP_PREFIX}${randomUUID()}`);
   let received = 0;
   const limit = new Transform({
@@ -95,7 +154,12 @@ export async function upload(req: IncomingMessage, target: string, maxBytes: num
     },
   });
   try {
-    await pipeline(req, limit, createWriteStream(temp, { mode: 0o640 }));
+    const handle = await open(temp, "wx", 0o640); // never an existing file, and never through a link
+    if (!isInside(realRoot, await pathOfOpen(handle, temp))) {
+      await handle.close();
+      throw outside();
+    }
+    await pipeline(req, limit, handle.createWriteStream());
     await rename(temp, target); // readers never see a half-written file
     return received;
   } catch (error) {
@@ -109,7 +173,7 @@ export async function upload(req: IncomingMessage, target: string, maxBytes: num
  * downloads, PUT uploads. The caller has already checked the token. Returns false for other URLs.
  */
 /** `decodeURIComponent`, with a broken %-sequence answered as a bad request rather than a crash of the request. */
-function decode(text: string): string {
+export function decode(text: string): string {
   try {
     return decodeURIComponent(text);
   } catch {
@@ -167,17 +231,15 @@ export async function handleFiles(
       sendJson(res, 200, await listTree(root));
     } else if (req.method === "GET") {
       const target = await resolveInside(root, relPath);
-      const info = await stat(target);
-      if (!info.isFile()) throw new KervanError("bad_message", "not a file");
+      const { handle, info } = await openInside(await realRootOf(root), target);
       res.writeHead(200, {
         "content-type": "application/octet-stream",
         "content-length": info.size,
         "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(relPath.split("/").at(-1)!)}`,
       });
-      await pipeline(createReadStream(target), res);
+      await pipeline(handle.createReadStream(), res);
     } else if ((req.method === "PUT" || req.method === "POST") && relPath !== "") {
-      const target = await resolveInside(root, relPath);
-      const size = await upload(req, target, maxUploadBytes);
+      const size = await upload(req, root, relPath, maxUploadBytes);
       log("info", "file uploaded", { path: relPath, size });
       sendJson(res, 201, { path: relPath, size });
     } else {
