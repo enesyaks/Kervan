@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { stringify } from "yaml";
 import { type AgentDefinition, type AgentRegistry, isRunnable, isSignedIn, parseAgents } from "./agents.ts";
 import { KervanError } from "./protocol.ts";
@@ -51,6 +52,10 @@ const bad = (message: string): never => {
 export class AgentCatalog {
   readonly live = new Map<string, AgentDefinition>();
   private readonly file: string;
+  /** Where agents installed from the app live: tools/ beside agents.json, in the data folder. */
+  get toolsDir(): string {
+    return join(dirname(this.file), "tools");
+  }
   private readonly base: AgentRegistry;
   private readonly probe: (definition: AgentDefinition) => Promise<void>;
   private managed: Map<string, ManagedAgent>;

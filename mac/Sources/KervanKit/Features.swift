@@ -529,6 +529,61 @@ public struct AgentLoginPrompt: Equatable, Sendable {
     public let needsCode: Bool
 }
 
+/// An agent from the ACP registry and where it stands on the server.
+public struct OfferedAgent: Codable, Equatable, Sendable, Identifiable {
+    public enum Status: String, Codable, Sendable {
+        /// Comes with Kervan.
+        case builtin
+        /// Already one of the server's agents.
+        case added
+        /// Installed on the server by hand; it only needs adding.
+        case found
+        /// Can be installed from the app.
+        case installable
+        /// Can't be added from here; `reason` says why.
+        case unavailable
+    }
+
+    public let id: String
+    public let name: String
+    public let description: String
+    public let version: String?
+    public let website: String?
+    public let status: Status
+    /// npm, download or uvx, for installable agents.
+    public let source: String?
+    public let path: String?
+    public let reason: String?
+    /// Can run a model from the server's Ollama.
+    public let ollama: Bool
+
+    public init(id: String, name: String, description: String, version: String? = nil, website: String? = nil, status: Status, source: String? = nil, path: String? = nil, reason: String? = nil, ollama: Bool = false) {
+        self.id = id
+        self.name = name
+        self.description = description
+        self.version = version
+        self.website = website
+        self.status = status
+        self.source = source
+        self.path = path
+        self.reason = reason
+        self.ollama = ollama
+    }
+}
+
+/// Ollama on the server: whether it answers, and the models it has.
+public struct OllamaStatus: Codable, Equatable, Sendable {
+    public let running: Bool
+    public let url: String
+    public let models: [String]
+
+    public init(running: Bool, url: String, models: [String]) {
+        self.running = running
+        self.url = url
+        self.models = models
+    }
+}
+
 /// How an account sign-in ended.
 public enum AgentLoginOutcome: Equatable, Sendable {
     case signedIn

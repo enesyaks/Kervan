@@ -11,10 +11,18 @@ import { listeningPorts, pipeTunnel, TUNNEL_PATH } from "./tunnel.ts";
 import { AttemptLimiter, type WebAccess } from "./webaccess.ts";
 import { GitHubAccess } from "./github.ts";
 import { AgentLogin } from "./agentlogin.ts";
+import { AcpRegistry } from "./agentregistry.ts";
 
 /** One per server: the gh sign-in belongs to the user the server runs as. */
 const github = new GitHubAccess();
 const agentLogin = new AgentLogin();
+let acpRegistry: AcpRegistry | undefined;
+/** One registry per tools folder (one server in production; tests start several). */
+function registryFor(sessions: SessionManager): AcpRegistry {
+  const { toolsDir } = requireCatalog(sessions);
+  if (acpRegistry?.toolsDir !== toolsDir) acpRegistry = new AcpRegistry(toolsDir);
+  return acpRegistry;
+}
 import { diagnostics } from "./diagnostics.ts";
 import { VERSION } from "./version.ts";
 
@@ -181,6 +189,23 @@ async function handleRequest(
       await agentLogin.signOut(message.agent);
       sessions.agentsChanged();
       return send(ws, agentList(message.id, sessions));
+    case "agent.registry": {
+      const catalog = requireCatalog(sessions);
+      const registry = registryFor(sessions);
+      const added = new Set(catalog.list().map((agent) => agent.id));
+      const [agents, ollama] = await Promise.all([registry.offer(added), registry.ollama()]);
+      return send(ws, { type: "agent.registry.result", id: message.id, agents, ollama });
+    }
+    case "agent.install": {
+      const catalog = requireCatalog(sessions);
+      const registry = registryFor(sessions);
+      const model = (message as { ollamaModel?: unknown }).ollamaModel;
+      if (model !== undefined && typeof model !== "string") throw new KervanError("bad_message", "'ollamaModel' must be a string");
+      const installed = await registry.install({ agentId: message.agentId, ...(model ? { ollamaModel: model } : {}) });
+      await catalog.save(installed);
+      sessions.agentsChanged();
+      return send(ws, agentList(message.id, sessions));
+    }
     case "github.disconnect": {
       await github.disconnect();
       const status = await github.status();

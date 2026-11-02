@@ -453,6 +453,7 @@ private struct AgentsSettings: View {
     @Environment(AppModel.self) private var model
     @State private var editing: AgentDraft?
     @State private var removing: AgentConfig?
+    @State private var browsing = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -501,7 +502,9 @@ private struct AgentsSettings: View {
 
             HStack {
                 Spacer()
-                Button(L("Add agent…", "Ajan ekle…")) { editing = AgentDraft() }
+                Button(L("Add by command…", "Komutla ekle…")) { editing = AgentDraft() }
+                    .disabled(!model.connection.state.isConnected)
+                Button(L("Browse agents…", "Ajanlara göz at…")) { browsing = true }
                     .buttonStyle(.borderedProminent)
                     .disabled(!model.connection.state.isConnected)
             }
@@ -511,6 +514,9 @@ private struct AgentsSettings: View {
         .task { await model.store.loadAgentConfigs() }
         .sheet(item: $editing) { draft in
             AgentEditor(draft: draft, nodes: model.store.nodes)
+        }
+        .sheet(isPresented: $browsing) {
+            AgentCatalogSheet().environment(model)
         }
         .confirmationDialog(
             L("Delete \(removing?.name ?? "")?", "\(removing?.name ?? "") silinsin mi?"),

@@ -100,6 +100,8 @@ export type { Role } from "./roles.ts";
 import type { Role } from "./roles.ts";
 
 export type { AgentSummary } from "./catalog.ts";
+export type { OfferedAgent, OllamaStatus } from "./agentregistry.ts";
+import type { OfferedAgent, OllamaStatus } from "./agentregistry.ts";
 import type { AgentSummary } from "./catalog.ts";
 
 export interface McpServerSummary {
@@ -354,6 +356,10 @@ export type ClientMessage =
   | { type: "agent.login.code"; id: string; agent: string; code: string }
   | { type: "agent.login.cancel"; id: string; agent: string }
   | { type: "agent.logout"; id: string; agent: string }
+  /** The agents of the ACP registry and where each stands on this server, and the server's Ollama. */
+  | { type: "agent.registry"; id: string }
+  /** Installs (or finds) a registry agent for the service user and adds it; optionally runs it on an Ollama model. */
+  | { type: "agent.install"; id: string; agentId: string; ollamaModel?: string }
   | { type: "project.list"; id: string }
   | { type: "project.save"; id: string; project: Record<string, unknown> }
   | { type: "project.delete"; id: string; projectId: string }
@@ -457,7 +463,8 @@ export type ServerMessage =
   /** The page to sign in on; for Codex the code to enter there, for Claude `needsCode` asks for the code it shows. */
   | { type: "agent.login.started"; id: string; agent: string; url: string; code?: string; needsCode: boolean }
   /** A sign-in ended; the agent list has the new `signedIn`. */
-  | { type: "agent.login.finished"; agent: string; signedIn: boolean; error?: string };
+  | { type: "agent.login.finished"; agent: string; signedIn: boolean; error?: string }
+  | { type: "agent.registry.result"; id: string; agents: OfferedAgent[]; ollama: OllamaStatus };
 
 export type ParseResult =
   | { ok: true; message: ClientMessage }
@@ -531,6 +538,8 @@ const STRING_FIELDS: Record<string, readonly string[]> = {
   "agent.login.code": ["id", "agent", "code"],
   "agent.login.cancel": ["id", "agent"],
   "agent.logout": ["id", "agent"],
+  "agent.registry": ["id"],
+  "agent.install": ["id", "agentId"],
   "project.list": ["id"],
   "project.save": ["id"],
   "project.delete": ["id", "projectId"],

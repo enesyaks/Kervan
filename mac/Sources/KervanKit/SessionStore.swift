@@ -53,6 +53,9 @@ public final class SessionStore {
     public private(set) var githubError: String?
     /// How the last account sign-in of each agent ended, by agent id; cleared when a new one starts.
     public private(set) var agentLoginOutcomes: [String: AgentLoginOutcome] = [:]
+    /// The ACP registry's agents as the server sees them, and its Ollama; nil until asked for.
+    public private(set) var offeredAgents: [OfferedAgent]?
+    public private(set) var ollama: OllamaStatus?
     /// Web access as the server last told it; nil until asked for.
     public private(set) var webAccess: WebAccessStatus?
     /// The shell open in each session's folder, by session id.
@@ -293,6 +296,21 @@ public final class SessionStore {
     public func signOutAgent(_ agent: String) async -> String? {
         agentLoginOutcomes[agent] = nil
         return await call(.agentLogout(id: Self.newID(), agent: agent))
+    }
+
+    // MARK: Agent catalog
+
+    /// Asks the server for the registry's agents; nil, or why it couldn't.
+    public func loadOfferedAgents() async -> String? {
+        await call(.agentRegistry(id: Self.newID()))
+    }
+
+    /// Installs (or finds) a registry agent on the server and adds it, optionally on an Ollama model; nil, or why not.
+    /// It can take a few minutes. The agent list and the catalog refresh when it's done.
+    public func installAgent(_ agentId: String, ollamaModel: String? = nil) async -> String? {
+        let failure = await call(.agentInstall(id: Self.newID(), agentId: agentId, ollamaModel: ollamaModel))
+        if failure == nil { _ = await loadOfferedAgents() }
+        return failure
     }
 
     public func disconnectGitHub() async -> String? {
@@ -559,6 +577,9 @@ public final class SessionStore {
         case .githubUpdated(let status, let error):
             github = status
             githubError = error
+        case .agentRegistryResult(_, let agents, let status):
+            offeredAgents = agents
+            ollama = status
         case .agentLoginStarted(_, let agent, let url, let code, let needsCode):
             agentLoginAnswer = AgentLoginPrompt(agent: agent, url: url, code: code, needsCode: needsCode)
         case .agentLoginFinished(let agent, let signedIn, let error):

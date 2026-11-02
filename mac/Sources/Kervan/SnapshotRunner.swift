@@ -54,6 +54,18 @@ enum SnapshotRunner {
             AgentConfig(id: "gemini", name: "Gemini", command: "gemini", source: .builtin, available: true, signedIn: false)
         ]
         model.store.handle(.agentListResult(id: "snapshot", agents: sampleConfigs, nodes: []))
+        model.store.handle(.agentRegistryResult(
+            id: "snapshot",
+            agents: [
+                OfferedAgent(id: "opencode", name: "OpenCode", description: "The open source coding agent", version: "2.2.5", status: .found, path: "/usr/local/bin/opencode"),
+                OfferedAgent(id: "goose", name: "goose", description: "A local, extensible, open source AI agent that automates engineering tasks", version: "1.57.0", status: .installable, source: "download", ollama: true),
+                OfferedAgent(id: "qwen-code", name: "Qwen Code", description: "Alibaba's Qwen coding assistant", version: "0.26.5", status: .installable, source: "npm", ollama: true),
+                OfferedAgent(id: "github-copilot-cli", name: "Copilot", description: "GitHub's AI pair programmer", version: "1.0.105", status: .installable, source: "npm"),
+                OfferedAgent(id: "claude-acp", name: "Claude Agent", description: "ACP wrapper for Anthropic's Claude", status: .builtin),
+                OfferedAgent(id: "cursor", name: "Cursor", description: "Cursor's coding agent", status: .unavailable, reason: "its download has no published checksum"),
+            ],
+            ollama: OllamaStatus(running: true, url: "http://127.0.0.1:11434", models: ["qwen3-coder:30b", "llama3.1:8b"])
+        ))
 
         // The language is a saved setting; put the user's own choice back before quitting.
         let ownLanguage = Language.shared.choice
@@ -90,6 +102,16 @@ enum SnapshotRunner {
                     render(view: view, size: CGSize(width: 860, height: 580), appearance: NSAppearance(named: app.ns)!, to: outURL.appendingPathComponent(filename))
                     print("[SnapshotRunner] Wrote \(filename)")
                 }
+
+                // 1c. The agent catalog.
+                let catalog = AgentCatalogSheet()
+                    .environment(model)
+                    .fontDesign(.rounded)
+                    .preferredColorScheme(app.scheme)
+                    .environment(\.colorScheme, app.scheme)
+                let catalogName = "15-agent-catalog-\(lang.name)-\(app.name).png"
+                render(view: catalog, size: CGSize(width: 580, height: 560), appearance: NSAppearance(named: app.ns)!, to: outURL.appendingPathComponent(catalogName))
+                print("[SnapshotRunner] Wrote \(catalogName)")
 
                 // 2. Tour cards
                 for card in tourCards {

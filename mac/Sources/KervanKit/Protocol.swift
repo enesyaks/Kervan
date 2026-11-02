@@ -642,6 +642,9 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
     case agentLoginCode(id: String, agent: String, code: String)
     case agentLoginCancel(id: String, agent: String)
     case agentLogout(id: String, agent: String)
+    /// The ACP registry's agents and where each stands on the server; installing one. The app only.
+    case agentRegistry(id: String)
+    case agentInstall(id: String, agentId: String, ollamaModel: String?)
     case projectList(id: String)
     case projectSave(id: String, project: ProjectInput)
     case projectDelete(id: String, projectId: String)
@@ -694,7 +697,7 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
         case type, `protocol`, client, id, agent, sessionId, text, requestId, optionId, attachments, title, archived, query
         case skills, mcpServers, server, name, agentId, role, roleId, roles, orchestrate, budgetUsd, configId, value
         case projectId, since, seq, paths, project, schedule, scheduleId, days, timeZone, terminalId, data, message, body
-        case enabled, deviceId, shared, removeWorktree, card, cardId, column, alerts, split, code
+        case enabled, deviceId, shared, removeWorktree, card, cardId, column, alerts, split, code, ollamaModel
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -742,6 +745,14 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
             try c.encode("agent.logout", forKey: .type)
             try c.encode(id, forKey: .id)
             try c.encode(agent, forKey: .agent)
+        case .agentRegistry(let id):
+            try c.encode("agent.registry", forKey: .type)
+            try c.encode(id, forKey: .id)
+        case .agentInstall(let id, let agentId, let ollamaModel):
+            try c.encode("agent.install", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(agentId, forKey: .agentId)
+            try c.encodeIfPresent(ollamaModel, forKey: .ollamaModel)
         case .webStatus(let id):
             try c.encode("web.status", forKey: .type)
             try c.encode(id, forKey: .id)
@@ -1016,6 +1027,7 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
     /// The page to sign an agent in on; for Codex the code to enter there, for Claude the page shows a code to bring back.
     case agentLoginStarted(id: String, agent: String, url: URL, code: String?, needsCode: Bool)
     case agentLoginFinished(agent: String, signedIn: Bool, error: String?)
+    case agentRegistryResult(id: String, agents: [OfferedAgent], ollama: OllamaStatus)
     /// A type this client doesn't know yet. Ignored, so the server can add types without a version bump.
     case unknown(type: String)
 
@@ -1024,7 +1036,7 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
         case nodes, roles, team, teams, name, expiresAt, hubAddresses
         case changes, projects, schedules, report, terminalId, backlog, data, ports, pullRequest, web, github, url, error
         case projectId, cards, alerts
-        case agent, needsCode, signedIn
+        case agent, needsCode, signedIn, ollama
     }
 
     public init(from decoder: any Decoder) throws {
@@ -1147,6 +1159,12 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
                 url: try c.decode(URL.self, forKey: .url),
                 code: try c.decodeIfPresent(String.self, forKey: .code),
                 needsCode: try c.decode(Bool.self, forKey: .needsCode)
+            )
+        case "agent.registry.result":
+            self = .agentRegistryResult(
+                id: try c.decode(String.self, forKey: .id),
+                agents: try c.decode([OfferedAgent].self, forKey: .agents),
+                ollama: try c.decode(OllamaStatus.self, forKey: .ollama)
             )
         case "agent.login.finished":
             self = .agentLoginFinished(
