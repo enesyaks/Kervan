@@ -196,13 +196,33 @@ final class HubInstaller {
     }
 
     /// Polls /health on the new server for up to 20 minutes (long enough for a manual Terminal run).
+    /// Waits for the server to answer as the version this app carries. Answering alone isn't enough: during an
+    /// update the old server answers until the setup has run, and when sudo wants a password that is only once the
+    /// user has run it in Terminal.
     private func waitUntilAnswering(host: String) async throws {
         let deadline = Date().addingTimeInterval(20 * 60)
         while Date() < deadline {
             try Task.checkCancellation()
-            if await NodeSetup.isReachable("\(host):\(ServerAddress.defaultPort)") { return }
+            if await Self.runningVersion(host: host) == KervanVersion.current { return }
             try await Task.sleep(for: .seconds(3))
         }
-        throw SetupError(message: L("The server didn't answer within 20 minutes. Check the detailed output or run setup again.", "Sunucu 20 dakika içinde yanıt vermedi. Ayrıntılı çıktıya bakın ya da kurulumu yeniden deneyin."))
+        throw SetupError(message: L("The server didn't come back as \(KervanVersion.current) within 20 minutes. Check the detailed output or run setup again.", "Sunucu 20 dakika içinde \(KervanVersion.current) olarak geri gelmedi. Ayrıntılı çıktıya bakın ya da kurulumu yeniden deneyin."))
     }
+
+    /// The version the server at `host` reports on /health, if it answers.
+    private static func runningVersion(host: String) async -> String? {
+        var components = URLComponents()
+        components.scheme = "http"
+        components.host = host
+        components.port = ServerAddress.defaultPort
+        components.path = "/health"
+        guard let url = components.url else { return nil }
+        var request = URLRequest(url: url, timeoutInterval: 4)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        guard let (data, _) = try? await URLSession.shared.data(for: request),
+              let health = try? JSONDecoder().decode(Health.self, from: data) else { return nil }
+        return health.version
+    }
+
+    private struct Health: Decodable { let version: String }
 }
