@@ -512,7 +512,7 @@ struct OnboardingView: View {
         return VStack(alignment: .leading, spacing: 28) {
             heading(
                 L("Let's get your agents ready", "Ajanlarınızı hazırlayalım"),
-                L("Claude Code, Codex and Gemini are installed on your server. Give a key to the ones you want to use; keys are stored only on your server.", "Claude Code, Codex ve Gemini sunucunuza kuruldu. Kullanmak istediklerinize anahtarını verin; anahtarlar yalnızca sunucunuzda saklanır.")
+                L("Claude Code, Codex and Gemini are installed on your server. Sign in with your own account, or give a key; either way it stays on your server.", "Claude Code, Codex ve Gemini sunucunuza kuruldu. Kendi hesabınızla giriş yapın ya da anahtar verin; ikisi de yalnızca sunucunuzda kalır.")
             )
             if configs.isEmpty {
                 HStack(spacing: 10) {
@@ -525,7 +525,7 @@ struct OnboardingView: View {
                         let config = configs.first { $0.id == sign.id }
                         AgentKeyCard(
                             sign: sign,
-                            ready: config?.signedIn == true,
+                            ready: config?.signedIn == true || model.store.agentLoginOutcomes[sign.id] == .signedIn,
                             changing: changing.contains(sign.id),
                             key: Binding(get: { keys[sign.id] ?? "" }, set: { keys[sign.id] = $0 }),
                             error: keyErrors[sign.id],
@@ -620,6 +620,10 @@ private struct AgentKeyCard: View {
     @Binding var key: String
     let error: String?
     let change: () -> Void
+    /// Claude and Codex can use a subscription account; the key field is the second way in.
+    @State private var useKey = false
+
+    private var account: Bool { AgentAccountSignIn.offers(sign.id) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -638,7 +642,12 @@ private struct AgentKeyCard: View {
                 }
             }
             if ready && !changing {
-                Button(L("Change key", "Anahtarı değiştir"), action: change)
+                Button(account ? L("Change sign-in", "Girişi değiştir") : L("Change key", "Anahtarı değiştir"), action: change)
+                    .buttonStyle(.link)
+                    .font(.callout)
+            } else if account && !useKey {
+                AgentAccountSignIn(agentID: sign.id, ready: false)
+                Button(L("Use an API key instead", "Bunun yerine API anahtarı kullan")) { useKey = true }
                     .buttonStyle(.link)
                     .font(.callout)
             } else {
@@ -654,6 +663,14 @@ private struct AgentKeyCard: View {
                 }
                 if let alternative = sign.alternative {
                     Text(alternative).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+                if account {
+                    Button(L("Sign in with an account instead", "Bunun yerine hesapla giriş yap")) {
+                        useKey = false
+                        key = ""
+                    }
+                    .buttonStyle(.link)
+                    .font(.callout)
                 }
             }
             if let error {

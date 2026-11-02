@@ -14,12 +14,13 @@ public struct AgentSignIn: Equatable, Sendable, Identifiable {
     /// Another way in, for people with a subscription rather than an API account.
     public let alternative: String?
 
-    public static let all: [AgentSignIn] = [
+    /// Built when read, so a language change in Settings shows up right away.
+    public static var all: [AgentSignIn] { [
         AgentSignIn(
             id: "claude", name: "Claude Code", blurb: L("Anthropic's coding agent.", "Anthropic'in kodlama ajanı."),
             keyName: "ANTHROPIC_API_KEY", placeholder: "sk-ant-…",
             keyURL: URL(string: "https://console.anthropic.com/settings/keys")!,
-            alternative: L("With a Claude subscription, run claude setup-token in Terminal on your Mac and paste the token it prints instead.", "Claude aboneliğiniz varsa Mac'te Terminal'de claude setup-token çalıştırıp çıkan jetonu da yapıştırabilirsiniz.")
+            alternative: L("A token from claude setup-token works here too.", "claude setup-token komutunun verdiği jeton da buraya yazılabilir.")
         ),
         AgentSignIn(
             id: "codex", name: "Codex", blurb: L("OpenAI's coding agent.", "OpenAI'ın kodlama ajanı."),
@@ -33,7 +34,7 @@ public struct AgentSignIn: Equatable, Sendable, Identifiable {
             keyURL: URL(string: "https://aistudio.google.com/apikey")!,
             alternative: nil
         ),
-    ]
+    ] }
 
     public static func of(_ id: String) -> AgentSignIn? { all.first { $0.id == id } }
 

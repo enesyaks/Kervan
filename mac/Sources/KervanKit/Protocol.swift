@@ -637,6 +637,11 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
     case githubStatus(id: String)
     case githubConnect(id: String)
     case githubDisconnect(id: String)
+    /// A builtin agent's account sign-in (Claude, Codex) on the server. The app only.
+    case agentLogin(id: String, agent: String)
+    case agentLoginCode(id: String, agent: String, code: String)
+    case agentLoginCancel(id: String, agent: String)
+    case agentLogout(id: String, agent: String)
     case projectList(id: String)
     case projectSave(id: String, project: ProjectInput)
     case projectDelete(id: String, projectId: String)
@@ -689,7 +694,7 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
         case type, `protocol`, client, id, agent, sessionId, text, requestId, optionId, attachments, title, archived, query
         case skills, mcpServers, server, name, agentId, role, roleId, roles, orchestrate, budgetUsd, configId, value
         case projectId, since, seq, paths, project, schedule, scheduleId, days, timeZone, terminalId, data, message, body
-        case enabled, deviceId, shared, removeWorktree, card, cardId, column, alerts, split
+        case enabled, deviceId, shared, removeWorktree, card, cardId, column, alerts, split, code
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -720,6 +725,23 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
         case .githubDisconnect(let id):
             try c.encode("github.disconnect", forKey: .type)
             try c.encode(id, forKey: .id)
+        case .agentLogin(let id, let agent):
+            try c.encode("agent.login", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(agent, forKey: .agent)
+        case .agentLoginCode(let id, let agent, let code):
+            try c.encode("agent.login.code", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(agent, forKey: .agent)
+            try c.encode(code, forKey: .code)
+        case .agentLoginCancel(let id, let agent):
+            try c.encode("agent.login.cancel", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(agent, forKey: .agent)
+        case .agentLogout(let id, let agent):
+            try c.encode("agent.logout", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(agent, forKey: .agent)
         case .webStatus(let id):
             try c.encode("web.status", forKey: .type)
             try c.encode(id, forKey: .id)
@@ -991,6 +1013,9 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
     case githubStatusResult(id: String, github: GitHubStatus)
     case githubCode(id: String, code: String, url: URL)
     case githubUpdated(github: GitHubStatus, error: String?)
+    /// The page to sign an agent in on; for Codex the code to enter there, for Claude the page shows a code to bring back.
+    case agentLoginStarted(id: String, agent: String, url: URL, code: String?, needsCode: Bool)
+    case agentLoginFinished(agent: String, signedIn: Bool, error: String?)
     /// A type this client doesn't know yet. Ignored, so the server can add types without a version bump.
     case unknown(type: String)
 
@@ -999,6 +1024,7 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
         case nodes, roles, team, teams, name, expiresAt, hubAddresses
         case changes, projects, schedules, report, terminalId, backlog, data, ports, pullRequest, web, github, url, error
         case projectId, cards, alerts
+        case agent, needsCode, signedIn
     }
 
     public init(from decoder: any Decoder) throws {
@@ -1114,6 +1140,20 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
             self = .githubCode(id: try c.decode(String.self, forKey: .id), code: try c.decode(String.self, forKey: .code), url: try c.decode(URL.self, forKey: .url))
         case "github.updated":
             self = .githubUpdated(github: try c.decode(GitHubStatus.self, forKey: .github), error: try c.decodeIfPresent(String.self, forKey: .error))
+        case "agent.login.started":
+            self = .agentLoginStarted(
+                id: try c.decode(String.self, forKey: .id),
+                agent: try c.decode(String.self, forKey: .agent),
+                url: try c.decode(URL.self, forKey: .url),
+                code: try c.decodeIfPresent(String.self, forKey: .code),
+                needsCode: try c.decode(Bool.self, forKey: .needsCode)
+            )
+        case "agent.login.finished":
+            self = .agentLoginFinished(
+                agent: try c.decode(String.self, forKey: .agent),
+                signedIn: try c.decode(Bool.self, forKey: .signedIn),
+                error: try c.decodeIfPresent(String.self, forKey: .error)
+            )
         case "web.paired":
             self = .webPaired(
                 id: try c.decode(String.self, forKey: .id),

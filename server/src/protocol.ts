@@ -348,6 +348,12 @@ export type ClientMessage =
   | { type: "github.status"; id: string }
   | { type: "github.connect"; id: string }
   | { type: "github.disconnect"; id: string }
+  /** Signs a builtin agent (claude, codex) in with the user's own account rather than an API key. */
+  | { type: "agent.login"; id: string; agent: string }
+  /** Claude's code from the page the user signed in on. */
+  | { type: "agent.login.code"; id: string; agent: string; code: string }
+  | { type: "agent.login.cancel"; id: string; agent: string }
+  | { type: "agent.logout"; id: string; agent: string }
   | { type: "project.list"; id: string }
   | { type: "project.save"; id: string; project: Record<string, unknown> }
   | { type: "project.delete"; id: string; projectId: string }
@@ -447,7 +453,11 @@ export type ServerMessage =
   | { type: "github.status.result"; id: string; github: GitHubStatus }
   /** The code to enter at `url`; `github.updated` follows when the sign-in ends. */
   | { type: "github.code"; id: string; code: string; url: string }
-  | { type: "github.updated"; github: GitHubStatus; error?: string };
+  | { type: "github.updated"; github: GitHubStatus; error?: string }
+  /** The page to sign in on; for Codex the code to enter there, for Claude `needsCode` asks for the code it shows. */
+  | { type: "agent.login.started"; id: string; agent: string; url: string; code?: string; needsCode: boolean }
+  /** A sign-in ended; the agent list has the new `signedIn`. */
+  | { type: "agent.login.finished"; agent: string; signedIn: boolean; error?: string };
 
 export type ParseResult =
   | { ok: true; message: ClientMessage }
@@ -517,6 +527,10 @@ const STRING_FIELDS: Record<string, readonly string[]> = {
   "github.status": ["id"],
   "github.connect": ["id"],
   "github.disconnect": ["id"],
+  "agent.login": ["id", "agent"],
+  "agent.login.code": ["id", "agent", "code"],
+  "agent.login.cancel": ["id", "agent"],
+  "agent.logout": ["id", "agent"],
   "project.list": ["id"],
   "project.save": ["id"],
   "project.delete": ["id", "projectId"],

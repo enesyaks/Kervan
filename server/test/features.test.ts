@@ -12,6 +12,7 @@ import { parseLsof, parseSs } from "../src/tunnel.ts";
 import { redact } from "../src/diagnostics.ts";
 import { githubRepoURL, openPullRequest } from "../src/pullrequest.ts";
 import { accountFrom, deviceCodeFrom, GitHubAccess } from "../src/github.ts";
+import { AgentLogin, loginPromptFrom } from "../src/agentlogin.ts";
 import { Board } from "../src/board.ts";
 import { WebAccess as WebAccessStore, type WebAccess } from "../src/webaccess.ts";
 import { log } from "../src/log.ts";
@@ -729,6 +730,67 @@ esac
       assert.equal((await access.status()).signedIn, false);
     } finally {
       process.env.PATH = path;
+    }
+  });
+});
+
+describe("agent account sign-in", () => {
+  it("reads the sign-in page from Claude's output, and the page and code from Codex's", () => {
+    assert.deepEqual(
+      loginPromptFrom("claude", "Opening browser to sign in…\nIf the browser didn't open, visit: https://claude.com/cai/oauth/authorize?code=true&state=abc\nPaste code here if prompted > "),
+      { url: "https://claude.com/cai/oauth/authorize?code=true&state=abc", needsCode: true },
+    );
+    assert.deepEqual(
+      loginPromptFrom("codex", "1. Open this link in your browser\n   \u001b[94mhttps://auth.openai.com/codex/device\u001b[0m\n2. Enter this one-time code\n   \u001b[94mV5I6-7FSR3\u001b[0m"),
+      { url: "https://auth.openai.com/codex/device", code: "V5I6-7FSR3", needsCode: false },
+    );
+    assert.equal(loginPromptFrom("claude", "Opening browser to sign in…"), undefined);
+  });
+
+  it("passes Claude the code from the page, and waits for Codex's device sign-in", async () => {
+    // Stand-ins: Claude's login takes a code on its input and accepts only GOOD-CODE; Codex's prints a page and code.
+    const bin = mkdtempSync(join(tmpdir(), "kervan-login-"));
+    writeFileSync(
+      join(bin, "claude"),
+      `#!/bin/sh
+case "$1 $2" in
+  "auth login") echo "If the browser didn't open, visit: https://claude.com/cai/oauth/authorize?code=true&state=s1"; printf "Paste code here if prompted > "; read code; [ "$code" = "GOOD-CODE" ] && echo "Login successful." && exit 0; echo "OAuth error: invalid code"; exit 1 ;;
+  "auth logout") echo "Logged out" ;;
+esac
+`,
+      { mode: 0o755 },
+    );
+    writeFileSync(join(bin, "codex"), `#!/bin/sh\necho "   https://auth.openai.com/codex/device"\necho "   ABCD-12345"\nsleep 0.2\n`, { mode: 0o755 });
+    process.env.KERVAN_CLAUDE_CLI = join(bin, "claude");
+    process.env.KERVAN_CODEX_CLI = join(bin, "codex");
+    try {
+      const login = new AgentLogin();
+      let finished: (error?: string) => void = () => {};
+      let ended = new Promise<string | undefined>((resolve) => (finished = resolve));
+      const claude = await login.start("claude", (error) => finished(error));
+      assert.equal(claude.needsCode, true);
+      assert.match(claude.url, /oauth\/authorize/);
+      assert.ok(login.isSigningIn("claude"));
+      assert.throws(() => login.submitCode("claude", "two\nlines"), /doesn't look like/);
+      login.submitCode("claude", "  GOOD-CODE  ");
+      assert.equal(await ended, undefined, "the right code signs it in");
+
+      ended = new Promise<string | undefined>((resolve) => (finished = resolve));
+      await login.start("claude", (error) => finished(error));
+      login.submitCode("claude", "WRONG");
+      assert.match((await ended) ?? "", /invalid code/, "a wrong code says why");
+      assert.throws(() => login.submitCode("claude", "late"), /no sign-in is waiting/);
+
+      ended = new Promise<string | undefined>((resolve) => (finished = resolve));
+      const codex = await login.start("codex", (error) => finished(error));
+      assert.deepEqual(codex, { agent: "codex", url: "https://auth.openai.com/codex/device", code: "ABCD-12345", needsCode: false });
+      assert.equal(await ended, undefined);
+
+      assert.throws(() => login.start("gemini", () => {}), /give it a key/);
+      await login.signOut("claude");
+    } finally {
+      delete process.env.KERVAN_CLAUDE_CLI;
+      delete process.env.KERVAN_CODEX_CLI;
     }
   });
 });

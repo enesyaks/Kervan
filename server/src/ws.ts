@@ -10,9 +10,11 @@ import type { SessionManager } from "./sessions.ts";
 import { listeningPorts, pipeTunnel, TUNNEL_PATH } from "./tunnel.ts";
 import { AttemptLimiter, type WebAccess } from "./webaccess.ts";
 import { GitHubAccess } from "./github.ts";
+import { AgentLogin } from "./agentlogin.ts";
 
 /** One per server: the gh sign-in belongs to the user the server runs as. */
 const github = new GitHubAccess();
+const agentLogin = new AgentLogin();
 import { diagnostics } from "./diagnostics.ts";
 import { VERSION } from "./version.ts";
 
@@ -159,6 +161,26 @@ async function handleRequest(
       });
       return send(ws, { type: "github.code", id: message.id, ...device });
     }
+    case "agent.login": {
+      const agent = message.agent;
+      const started = await agentLogin.start(agent, (error) => {
+        // The login is on disk now (or not); the agent list says so, and the app hears which way it went.
+        sessions.agentsChanged();
+        const signedIn = sessions.catalog?.list().find((a) => a.id === agent)?.signedIn;
+        sessions.broadcast({ type: "agent.login.finished", agent, signedIn: !error && signedIn !== false, ...(error ? { error } : {}) });
+      });
+      return send(ws, { type: "agent.login.started", id: message.id, ...started });
+    }
+    case "agent.login.code":
+      agentLogin.submitCode(message.agent, message.code);
+      return send(ws, { type: "ok", id: message.id });
+    case "agent.login.cancel":
+      agentLogin.cancel(message.agent);
+      return send(ws, { type: "ok", id: message.id });
+    case "agent.logout":
+      await agentLogin.signOut(message.agent);
+      sessions.agentsChanged();
+      return send(ws, agentList(message.id, sessions));
     case "github.disconnect": {
       await github.disconnect();
       const status = await github.status();

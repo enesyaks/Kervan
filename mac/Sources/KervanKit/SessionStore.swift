@@ -42,6 +42,7 @@ public final class SessionStore {
     private var pullRequestAnswer: PullRequestInfo?
     private var pairingAnswer: WebPairing?
     private var githubCodeAnswer: GitHubDeviceCode?
+    private var agentLoginAnswer: AgentLoginPrompt?
     /// Phone alert settings as last reported; nil until asked for.
     public private(set) var alerts: AlertSettings?
     /// Task boards by project, as last reported.
@@ -50,6 +51,8 @@ public final class SessionStore {
     public private(set) var github: GitHubStatus?
     /// Why the last GitHub sign-in didn't finish, if it didn't.
     public private(set) var githubError: String?
+    /// How the last account sign-in of each agent ended, by agent id; cleared when a new one starts.
+    public private(set) var agentLoginOutcomes: [String: AgentLoginOutcome] = [:]
     /// Web access as the server last told it; nil until asked for.
     public private(set) var webAccess: WebAccessStatus?
     /// The shell open in each session's folder, by session id.
@@ -264,6 +267,34 @@ public final class SessionStore {
     }
 
     @discardableResult
+    // MARK: Agent accounts
+
+    /// Starts signing `agent` in on the server with the user's own account: the page to open, or why not.
+    /// `agentLoginOutcomes[agent]` is set when the sign-in ends.
+    public func startAgentLogin(_ agent: String) async -> Result<AgentLoginPrompt, RequestFailure> {
+        agentLoginAnswer = nil
+        agentLoginOutcomes[agent] = nil
+        if let failure = await call(.agentLogin(id: Self.newID(), agent: agent)) { return .failure(RequestFailure(message: failure)) }
+        guard let answer = agentLoginAnswer, answer.agent == agent else {
+            return .failure(RequestFailure(message: L("The server didn't answer.", "Sunucu yanıt vermedi.")))
+        }
+        return .success(answer)
+    }
+
+    /// Claude's code from the page the user signed in on; nil once the server has it.
+    public func sendAgentLoginCode(_ agent: String, code: String) async -> String? {
+        await call(.agentLoginCode(id: Self.newID(), agent: agent, code: code))
+    }
+
+    public func cancelAgentLogin(_ agent: String) async {
+        _ = await call(.agentLoginCancel(id: Self.newID(), agent: agent))
+    }
+
+    public func signOutAgent(_ agent: String) async -> String? {
+        agentLoginOutcomes[agent] = nil
+        return await call(.agentLogout(id: Self.newID(), agent: agent))
+    }
+
     public func disconnectGitHub() async -> String? {
         githubError = nil
         return await call(.githubDisconnect(id: Self.newID()))
@@ -528,6 +559,11 @@ public final class SessionStore {
         case .githubUpdated(let status, let error):
             github = status
             githubError = error
+        case .agentLoginStarted(_, let agent, let url, let code, let needsCode):
+            agentLoginAnswer = AgentLoginPrompt(agent: agent, url: url, code: code, needsCode: needsCode)
+        case .agentLoginFinished(let agent, let signedIn, let error):
+            agentLoginOutcomes[agent] = error.map { .failed($0) } ?? (signedIn ? .signedIn : .failed(L("The sign-in didn't finish.", "Giriş tamamlanmadı.")))
+            Task { await loadAgentConfigs() }
         case .webStatusResult(_, let web):
             webAccess = web
         case .webPaired(_, let code, let expiresAt):

@@ -479,6 +479,14 @@ private struct AgentsSettings: View {
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
+                            if AgentAccountSignIn.offers(agent.id) {
+                                AgentAccountSignIn(
+                                    agentID: agent.id,
+                                    ready: agent.signedIn != false || model.store.agentLoginOutcomes[agent.id] == .signedIn,
+                                    compact: true
+                                )
+                                .padding(.top, 4)
+                            }
                         }
                         Spacer()
                         Button(L("Edit", "Düzenle")) { editing = AgentDraft(agent) }.buttonStyle(.borderless)

@@ -520,6 +520,21 @@ public struct GitHubDeviceCode: Equatable, Sendable {
     public let url: URL
 }
 
+/// Where an agent's account sign-in goes on: open `url`; for Codex enter `code` there, for Claude bring back the
+/// code the page shows (`needsCode`).
+public struct AgentLoginPrompt: Equatable, Sendable {
+    public let agent: String
+    public let url: URL
+    public let code: String?
+    public let needsCode: Bool
+}
+
+/// How an account sign-in ended.
+public enum AgentLoginOutcome: Equatable, Sendable {
+    case signedIn
+    case failed(String)
+}
+
 /// A browser paired for the web client. Its key never comes back to the app, only who it is.
 public struct WebDevice: Codable, Equatable, Sendable, Identifiable {
     public let id: String
