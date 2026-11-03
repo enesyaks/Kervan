@@ -81,7 +81,7 @@ describe("agents on another node", () => {
     send(ws, { type: "agent.save", id: "a1", agent: { id: "uzak", name: "Uzak", command: fakeAgent.command, args: fakeAgent.args, node: "kutu" } });
     const saved = await inbox.waitFor((m) => m.type === "agent.list.result" && m.id === "a1", 15_000);
     assert.deepEqual(saved.nodes, ["local", "kutu"]);
-    assert.deepEqual(sessions.agentDetails.find((a) => a.id === "uzak"), { id: "uzak", name: "Uzak", node: "kutu" });
+    assert.deepEqual(sessions.agentDetails.find((a) => a.id === "uzak"), { id: "uzak", name: "Uzak", node: "kutu", online: true });
 
     send(ws, { type: "session.create", id: "c1", agent: "uzak" });
     ({ session: { id: sessionId } } = await inbox.waitFor((m) => m.type === "session.created" && m.id === "c1"));

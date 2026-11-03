@@ -74,6 +74,11 @@ describe("the agent catalog on a node", () => {
     assert.equal(answer.agents.filter((a: any) => a.id === "qwen-code").length, 0, "the server's own agents are untouched");
   });
 
+  it("says its node is there", async () => {
+    const list = await inbox.waitFor((m) => m.type === "agents.updated" && m.agentDetails.some((a: any) => a.id === "qwen-code-kutu"));
+    assert.deepEqual(list.agentDetails.find((a: any) => a.id === "qwen-code-kutu"), { id: "qwen-code-kutu", name: "Qwen (model-on-the-node)", node: "kutu", online: true });
+  });
+
   it("then shows it as added on that node, and only there", async () => {
     const onNode = await ask({ type: "agent.registry", node: "kutu" });
     assert.deepEqual(seenAdded, ["qwen-code"]);
@@ -97,4 +102,12 @@ describe("the agent catalog on a node", () => {
     assert.equal(answer.code, "bad_message");
     assert.match(answer.message, /on node 'kutu': no registry here/);
   });
+
+  it("says in the agent list when a node's agents can't be reached", async () => {
+    const seen = inbox.received.length;
+    node.stop();
+    const update = await inbox.waitFor((m) => inbox.received.indexOf(m) >= seen && m.type === "agents.updated" && m.agentDetails.some((a: any) => a.node === "kutu" && a.online === false));
+    assert.ok(update.agentDetails.every((a: any) => a.node === undefined ? a.online === undefined : true), "agents on the server itself have no such field");
+  });
 });
+

@@ -242,12 +242,14 @@ export class SessionManager {
       id,
       name: agent.name,
       ...(agent.protocol === "pty" ? { terminal: true } : {}),
-      ...(nodeOf(agent) !== LOCAL_NODE ? { node: nodeOf(agent) } : {}),
+      ...(nodeOf(agent) !== LOCAL_NODE ? { node: nodeOf(agent), online: this.nodes?.isConnected(nodeOf(agent)) ?? false } : {}),
     }));
   }
 
   /** Tell every client which nodes exist and which are connected. */
   nodesChanged(): void {
+    // The agent list says which agents are reachable, and it's all a browser hears about nodes.
+    this.agentsChanged();
     if (this.nodes) this.broadcast({ type: "nodes.updated", nodes: this.nodes.list(), hubAddresses: this.nodes.addresses() });
   }
 

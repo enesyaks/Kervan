@@ -331,6 +331,11 @@ async function send(sessionId, text, attachments = []) {
     state.attachments.delete(sessionId);
   } catch (error) {
     showFlash(error.message);
+    // The box was emptied on sending; what wasn't delivered goes back.
+    if (state.open === sessionId && paneParts?.textarea && !paneParts.textarea.value) {
+      paneParts.textarea.value = text;
+      paneParts.textarea.dispatchEvent(new Event("input"));
+    }
   }
 }
 
@@ -446,8 +451,19 @@ const ICONS = {
 const icon = (name) => h("span", { html: ICONS[name], "aria-hidden": "true", class: "icon" });
 
 const agentName = (id) => state.agents.find((a) => a.id === id)?.name ?? id;
+/** An agent's name and, when it runs on another machine, which one. */
+const agentLabel = (id) => {
+  const agent = state.agents.find((a) => a.id === id);
+  return agent?.node ? `${agent.name} · ${agent.node}` : agent?.name ?? id;
+};
+/** The node an agent runs on, when it isn't connected. Older servers don't say, so unknown counts as there. */
+const offlineNode = (id) => {
+  const agent = state.agents.find((a) => a.id === id);
+  return agent?.node && agent.online === false ? agent.node : null;
+};
 
 function statusText(session) {
+  if (offlineNode(session.agent)) return L("Asleep or offline", "Uykuda ya da çevrimdışı");
   switch (session.status) {
     case "waiting": return L("Waiting for you", "Onayınızı bekliyor");
     case "running": return L("Working", "Çalışıyor");
@@ -814,17 +830,17 @@ function listPane() {
     class: `session-row${session.id === state.open ? " selected" : ""}`,
     onclick: () => { location.hash = `#/s/${encodeURIComponent(session.id)}`; },
   },
-    h("span", { class: `dot ${session.status}`, "aria-hidden": "true" }),
+    h("span", { class: `dot ${offlineNode(session.agent) ? "closed" : session.status}`, "aria-hidden": "true" }),
     h("span", { class: "text" },
       h("div", { class: "title" }, session.title || agentName(session.agent)),
       h("div", { class: `meta${session.status === "waiting" ? " needs" : ""}` },
-        session.role ? `${session.role} · ${statusText(session)}` : `${agentName(session.agent)} · ${statusText(session)}`)));
+        session.role ? `${session.role} · ${statusText(session)}` : `${agentLabel(session.agent)} · ${statusText(session)}`)));
 
   const helperRow = (helper) => h("button", {
     class: `session-row helper${helper.id === state.open ? " selected" : ""}`,
     onclick: () => { location.hash = `#/s/${encodeURIComponent(helper.id)}`; },
   },
-    h("span", { class: `dot ${helper.status}`, "aria-hidden": "true" }),
+    h("span", { class: `dot ${offlineNode(helper.agent) ? "closed" : helper.status}`, "aria-hidden": "true" }),
     h("span", { class: "text" },
       h("div", { class: "title" }, helper.role || helper.title || agentName(helper.agent)),
       h("div", { class: `meta${helper.status === "waiting" ? " needs" : ""}` },
@@ -983,10 +999,18 @@ function openNewSession() {
   });
   const dialog = h("dialog", { "aria-label": L("New session", "Yeni oturum") },
     h("h2", {}, L("Start a session with", "Oturum başlat:")),
-    state.agents.map((agent) => h("button", {
-      class: "agent-choice",
-      onclick: () => { dialog.close(); void create(agent.id, split); },
-    }, h("span", { class: "dot idle", "aria-hidden": "true" }), agent.name)),
+    state.agents.map((agent) => {
+      const away = offlineNode(agent.id);
+      return h("button", {
+        class: "agent-choice",
+        disabled: Boolean(away),
+        onclick: () => { dialog.close(); void create(agent.id, split); },
+      },
+        h("span", { class: `dot ${away ? "closed" : "idle"}`, "aria-hidden": "true" }),
+        h("span", { class: "text" },
+          agent.name,
+          agent.node ? h("span", { class: "agent-place" }, away ? L(`${agent.node}: asleep or offline`, `${agent.node}: uykuda ya da çevrimdışı`) : agent.node) : null));
+    }),
     h("label", { class: "check-row" },
       splitCheckbox,
       h("span", {}, L("Split into helpers when the work is large", "İş büyük olduğunda yardımcılara böl"))),
@@ -1023,12 +1047,17 @@ function renderSessionPane() {
   }
   const busy = session.status === "running" || session.status === "starting" || session.status === "waiting";
   paneParts.title.textContent = session.title || agentName(session.agent);
-  paneParts.status.className = `dot ${session.status}`;
-  paneParts.statusText.textContent = `${agentName(session.agent)} · ${statusText(session)}`;
+  paneParts.status.className = `dot ${offlineNode(session.agent) ? "closed" : session.status}`;
+  paneParts.statusText.textContent = `${agentLabel(session.agent)} · ${statusText(session)}`;
   paneParts.flash.hidden = !state.flash;
   paneParts.flash.textContent = state.flash ?? "";
-  paneParts.banner.hidden = state.connection === "connected";
-  if (state.connection !== "connected") {
+  const away = offlineNode(session.agent);
+  paneParts.banner.hidden = state.connection === "connected" && !away;
+  if (state.connection === "connected" && away) {
+    paneParts.banner.replaceChildren(
+      h("span", { class: "dot closed" }),
+      h("span", {}, L(`${away} is asleep or offline. What you've written stays here; send it when it's back.`, `${away} uykuda ya da çevrimdışı. Yazdıklarınız burada kalır; döndüğünde gönderebilirsiniz.`)));
+  } else if (state.connection !== "connected") {
     paneParts.banner.replaceChildren(
       h("span", { class: `dot ${state.connection}` }),
       h("span", {}, state.connection === "connecting" ? L("Connecting…", "Bağlanıyor…") : L("Not connected. What you've written stays here.", "Bağlantı yok. Yazdıklarınız burada kalır.")),
@@ -1043,7 +1072,7 @@ function renderSessionPane() {
   paneParts.button.className = `send${busy ? " stop" : ""}`;
   paneParts.button.replaceChildren(icon(busy ? "stop" : "send"));
   paneParts.button.setAttribute("aria-label", busy ? L("Stop", "Durdur") : L("Send", "Gönder"));
-  paneParts.button.disabled = state.connection !== "connected" || (session.status === "closed" && !session.parentId);
+  paneParts.button.disabled = state.connection !== "connected" || (session.status === "closed" && !session.parentId) || (Boolean(away) && !busy);
 
   const atts = state.attachments.get(session.id) || [];
   paneParts.chips.replaceChildren(
@@ -1090,7 +1119,10 @@ function sessionMenu(session) {
     h("button", { class: "icon-button", "aria-label": L("Session actions", "Oturum işlemleri"), "aria-haspopup": "menu", "aria-expanded": String(state.sessionMenu), "data-menu-button": "sessionMenu", onclick: () => toggleMenu("sessionMenu") }, icon("more")),
     state.sessionMenu
       ? h("div", { class: "menu-list", role: "menu" },
-          h("button", { role: "menuitem", onclick: () => { close(); void openChanges(session.id); } }, L("Changes", "Değişiklikler")),
+          // The server keeps no record of changes for an agent on another machine.
+          state.agents.find((a) => a.id === session.agent)?.node
+            ? null
+            : h("button", { role: "menuitem", onclick: () => { close(); void openChanges(session.id); } }, L("Changes", "Değişiklikler")),
           h("button", { role: "menuitem", onclick: () => { close(); openRename(session); } }, L("Rename…", "Yeniden adlandır…")),
           h("button", { role: "menuitem", class: "danger", onclick: () => { close(); void archive(session.id); } }, L("Archive", "Arşivle")))
       : null,
@@ -1266,6 +1298,7 @@ function buildPane(sessionId) {
       showFlash(L("Wait for uploads to finish", "Yüklemelerin bitmesini bekleyin"));
       return;
     }
+    if (offlineNode(state.sessions.get(sessionId)?.agent)) return; // the banner says why; the draft stays
     const text = textarea.value.trim();
     const readyAttachments = atts.filter((a) => a.state === "ready").map((a) => a.path || a.name);
     if (!text && readyAttachments.length === 0) return;
@@ -1315,7 +1348,7 @@ function buildPane(sessionId) {
       ondrop: handleDrop,
     }, chips, inputRow, options));
   requestAnimationFrame(grow);
-  return { header, menuBox, banner, title, status, statusText, flash, transcript, composer, button, chips, options, optionsSig: null };
+  return { header, menuBox, banner, textarea, title, status, statusText, flash, transcript, composer, button, chips, options, optionsSig: null };
 }
 
 // MARK: Start

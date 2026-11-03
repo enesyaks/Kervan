@@ -83,6 +83,8 @@ export interface AgentDetail {
   terminal?: boolean;
   /** Set when the agent runs on another node. */
   node?: string;
+  /** Whether that node is connected right now. */
+  online?: boolean;
 }
 
 export type { HubAddress, NodeInfo } from "./nodes.ts";

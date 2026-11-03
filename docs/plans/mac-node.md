@@ -1,6 +1,6 @@
 # This Mac as a node
 
-Status: steps 1 to 4 done, the rest planned. Comes from a request to start a session from the phone and have it use the Ollama models and agents on the Mac.
+Status: steps 1 to 5 done, the rest planned. Comes from a request to start a session from the phone and have it use the Ollama models and agents on the Mac.
 
 ## What the user gets
 
@@ -156,6 +156,10 @@ Acceptance:
 - A paired browser receives no node names beyond what `AgentDetail` carries, and still can't call any node message.
 - Dropping the node updates the open page without a reload.
 - Sending to an offline node keeps the text and shows the reason.
+
+Done on 2026-11-03, in a browser at 375 px against a throwaway hub with a real node process on this Mac. The list shows `Qwen Code · macbook`. Stopping the node updated the open page without a reload: a banner, the session's status, a disabled send button and a disabled choice in New session, with the draft kept. Starting it again brought all of it back, and the kept draft was sent and answered. Changes is hidden for agents on a node, because the server keeps no record for them.
+
+Not covered: a real phone, real sleep rather than a stopped process, and the case where the send fails after the page last heard the node was there. In that case the text is put back, but this hasn't been run. The Mac app's new-session list doesn't show offline nodes this way yet. When a node drops, its session also shows "The agent process exited unexpectedly", which reads worse than it is.
 
 ### Step 6. Keep the Mac available, on request
 
