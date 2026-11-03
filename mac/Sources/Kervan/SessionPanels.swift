@@ -159,7 +159,7 @@ struct ChangesPanel: View {
         let added = changes.files.reduce(0) { $0 + $1.additions }
         let removed = changes.files.reduce(0) { $0 + $1.deletions }
         return HStack(spacing: 8) {
-            Text(L("\(changes.files.count) files", "\(changes.files.count) dosya")).font(.callout.weight(.medium))
+            Text(fileCount(changes.files.count)).font(.callout.weight(.medium))
             LineCounts(added: added, removed: removed)
             Spacer()
             // A second opinion from another agent, on a copy of the files.

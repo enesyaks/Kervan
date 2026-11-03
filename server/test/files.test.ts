@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import type WebSocket from "ws";
+import { listTree } from "../src/files.ts";
 import type { SessionManager } from "../src/sessions.ts";
 import { HELLO, Inbox, TEST_TOKEN, openSocket, opened, send, startServer } from "./helpers.ts";
 
@@ -112,6 +113,17 @@ describe("workspace files", () => {
 
     send(ws, { type: "session.prompt", id: "p2", sessionId, text: "oku", attachments: ["../x"] });
     assert.equal((await inbox.waitFor((m) => m.type === "error" && m.id === "p2")).code, "bad_message");
+  });
+});
+
+describe("listing a workspace", () => {
+  it("leaves out .git, whether it's a folder or a worktree's file", async () => {
+    for (const make of [(path: string) => mkdirSync(path), (path: string) => writeFileSync(path, "gitdir: /elsewhere")]) {
+      const root = mkdtempSync(join(tmpdir(), "kervan-list-"));
+      make(join(root, ".git"));
+      writeFileSync(join(root, "work.txt"), "x");
+      assert.deepEqual((await listTree(root)).entries.map((entry) => entry.path), ["work.txt"]);
+    }
   });
 });
 

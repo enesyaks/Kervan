@@ -53,7 +53,7 @@ struct AgentCatalogSheet: View {
             }
             .padding(14)
         }
-        .frame(width: 580, height: 560)
+        .frame(width: 580, height: 460) // fits under the Settings window; the list scrolls
         .background(Color.kervanCanvas)
         .task { loadError = await model.store.loadOfferedAgents() }
     }

@@ -5,6 +5,7 @@ import SwiftUI
 struct NewSessionSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openSettings) private var openSettings
     @State private var agent: String
     @State private var skills: Set<String>
     @State private var mcpServers: Set<String>
@@ -95,8 +96,9 @@ struct NewSessionSheet: View {
             .scrollContentBackground(.hidden)
 
             HStack {
-                SettingsLink {
-                    Text(L("Skill and MCP settings…", "Skill ve MCP ayarları…"))
+                Button(L("Skill and MCP settings…", "Skill ve MCP ayarları…")) {
+                    UserDefaults.standard.set(SettingsTab.skills, forKey: SettingsTab.key)
+                    openSettings()
                 }
                 .buttonStyle(.link)
                 Spacer()
@@ -123,7 +125,7 @@ struct NewSessionSheet: View {
             }
             .padding(16)
         }
-        .frame(width: 460, height: 560)
+        .frame(width: 460, height: 480) // fits a window at its smallest; the form scrolls
         .background(Color.kervanCanvas)
         .navigationTitle(L("New session", "Yeni oturum"))
         .task { await loadSkills() }

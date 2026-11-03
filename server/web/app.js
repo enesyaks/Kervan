@@ -1177,7 +1177,7 @@ async function openChanges(sessionId) {
     const status = { added: L("new", "yeni"), deleted: L("deleted", "silindi"), modified: "" };
     body.replaceChildren(...[
       h("p", { class: "summary" },
-        L(`${changes.files.length} files`, `${changes.files.length} dosya`), " · ",
+        L(`${changes.files.length} ${changes.files.length === 1 ? "file" : "files"}`, `${changes.files.length} dosya`), " · ",
         h("span", { class: "plus" }, `+${added}`), " ", h("span", { class: "minus" }, `−${removed}`),
         changes.branch ? ` · ${changes.branch}` : ""),
       changes.files.map((file) => h("details", { class: "file" },

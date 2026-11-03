@@ -938,10 +938,10 @@ export class SessionManager {
     const message = session.events.find((e) => e.seq === seq);
     const quoted = message?.kind === "user_message" ? message.text.trim().split("\n")[0].slice(0, 120) : "";
     if (paths) {
-      this.record(session, { kind: "notice", text: `${restored.length} files reverted: ${restored.slice(0, 5).join(", ")}${restored.length > 5 ? "…" : ""}` });
+      this.record(session, { kind: "notice", text: `${restored.length} ${restored.length === 1 ? "file" : "files"} reverted: ${restored.slice(0, 5).join(", ")}${restored.length > 5 ? "…" : ""}` });
       session.note = `[Kervan] The user reverted these files to how they were before their message "${quoted}": ${restored.join(", ")}. Read them again before you change them.`;
     } else {
-      this.record(session, { kind: "notice", text: `Files rewound to before the message "${quoted}" (${restored.length} files).` });
+      this.record(session, { kind: "notice", text: `Files rewound to before the message "${quoted}" (${restored.length} ${restored.length === 1 ? "file" : "files"}).` });
       session.note =
         `[Kervan] The user rewound the folder to how it was before their message "${quoted}". ` +
         "Everything you changed after that point is gone; work from the files as they are now.";

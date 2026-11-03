@@ -179,7 +179,7 @@ struct ProjectSheet: View {
             }
             .padding(16)
         }
-        .frame(width: 500, height: 520)
+        .frame(width: 500, height: 480) // fits a window at its smallest; the form scrolls
         .background(Color.kervanCanvas)
         .onAppear {
             name = project?.name ?? ""
@@ -280,7 +280,8 @@ struct SchedulesView: View {
                         .font(.caption).foregroundStyle(.kervanCoral)
                 } else if let last = schedule.lastRunAt.flatMap(Self.date) {
                     HStack(spacing: 6) {
-                        Text(L("Last ran: \(last.formatted(date: .abbreviated, time: .shortened))", "Son çalıştı: \(last.formatted(date: .abbreviated, time: .shortened))"))
+                        let when = last.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened).locale(Language.shared.locale))
+                        Text(L("Last ran: \(when)", "Son çalıştı: \(when)"))
                         if let sessionID = schedule.lastSessionId, model.store.session(sessionID) != nil {
                             Button(L("Open session", "Oturumu aç")) { model.selectedSessionID = sessionID }.buttonStyle(.link)
                         }
@@ -389,7 +390,7 @@ private struct ScheduleSheet: View {
             }
             .padding(16)
         }
-        .frame(width: 500, height: 620)
+        .frame(width: 500, height: 480) // fits a window at its smallest; the form scrolls
         .background(Color.kervanCanvas)
         .onAppear(perform: load)
     }

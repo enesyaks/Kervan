@@ -12,7 +12,7 @@ import type { SessionManager } from "./sessions.ts";
 import { MAX_NODE_FILE_BYTES } from "./node-agent.ts";
 
 const ROUTE = /^\/v1\/sessions\/([^/]+)\/files(?:\/(.+))?$/;
-const SKIP_DIRS = new Set([".git", "node_modules"]);
+const SKIP_DIRS = new Set(["node_modules"]);
 const MAX_ENTRIES = 5000;
 const TEMP_PREFIX = ".kervan-upload-";
 
@@ -112,7 +112,8 @@ export async function listTree(root: string): Promise<{ entries: FileEntry[]; tr
   while (queue.length > 0) {
     const dir = queue.shift()!;
     for (const dirent of await readdir(dir, { withFileTypes: true })) {
-      if (dirent.name.startsWith(TEMP_PREFIX) || (dirent.isDirectory() && SKIP_DIRS.has(dirent.name))) continue;
+      // `.git` is a file in a worktree, and no more the user's work than the folder is.
+      if (dirent.name.startsWith(TEMP_PREFIX) || dirent.name === ".git" || (dirent.isDirectory() && SKIP_DIRS.has(dirent.name))) continue;
       if (!dirent.isDirectory() && !dirent.isFile()) continue; // symlinks and specials are not followed
       if (entries.length >= MAX_ENTRIES) return { entries, truncated: true };
       const full = join(dir, dirent.name);

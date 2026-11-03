@@ -569,12 +569,12 @@ struct TranscriptRow: View {
             }
 
         case .notice(_, let text):
-            Label(text, systemImage: "arrow.triangle.2.circlepath")
+            Label(ServerWording.translated(text), systemImage: "arrow.triangle.2.circlepath")
                 .font(.callout)
                 .foregroundStyle(.secondary)
 
         case .error(_, let message):
-            Label(message, systemImage: "exclamationmark.triangle.fill")
+            Label(ServerWording.translated(message), systemImage: "exclamationmark.triangle.fill")
                 .font(.callout)
                 .foregroundStyle(.kervanCoral)
         }

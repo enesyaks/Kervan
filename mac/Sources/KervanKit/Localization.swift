@@ -46,3 +46,29 @@ public final class Language: @unchecked Sendable {
 public func L(_ english: String, _ turkish: String) -> String {
     Language.shared.isTurkish ? turkish : english
 }
+
+/// "1 file", "3 files"; Turkish has one form.
+public func fileCount(_ count: Int) -> String {
+    L("\(count) \(count == 1 ? "file" : "files")", "\(count) dosya")
+}
+
+/// Fixed sentences the server records in a session's history, which stays in English, in the app's language. Anything
+/// else (an agent's own words, a path) is shown as it came.
+public enum ServerWording {
+    public static func translated(_ text: String) -> String {
+        switch text {
+        case "ACP connection closed":
+            L("The connection to the agent closed.", "Ajanla bağlantı kapandı.")
+        case "The agent process exited unexpectedly.":
+            L(text, "Ajan beklenmedik şekilde kapandı.")
+        case "The agent process exited unexpectedly. It restarts where it left off with your next message.":
+            L(text, "Ajan beklenmedik şekilde kapandı. Sonraki mesajınızla kaldığı yerden yeniden başlar.")
+        case "The agent restarted; the conversation continues where it left off.":
+            L(text, "Ajan yeniden başladı; konuşma kaldığı yerden sürüyor.")
+        case "The terminal agent restarted; it doesn't remember the earlier conversation.":
+            L(text, "Terminal ajanı yeniden başladı; önceki konuşmayı hatırlamıyor.")
+        default:
+            text
+        }
+    }
+}

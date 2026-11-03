@@ -183,7 +183,7 @@ private struct SkillsSettings: View {
                                 .foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Text(L("\(skill.files) files", "\(skill.files) dosya")).font(.caption).foregroundStyle(.secondary)
+                        Text(fileCount(skill.files)).font(.caption).foregroundStyle(.secondary)
                         Button(L("Delete", "Sil"), role: .destructive) { removing = skill }
                             .buttonStyle(.borderless)
                     }

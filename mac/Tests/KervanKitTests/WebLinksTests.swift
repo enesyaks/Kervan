@@ -76,3 +76,16 @@ import Testing
         #expect(!SessionStore.fitsInOneMessage(String(repeating: "\n", count: 600_000)), "line breaks double in JSON")
     }
 }
+
+@Suite struct WordingTests {
+    // In the tests' language, English: the language is shared by tests running at the same time, so it isn't switched here.
+    @Test func countsFiles() {
+        #expect(fileCount(1) == "1 file")
+        #expect(fileCount(2) == "2 files")
+    }
+
+    @Test func translatesOnlyTheServersFixedSentences() {
+        #expect(ServerWording.translated("ACP connection closed") == "The connection to the agent closed.")
+        #expect(ServerWording.translated("an agent's own words") == "an agent's own words")
+    }
+}

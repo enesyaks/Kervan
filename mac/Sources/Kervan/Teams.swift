@@ -10,8 +10,9 @@ struct TeamsSection: View {
         Section(L("Teams", "Takımlar")) {
             if store.teams.isEmpty {
                 Button(L("New team…", "Takım kur…")) { model.showNewTeam = true }
-                    .buttonStyle(.link)
-                    .disabled(store.roles.isEmpty || !model.canCreateSession)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .disabled(!model.canCreateSession)
                     .help(store.roles.isEmpty ? L("Define roles in Settings › Roles first.", "Önce Ayarlar › Roller'den rol tanımlayın.") : L("Build a team from roles", "Rollerden bir takım kur"))
             }
             ForEach(store.teams) { team in
@@ -87,6 +88,7 @@ struct HelperRow: View {
 struct NewTeamSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openSettings) private var openSettings
     @State private var title = ""
     @State private var picked: [String] = []
 
@@ -120,7 +122,11 @@ struct NewTeamSheet: View {
             .scrollContentBackground(.hidden)
 
             HStack {
-                SettingsLink { Text(L("Edit roles…", "Rolleri düzenle…")) }.buttonStyle(.link)
+                Button(L("Edit roles…", "Rolleri düzenle…")) {
+                    UserDefaults.standard.set(SettingsTab.roles, forKey: SettingsTab.key)
+                    openSettings()
+                }
+                .buttonStyle(.link)
                 Spacer()
                 Button(L("Cancel", "Vazgeç"), role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
                 Button(L("Create team", "Takımı kur")) {
@@ -143,7 +149,6 @@ struct NewTeamSheet: View {
 struct RolesSettings: View {
     @Environment(AppModel.self) private var model
     @State private var editing: Role?
-    @State private var isNew = false
     @State private var removing: Role?
 
     var body: some View {
@@ -161,7 +166,6 @@ struct RolesSettings: View {
                         }
                         Spacer()
                         Button(L("Edit", "Düzenle")) {
-                            isNew = false
                             editing = role
                         }
                         .buttonStyle(.borderless)
@@ -179,7 +183,6 @@ struct RolesSettings: View {
             HStack {
                 Spacer()
                 Button(L("Add role…", "Rol ekle…")) {
-                    isNew = true
                     editing = Role(id: "", name: "", agent: model.store.agents.first?.id ?? "")
                 }
                 .buttonStyle(.borderedProminent)
@@ -189,7 +192,8 @@ struct RolesSettings: View {
         .padding(20)
         .settingsPage()
         .sheet(item: $editing) { role in
-            RoleEditor(role: role, isNew: isNew)
+            // Decided from the role itself: a separate state value is still the old one when this closure first runs.
+            RoleEditor(role: role, isNew: role.id.isEmpty)
         }
         .confirmationDialog(
             L("Delete the role \(removing?.name ?? "")?", "\(removing?.name ?? "") rolü silinsin mi?"),

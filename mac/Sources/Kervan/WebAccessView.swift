@@ -132,11 +132,11 @@ struct WebAccessSection: View {
     }
 
     private static func detail(_ device: WebDevice) -> String {
-        let paired = SessionGroups.parse(device.createdAt).map { $0.formatted(date: .abbreviated, time: .omitted) } ?? device.createdAt
+        let paired = SessionGroups.parse(device.createdAt).map { $0.formatted(Date.FormatStyle(date: .abbreviated, time: .omitted).locale(Language.shared.locale)) } ?? device.createdAt
         guard let seen = device.lastSeenAt.flatMap(SessionGroups.parse) else {
             return L("Paired \(paired)", "Eşleşme \(paired)")
         }
-        let relative = seen.formatted(.relative(presentation: .named))
+        let relative = seen.formatted(.relative(presentation: .named).locale(Language.shared.locale))
         return L("Paired \(paired) · last used \(relative)", "Eşleşme \(paired) · son kullanım \(relative)")
     }
 }
