@@ -1,6 +1,6 @@
 # This Mac as a node
 
-Status: steps 1 to 5 done, the rest planned. Comes from a request to start a session from the phone and have it use the Ollama models and agents on the Mac.
+Status: steps 1 to 6 done, step 7 (the real try) is next. Comes from a request to start a session from the phone and have it use the Ollama models and agents on the Mac.
 
 ## What the user gets
 
@@ -168,6 +168,8 @@ Add an off-by-default "Keep this Mac awake while plugged in" setting for the nod
 Acceptance:
 - On AC power with the setting on, the Mac stays awake; on battery the setting has no effect.
 - Turning it off ends the `caffeinate` process.
+
+Done on 2026-11-03: `mac-node-setup.sh keep-awake on|off` runs `caffeinate -s` from a LaunchDaemon as the node's user, and the Nodes settings have a checkbox for it. Tried for real on AC power, from Terminal: on gave macOS's PreventSystemSleep assertion, off and `remove` both ended it and left no service. Not tried: on battery, whether the Mac really stays awake over time, and the checkbox itself.
 
 ### Step 7. Try it for real
 

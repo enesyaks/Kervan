@@ -3,6 +3,7 @@
 # Agents run as a separate hidden user, away from the logged-in user's files. Run with sudo:
 #   sudo bash mac-node-setup.sh install --hub http://<hub>:7420 --code <invite> --name <node>
 #   sudo bash mac-node-setup.sh verify
+#   sudo bash mac-node-setup.sh keep-awake on|off
 #   sudo bash mac-node-setup.sh remove
 # Safe to run install again with a new invite: it updates the code and keeps the node's sign-ins and folders.
 set -euo pipefail
@@ -11,15 +12,24 @@ NODE_USER=_kervan-node
 ROOT=/opt/kervan-node
 LABEL=com.enes.kervan.node
 PLIST="/Library/LaunchDaemons/$LABEL.plist"
+AWAKE_LABEL="$LABEL.awake"
+AWAKE_PLIST="/Library/LaunchDaemons/$AWAKE_LABEL.plist"
 NODE_MAJOR=24
 
 fail() { echo "Kervan: $*" >&2; exit 1; }
-usage() { sed -n '4,6p' "$0" | sed 's/^# *//' >&2; exit 64; }
+usage() { sed -n '4,7p' "$0" | sed 's/^# *//' >&2; exit 64; }
 step() { echo "==> $*"; }
 
 COMMAND="${1:-}"
 [[ $# -gt 0 ]] && shift
-case "$COMMAND" in install|verify|remove) ;; *) usage ;; esac
+case "$COMMAND" in install|verify|remove|keep-awake) ;; *) usage ;; esac
+
+AWAKE=""
+if [[ "$COMMAND" == keep-awake ]]; then
+  AWAKE="${1:-}"
+  [[ "$AWAKE" == on || "$AWAKE" == off ]] || usage
+  shift
+fi
 
 HUB="" CODE="" NAME=""
 while [[ $# -gt 0 ]]; do
@@ -193,8 +203,37 @@ PLIST_BODY
   cat <<DONE
 
 Kervan: '$NAME' is installed and connecting to the hub.
-Agents on it run as $NODE_USER and can't read your files. To check that: sudo bash $0 verify
+Agents on it run as $NODE_USER and can't read your files. To check that: sudo bash "$0" verify
 DONE
+}
+
+# `caffeinate -s` holds off sleep only on AC power, and nothing here can stop a closed lid or wake a sleeping Mac.
+keep_awake() {
+  launchctl bootout "system/$AWAKE_LABEL" >/dev/null 2>&1 || true
+  rm -f "$AWAKE_PLIST"
+  if [[ "$AWAKE" == off ]]; then
+    echo "Kervan: this Mac sleeps as usual again."
+    return
+  fi
+  dscl . -read "/Users/$NODE_USER" >/dev/null 2>&1 || fail "this Mac isn't a node yet."
+  cat >"$AWAKE_PLIST" <<PLIST_BODY
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$AWAKE_LABEL</string>
+  <key>ProgramArguments</key><array><string>/usr/bin/caffeinate</string><string>-s</string></array>
+  <key>UserName</key><string>$NODE_USER</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+</dict>
+</plist>
+PLIST_BODY
+  chown root:wheel "$AWAKE_PLIST"
+  chmod 644 "$AWAKE_PLIST"
+  plutil -lint -s "$AWAKE_PLIST"
+  launchctl bootstrap system "$AWAKE_PLIST"
+  echo "Kervan: this Mac stays awake while plugged in."
 }
 
 # One line per check; exits non-zero when any fails.
@@ -246,7 +285,8 @@ verify_node() {
 remove_node() {
   step "stopping the service"
   stop_daemon
-  rm -f "$PLIST"
+  launchctl bootout "system/$AWAKE_LABEL" >/dev/null 2>&1 || true
+  rm -f "$PLIST" "$AWAKE_PLIST"
   step "removing the user and its files"
   # macOS starts its own helpers for a user once something runs as them, and agents may still be running.
   local uid
@@ -275,4 +315,5 @@ case "$COMMAND" in
   install) install_node ;;
   verify) verify_node ;;
   remove) remove_node ;;
+  keep-awake) keep_awake ;;
 esac

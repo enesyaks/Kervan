@@ -4,6 +4,8 @@ import Foundation
 /// administrator prompt, so the app never sees the password.
 public enum MacNode {
     public static let service = "/Library/LaunchDaemons/com.enes.kervan.node.plist"
+    /// There while "keep this Mac awake" is on.
+    public static let keepAwakeService = "/Library/LaunchDaemons/com.enes.kervan.node.awake.plist"
     /// Written by the setup script, readable by anyone: the node's key file isn't.
     public static let nameFile = "/opt/kervan-node/node-name"
 
@@ -39,6 +41,10 @@ public enum MacNode {
 
     public static func removeCommand(script: String, log: String) -> String {
         ["/bin/bash", script, "remove"].map(shellQuoted).joined(separator: " ") + " >> " + shellQuoted(log) + " 2>&1"
+    }
+
+    public static func keepAwakeCommand(script: String, on: Bool, log: String) -> String {
+        ["/bin/bash", script, "keep-awake", on ? "on" : "off"].map(shellQuoted).joined(separator: " ") + " >> " + shellQuoted(log) + " 2>&1"
     }
 
     /// The arguments for `osascript`, which shows the administrator prompt and runs `command` as root.

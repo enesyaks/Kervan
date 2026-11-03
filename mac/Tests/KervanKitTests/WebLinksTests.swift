@@ -108,6 +108,8 @@ import Testing
         let command = MacNode.installCommand(script: "/Applications/My Apps/Kervan's.app/x.sh", hub: "h.ts.net:7420", code: "abc", name: "mac", log: "/tmp/a b.log")
         #expect(command == "'/bin/bash' '/Applications/My Apps/Kervan'\\''s.app/x.sh' 'install' '--hub' 'http://h.ts.net:7420' '--code' 'abc' '--name' 'mac' >> '/tmp/a b.log' 2>&1")
         #expect(MacNode.removeCommand(script: "/x.sh", log: "/l") == "'/bin/bash' '/x.sh' 'remove' >> '/l' 2>&1")
+        #expect(MacNode.keepAwakeCommand(script: "/x.sh", on: true, log: "/l") == "'/bin/bash' '/x.sh' 'keep-awake' 'on' >> '/l' 2>&1")
+        #expect(MacNode.keepAwakeCommand(script: "/x.sh", on: false, log: "/l") == "'/bin/bash' '/x.sh' 'keep-awake' 'off' >> '/l' 2>&1")
     }
 
     @Test func commandReachesTheShellIntactThroughAppleScript() throws {

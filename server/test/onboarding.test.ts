@@ -116,6 +116,9 @@ describe("the Mac node setup script", () => {
     assert.equal(run(), 64);
     assert.equal(run("install", "--hub"), 64);
     assert.equal(run("remove"), 1);
+    assert.equal(run("keep-awake"), 64);
+    assert.equal(run("keep-awake", "maybe"), 64);
+    assert.equal(run("keep-awake", "on"), 1);
   });
 });
 

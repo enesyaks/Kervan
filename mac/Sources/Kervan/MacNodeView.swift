@@ -98,6 +98,8 @@ struct MacNodeCard: View {
     @State private var confirmingRemoval = false
     @State private var installed = MacNode.isInstalled()
     @State private var remover = MacNodeRunner()
+    @State private var awakeRunner = MacNodeRunner()
+    @State private var keepAwake = FileManager.default.fileExists(atPath: MacNode.keepAwakeService)
 
     private var name: String? {
         (try? String(contentsOfFile: MacNode.nameFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -178,6 +180,18 @@ struct MacNodeCard: View {
         }
         .padding(12)
         .softSurface(radius: Radius.chip)
+        Toggle(isOn: Binding(get: { keepAwake }, set: { setKeepAwake($0) })) {
+            Text(L("Keep this Mac awake while plugged in", "Prizdeyken bu Mac'i uyanık tut"))
+            Text(L(
+                "So its agents stay reachable. Only on power; a closed lid without an external display still sleeps, and nothing can wake the Mac from your phone. macOS asks for your password.",
+                "Ajanlarına ulaşılabilsin diye. Yalnızca prizdeyken çalışır; harici ekran yoksa kapak kapanınca Mac yine uyur ve telefondan uyandırılamaz. macOS parolanızı sorar."
+            ))
+        }
+        .toggleStyle(.checkbox)
+        .disabled(awakeRunner.isRunning || MacNodeRunner.script == nil)
+        if let failure = awakeRunner.failure {
+            Label(failure, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.kervanCoral)
+        }
         if remover.isRunning {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
@@ -192,6 +206,16 @@ struct MacNodeCard: View {
         }
         if node.connected, let version = node.version { return L("Connected, v\(version)", "Bağlı, v\(version)") }
         return node.connected ? L("Connected", "Bağlı") : L("Not connected. It connects again by itself when it can.", "Bağlı değil. Olabildiğinde kendiliğinden yeniden bağlanır.")
+    }
+
+    private func setKeepAwake(_ on: Bool) {
+        guard let script = MacNodeRunner.script else { return }
+        awakeRunner.run { MacNode.keepAwakeCommand(script: script, on: on, log: $0) }
+        Task {
+            while awakeRunner.isRunning { try? await Task.sleep(for: .milliseconds(200)) }
+            // What's on disk, not what was asked: a closed prompt changes nothing.
+            keepAwake = FileManager.default.fileExists(atPath: MacNode.keepAwakeService)
+        }
     }
 
     private func remove() {
