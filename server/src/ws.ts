@@ -81,6 +81,16 @@ const WEB_ALLOWED = new Set<string>([
  */
 const WEB_EVENTS = new Set<ServerMessage["type"]>(["session.updated", "session.event", "agents.updated", "projects.updated", "board.updated"]);
 
+/** The node a catalog request is for, or undefined for this server. */
+function targetNode(message: { node?: unknown }): string | undefined {
+  const { node } = message;
+  if (node === undefined || node === LOCAL_NODE) return undefined;
+  if (typeof node !== "string" || !NODE_NAME.test(node)) throw new KervanError("bad_message", "'node' must be a node's name");
+  return node;
+}
+
+const nodeAgentSuffix = (node: string) => `-${node}`;
+
 function rejectUpgrade(socket: Duplex, status: number, reason: string): void {
   socket.end(`HTTP/1.1 ${status} ${reason}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
 }
@@ -204,18 +214,31 @@ async function handleRequest(
       return send(ws, agentList(message.id, sessions));
     case "agent.registry": {
       const catalog = requireCatalog(sessions);
+      const node = targetNode(message);
+      if (node) {
+        const suffix = nodeAgentSuffix(node);
+        const added = catalog.list().filter((agent) => agent.node === node).map((agent) => (agent.id.endsWith(suffix) ? agent.id.slice(0, -suffix.length) : agent.id));
+        const { agents, ollama } = await requireNodes(sessions).offerAgents(node, added);
+        return send(ws, { type: "agent.registry.result", id: message.id, agents, ollama });
+      }
       const registry = registryFor(sessions);
-      const added = new Set(catalog.list().map((agent) => agent.id));
+      const added = new Set(catalog.list().filter((agent) => agent.node === LOCAL_NODE).map((agent) => agent.id));
       const [agents, ollama] = await Promise.all([registry.offer(added), registry.ollama()]);
       return send(ws, { type: "agent.registry.result", id: message.id, agents, ollama });
     }
     case "agent.install": {
       const catalog = requireCatalog(sessions);
-      const registry = registryFor(sessions);
       const model = (message as { ollamaModel?: unknown }).ollamaModel;
       if (model !== undefined && typeof model !== "string") throw new KervanError("bad_message", "'ollamaModel' must be a string");
-      const installed = await registry.install({ agentId: message.agentId, ...(model ? { ollamaModel: model } : {}) });
-      await catalog.save(installed);
+      const request = { agentId: message.agentId, ...(model ? { ollamaModel: model } : {}) };
+      const node = targetNode(message);
+      if (node) {
+        const installed = await requireNodes(sessions).installAgent(node, request);
+        // Its own id: the same agent can be on this server and on any node, each set up for its machine.
+        await catalog.save({ ...installed, id: `${installed.id}${nodeAgentSuffix(node)}`, node });
+      } else {
+        await catalog.save(await registryFor(sessions).install(request));
+      }
       sessions.agentsChanged();
       return send(ws, agentList(message.id, sessions));
     }

@@ -1,9 +1,11 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type * as acp from "@agentclientprotocol/sdk";
 import WebSocket from "ws";
+import { AcpRegistry, type InstallRequest } from "./agentregistry.ts";
 import type { AgentDefinition } from "./agents.ts";
 import { isSafeRelativePath, listTree, resolveInside } from "./files.ts";
 import { log } from "./log.ts";
@@ -17,6 +19,8 @@ export const MAX_NODE_FILE_BYTES = 50 * 1024 * 1024;
 export const MAX_NODE_FRAME_BYTES = Math.ceil((MAX_NODE_FILE_BYTES * 4) / 3) + 64 * 1024;
 
 export interface NodeAgentOptions {
+  /** Where the catalog's agents come from; tests pass their own. */
+  registry?: Pick<AcpRegistry, "offer" | "ollama" | "install">;
   /** ws(s)://hub:7420 — the hub's addresses, tried in turn; the path is added. */
   hubUrls: string[];
   /** Where addresses the hub tells us about are kept, so a hub whose IP changed is still found. */
@@ -40,6 +44,7 @@ export class NodeAgent {
   private ws?: WebSocket;
   private stopped = false;
   private retry?: NodeJS.Timeout;
+  private readonly registry: Pick<AcpRegistry, "offer" | "ollama" | "install">;
   private retryMs = 1000;
   /** Every address we know for the hub, the one that last worked first. */
   private hubs: string[];
@@ -47,6 +52,8 @@ export class NodeAgent {
 
   constructor(options: NodeAgentOptions) {
     this.options = options;
+    // In the node user's home: the only place it can be sure to write, on Linux and on a Mac.
+    this.registry = options.registry ?? new AcpRegistry(join(homedir(), ".kervan", "tools"));
     const remembered = options.stateFile && existsSync(options.stateFile)
       ? ((JSON.parse(readFileSync(options.stateFile, "utf8")) as { hubs?: string[] }).hubs ?? [])
       : [];
@@ -188,6 +195,12 @@ export class NodeAgent {
         if (!process.setConfig) throw new Error("this agent has no settings");
         return process.setConfig(params.configId, params.value);
       })
+      // The catalog as this machine sees it: the agents it has and can install, and its own Ollama.
+      .on("registry.offer", async (params: { added: string[] }) => {
+        const [agents, ollama] = await Promise.all([this.registry.offer(new Set(params.added)), this.registry.ollama()]);
+        return { agents, ollama };
+      })
+      .on("registry.install", (params: InstallRequest) => this.registry.install(params))
       .on("files.list", async (params: { key: string }) => listTree(await this.workspace(params.key)))
       .on("files.read", async (params: { key: string; path: string }) => {
         const file = await resolveInside(await this.workspace(params.key), params.path);

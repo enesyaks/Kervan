@@ -307,16 +307,19 @@ public final class SessionStore {
 
     // MARK: Agent catalog
 
-    /// Asks the server for the registry's agents; nil, or why it couldn't.
-    public func loadOfferedAgents() async -> String? {
-        await call(.agentRegistry(id: Self.newID()))
+    /// Asks the server for the registry's agents, as this server or `node` sees them; nil, or why it couldn't.
+    public func loadOfferedAgents(node: String? = nil) async -> String? {
+        // What one machine offers says nothing about another.
+        offeredAgents = nil
+        ollama = nil
+        return await call(.agentRegistry(id: Self.newID(), node: node))
     }
 
     /// Installs (or finds) a registry agent on the server and adds it, optionally on an Ollama model; nil, or why not.
     /// It can take a few minutes. The agent list and the catalog refresh when it's done.
-    public func installAgent(_ agentId: String, ollamaModel: String? = nil) async -> String? {
-        let failure = await call(.agentInstall(id: Self.newID(), agentId: agentId, ollamaModel: ollamaModel))
-        if failure == nil { _ = await loadOfferedAgents() }
+    public func installAgent(_ agentId: String, ollamaModel: String? = nil, node: String? = nil) async -> String? {
+        let failure = await call(.agentInstall(id: Self.newID(), agentId: agentId, ollamaModel: ollamaModel, node: node))
+        if failure == nil { _ = await loadOfferedAgents(node: node) }
         return failure
     }
 

@@ -1,6 +1,6 @@
 # This Mac as a node
 
-Status: steps 1 to 3 done, the rest planned. Comes from a request to start a session from the phone and have it use the Ollama models and agents on the Mac.
+Status: steps 1 to 4 done, the rest planned. Comes from a request to start a session from the phone and have it use the Ollama models and agents on the Mac.
 
 ## What the user gets
 
@@ -141,6 +141,12 @@ Acceptance:
 - With a fake node reporting models, the catalog lists that node's models, not the hub's.
 - Adding Qwen Code for a node writes an agent with that `node` and points at that machine's `127.0.0.1:11434`.
 - An agent the hub already has isn't confused with the same agent on the node.
+
+Done on 2026-11-03. `agent.registry` and `agent.install` take a `node`, the node answers with its own registry and Ollama, the agent is saved as `<id>-<node>`, and the catalog has a "Run on" picker. Tested with a stand-in registry on a real node connection; no real Goose or Qwen install has run on a Mac node. The picker was seen listing a connected node, but choosing the node in it hasn't been tried in the app.
+
+Found on the way: `parseClientMessage` only keeps required fields, so **`ollamaModel` never reached the server.** Choosing a model in the catalog did nothing, on hubs too: the agent was installed without Ollama. Fixed, and the test checks the model arrives.
+
+On a node, Claude, Codex and Gemini show as unavailable in the catalog, because the check is about what this server ships. Whether to offer them on nodes is still open.
 
 ### Step 5. The phone shows where an agent runs and whether it's there
 

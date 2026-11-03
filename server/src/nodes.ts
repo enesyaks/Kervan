@@ -7,6 +7,7 @@ import { isAbsolute } from "node:path";
 import type * as acp from "@agentclientprotocol/sdk";
 import type { WebSocket } from "ws";
 import type { AgentCommand } from "./agents.ts";
+import type { InstalledAgent, InstallRequest, OfferedAgent, OllamaStatus } from "./agentregistry.ts";
 import type { FileEntry } from "./files.ts";
 import { log } from "./log.ts";
 import { KervanError, type ConfigOption, type SessionEventBody } from "./protocol.ts";
@@ -308,6 +309,25 @@ export class NodeHub {
   async writeFile(node: string, key: string, path: string, data: Buffer): Promise<number> {
     const { size } = await this.require(node).rpc.call<{ size: number }>("files.write", { key, path, data: data.toString("base64") });
     return size;
+  }
+
+  /** What the catalog offers on this node, and its own Ollama. An error there is an answer, not the hub's failure. */
+  async offerAgents(node: string, added: string[]): Promise<{ agents: OfferedAgent[]; ollama: OllamaStatus }> {
+    return this.ask(node, "registry.offer", { added });
+  }
+
+  /** Installs a catalog agent on the node, set up for that machine; the hub only keeps how to start it. */
+  async installAgent(node: string, request: InstallRequest): Promise<InstalledAgent> {
+    return this.ask(node, "registry.install", request);
+  }
+
+  private async ask<T>(node: string, method: string, params: unknown): Promise<T> {
+    const { rpc } = this.require(node);
+    try {
+      return await rpc.call<T>(method, params);
+    } catch (error) {
+      throw new KervanError("bad_message", `on node '${node}': ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   private require(node: string): Connection {

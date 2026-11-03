@@ -2,9 +2,9 @@ import AppKit
 import KervanKit
 import SwiftUI
 
-/// The agents of the Agent Client Protocol's registry, as the server sees them: ones installed on it by hand
+/// The agents of the Agent Client Protocol's registry, as the chosen machine sees them: ones installed on it by hand
 /// (added with one click), ones it can install for Kervan without sudo, and the rest with why not. Agents that can
-/// run a local model offer the server's Ollama models.
+/// run a local model offer that machine's Ollama models.
 struct AgentCatalogSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
@@ -13,14 +13,18 @@ struct AgentCatalogSheet: View {
     @State private var installing: String?
     @State private var errors: [String: String] = [:]
     @State private var showUnavailable = false
+    /// The node to add agents to; nil for the server itself.
+    @State private var node: String?
+
+    private var connectedNodes: [String] { model.store.nodeInfos.filter(\.connected).map(\.name) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(L("Add an agent", "Ajan ekle")).font(.title2.weight(.semibold))
                 Text(L(
-                    "From the Agent Client Protocol's list of agents. Kervan installs them on your server for itself, without sudo, and tries each one before adding it.",
-                    "Agent Client Protocol'ün ajan listesinden. Kervan bunları sunucunuza kendisi için, sudo gerekmeden kurar ve eklemeden önce her birini dener."
+                    "From the Agent Client Protocol's list of agents. Kervan installs them on the machine you choose, for itself, without sudo, and tries each one before adding it.",
+                    "Agent Client Protocol'ün ajan listesinden. Kervan bunları seçtiğiniz makineye kendisi için, sudo gerekmeden kurar ve eklemeden önce her birini dener."
                 ))
                 .font(.callout)
                 .foregroundStyle(.secondary)
@@ -29,8 +33,29 @@ struct AgentCatalogSheet: View {
             .padding([.horizontal, .top], 22)
             .padding(.bottom, 12)
 
+            if !connectedNodes.isEmpty {
+                Picker(L("Run on", "Nerede çalışsın"), selection: $node) {
+                    Text(L("This server", "Bu sunucu")).tag(String?.none)
+                    ForEach(connectedNodes, id: \.self) { Text($0).tag(String?.some($0)) }
+                }
+                .disabled(installing != nil)
+                .padding(.horizontal, 22)
+                .padding(.bottom, 12)
+                .onChange(of: node) { _, chosen in
+                    errors = [:]
+                    Task { loadError = await model.store.loadOfferedAgents(node: chosen) }
+                }
+            }
+
             if let ollama = model.store.ollama, ollama.running {
-                OllamaNote(status: ollama).padding(.horizontal, 22).padding(.bottom, 12)
+                OllamaNote(status: ollama, node: node).padding(.horizontal, 22).padding(.bottom, 12)
+            } else if let node, model.store.ollama != nil {
+                Label(L("Ollama isn't running on \(node). Start it there to use its models; other agents can still be added.", "\(node) üzerinde Ollama çalışmıyor. Modellerini kullanmak için orada başlatın; diğer ajanlar yine eklenebilir."), systemImage: "cpu")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 22)
+                    .padding(.bottom, 12)
             }
 
             TextField(L("Search agents", "Ajan ara"), text: $search)
@@ -67,7 +92,7 @@ struct AgentCatalogSheet: View {
             let unavailable = shown.filter { $0.status == .unavailable }
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    section(L("On your server", "Sunucunuzda"), L("Installed by hand; they only need adding.", "Elle kurulmuş; yalnızca eklenmeleri gerekiyor."), shown.filter { $0.status == .found })
+                    section(node.map { L("On \($0)", "\($0) üzerinde") } ?? L("On your server", "Sunucunuzda"), L("Installed by hand; they only need adding.", "Elle kurulmuş; yalnızca eklenmeleri gerekiyor."), shown.filter { $0.status == .found })
                     section(L("Can be installed", "Kurulabilir"), nil, shown.filter { $0.status == .installable })
                     section(L("Added", "Eklenmiş"), nil, shown.filter { $0.status == .added || $0.status == .builtin })
                     if !unavailable.isEmpty {
@@ -92,7 +117,7 @@ struct AgentCatalogSheet: View {
                 Label(loadError, systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(Color.kervanCoral)
                     .fixedSize(horizontal: false, vertical: true)
-                Button(L("Try again", "Yeniden dene")) { Task { self.loadError = await model.store.loadOfferedAgents() } }
+                Button(L("Try again", "Yeniden dene")) { Task { self.loadError = await model.store.loadOfferedAgents(node: node) } }
             }
             .padding(22)
         } else {
@@ -148,7 +173,7 @@ struct AgentCatalogSheet: View {
         installing = agent.id
         errors[agent.id] = nil
         Task {
-            if let failure = await model.store.installAgent(agent.id, ollamaModel: ollamaModel) {
+            if let failure = await model.store.installAgent(agent.id, ollamaModel: ollamaModel, node: node) {
                 errors[agent.id] = failure
             }
             installing = nil
@@ -159,7 +184,7 @@ struct AgentCatalogSheet: View {
 /// One agent: what it is, where it stands, and the way to add it.
 private struct CatalogRow: View {
     let agent: OfferedAgent
-    /// The server's Ollama models, when this agent can use them.
+    /// The chosen machine's Ollama models, when this agent can use them.
     let ollamaModels: [String]
     let installing: Bool
     let busy: Bool
@@ -274,16 +299,21 @@ private struct CatalogRow: View {
     }
 }
 
-/// Ollama answering on the server, and how agents can use it.
+/// Ollama answering on the chosen machine, and how agents can use it.
 private struct OllamaNote: View {
     let status: OllamaStatus
+    var node: String?
+
+    private var place: (english: String, turkish: String) {
+        node.map { ("on \($0)", "\($0) üzerinde") } ?? ("on the server", "sunucuda")
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "cpu").foregroundStyle(Color.kervanOasis)
             Text(status.models.isEmpty
-                ? L("Ollama is running on the server but has no models yet. Pull one there (ollama pull qwen3-coder) to use it.", "Ollama sunucuda çalışıyor ama henüz modeli yok. Kullanmak için orada bir model indirin (ollama pull qwen3-coder).")
-                : L("Ollama is running on the server with \(status.models.count) models. Agents marked Ollama can run one: your code and the model stay on your server.", "Ollama sunucuda \(status.models.count) modelle çalışıyor. Ollama işaretli ajanlar bunlardan birini çalıştırabilir; kodunuz da model de sunucunuzda kalır."))
+                ? L("Ollama is running \(place.english) but has no models yet. Pull one there (ollama pull qwen3-coder) to use it.", "Ollama \(place.turkish) çalışıyor ama henüz modeli yok. Kullanmak için orada bir model indirin (ollama pull qwen3-coder).")
+                : L("Ollama is running \(place.english) with \(status.models.count) models. Agents marked Ollama can run one: your code and the model stay \(node == nil ? "on your server" : "on that machine").", "Ollama \(place.turkish) \(status.models.count) modelle çalışıyor. Ollama işaretli ajanlar bunlardan birini çalıştırabilir; kodunuz da model de \(node == nil ? "sunucunuzda" : "o makinede") kalır."))
                 .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)
         }

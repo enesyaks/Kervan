@@ -643,8 +643,8 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
     case agentLoginCancel(id: String, agent: String)
     case agentLogout(id: String, agent: String)
     /// The ACP registry's agents and where each stands on the server; installing one. The app only.
-    case agentRegistry(id: String)
-    case agentInstall(id: String, agentId: String, ollamaModel: String?)
+    case agentRegistry(id: String, node: String? = nil)
+    case agentInstall(id: String, agentId: String, ollamaModel: String?, node: String? = nil)
     case projectList(id: String)
     case projectSave(id: String, project: ProjectInput)
     case projectDelete(id: String, projectId: String)
@@ -697,7 +697,7 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
         case type, `protocol`, client, id, agent, sessionId, text, requestId, optionId, attachments, title, archived, query
         case skills, mcpServers, server, name, agentId, role, roleId, roles, orchestrate, budgetUsd, configId, value
         case projectId, since, seq, paths, project, schedule, scheduleId, days, timeZone, terminalId, data, message, body
-        case enabled, deviceId, shared, removeWorktree, card, cardId, column, alerts, split, code, ollamaModel
+        case enabled, deviceId, shared, removeWorktree, card, cardId, column, alerts, split, code, ollamaModel, node
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -745,10 +745,12 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
             try c.encode("agent.logout", forKey: .type)
             try c.encode(id, forKey: .id)
             try c.encode(agent, forKey: .agent)
-        case .agentRegistry(let id):
+        case .agentRegistry(let id, let node):
             try c.encode("agent.registry", forKey: .type)
             try c.encode(id, forKey: .id)
-        case .agentInstall(let id, let agentId, let ollamaModel):
+            try c.encodeIfPresent(node, forKey: .node)
+        case .agentInstall(let id, let agentId, let ollamaModel, let node):
+            try c.encodeIfPresent(node, forKey: .node)
             try c.encode("agent.install", forKey: .type)
             try c.encode(id, forKey: .id)
             try c.encode(agentId, forKey: .agentId)

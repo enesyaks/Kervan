@@ -358,10 +358,10 @@ export type ClientMessage =
   | { type: "agent.login.code"; id: string; agent: string; code: string }
   | { type: "agent.login.cancel"; id: string; agent: string }
   | { type: "agent.logout"; id: string; agent: string }
-  /** The agents of the ACP registry and where each stands on this server, and the server's Ollama. */
-  | { type: "agent.registry"; id: string }
+  /** The agents of the ACP registry and where each stands on this server or on `node`, and that machine's Ollama. */
+  | { type: "agent.registry"; id: string; node?: string }
   /** Installs (or finds) a registry agent for the service user and adds it; optionally runs it on an Ollama model. */
-  | { type: "agent.install"; id: string; agentId: string; ollamaModel?: string }
+  | { type: "agent.install"; id: string; agentId: string; ollamaModel?: string; node?: string }
   | { type: "project.list"; id: string }
   | { type: "project.save"; id: string; project: Record<string, unknown> }
   | { type: "project.delete"; id: string; projectId: string }
@@ -595,6 +595,15 @@ export function parseClientMessage(raw: string): ParseResult {
       return fail("bad_message", `${data.type} needs a string '${field}'`);
     }
     message[field] = value;
+  }
+  // Optional, so not among the required fields above; ws.ts checks it's a real name.
+  if ((data.type === "agent.registry" || data.type === "agent.install") && data.node !== undefined) {
+    if (typeof data.node !== "string") return fail("bad_message", `${data.type} needs a string 'node'`);
+    message.node = data.node;
+  }
+  if (data.type === "agent.install" && data.ollamaModel !== undefined) {
+    if (typeof data.ollamaModel !== "string") return fail("bad_message", "agent.install needs a string 'ollamaModel'");
+    message.ollamaModel = data.ollamaModel;
   }
   if (data.type === "session.prompt" && (message.text.trim() === "" || message.text.length > MAX_PROMPT_CHARS)) {
     return fail("bad_message", `prompt text must be 1–${MAX_PROMPT_CHARS} characters`);
