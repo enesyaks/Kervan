@@ -39,6 +39,7 @@ export class NodeAgent {
   private readonly processes = new Map<string, AgentProcess>();
   private ws?: WebSocket;
   private stopped = false;
+  private retry?: NodeJS.Timeout;
   private retryMs = 1000;
   /** Every address we know for the hub, the one that last worked first. */
   private hubs: string[];
@@ -64,6 +65,7 @@ export class NodeAgent {
 
   stop(): void {
     this.stopped = true;
+    clearTimeout(this.retry);
     this.ws?.close();
     this.closeAll();
   }
@@ -100,7 +102,8 @@ export class NodeAgent {
       const wrapped = !opened && this.next % this.hubs.length === 0;
       const delay = opened || wrapped ? this.retryMs : 500;
       log("info", "hub connection closed; retrying", { inMs: delay, next: this.hubs[this.next % this.hubs.length] });
-      setTimeout(() => this.connect(), delay).unref();
+      // Not unref'd: while the hub is away this timer is all that keeps a node's process alive.
+      this.retry = setTimeout(() => this.connect(), delay);
       if (opened || wrapped) this.retryMs = Math.min(this.retryMs * 2, 30_000);
     });
   }
@@ -125,6 +128,8 @@ export class NodeAgent {
   }
 
   private async workspace(key: string): Promise<string> {
+    // Setup on Linux makes the folder; a node started any other way may not have it yet.
+    await mkdir(this.options.workspacesDir, { recursive: true });
     const dir = await resolveInside(this.options.workspacesDir, key);
     await mkdir(dir, { recursive: true });
     return dir;

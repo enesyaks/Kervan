@@ -95,3 +95,27 @@ describe("adding a node from the app", () => {
     assert.equal(sessions.nodes?.authorize("gpu", "anything"), false);
   });
 });
+
+describe("the Mac node setup script", () => {
+  const script = join(import.meta.dirname, "../../infra/mac-node-setup.sh");
+  const run = (...args: string[]) => {
+    try {
+      execFileSync("/bin/bash", [script, ...args], { stdio: "pipe" });
+      return 0;
+    } catch (error) {
+      return (error as { status: number }).status;
+    }
+  };
+
+  it("parses in the bash a Mac ships with", { skip: process.platform !== "darwin" }, () => {
+    assert.equal(run("-n") === 64, true, "an unknown command only prints how to use it");
+    execFileSync("/bin/bash", ["-n", script]);
+  });
+
+  it("does nothing without a known command or without root", { skip: process.platform !== "darwin" || process.getuid?.() === 0 }, () => {
+    assert.equal(run(), 64);
+    assert.equal(run("install", "--hub"), 64);
+    assert.equal(run("remove"), 1);
+  });
+});
+

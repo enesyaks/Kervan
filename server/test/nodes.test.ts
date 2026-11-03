@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -253,3 +254,38 @@ describe("finding a hub whose address changed", () => {
     }
   });
 });
+
+describe("a node started by hand", () => {
+  it("keeps running while its hub can't be reached", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "kervan-node-"));
+    const child = spawn(process.execPath, [join(import.meta.dirname, "../src/node-main.ts")], {
+      env: { PATH: process.env.PATH, HOME: dir, KERVAN_HUB_URL: "ws://127.0.0.1:9", KERVAN_NODE_TOKEN: NODE_TOKEN, KERVAN_NODE_NAME: "bekle", KERVAN_WORKSPACES_DIR: join(dir, "w") },
+      stdio: "ignore",
+    });
+    const exited = new Promise((resolve) => child.once("exit", () => resolve("exited")));
+    const outcome = await Promise.race([exited, new Promise((resolve) => setTimeout(() => resolve("running"), 2_000))]);
+    child.kill("SIGKILL");
+    assert.equal(outcome, "running");
+  });
+
+  it("makes its workspaces folder when it doesn't exist yet", async () => {
+    const { port, stop } = await startServer({ nodeToken: NODE_TOKEN });
+    const ws = openSocket(port);
+    const inbox = new Inbox(ws);
+    await opened(ws);
+    send(ws, HELLO);
+    await inbox.waitFor((m) => m.type === "welcome");
+    const workspacesDir = join(mkdtempSync(join(tmpdir(), "kervan-node-")), "not", "yet");
+    const node = new NodeAgent({ hubUrls: [`ws://127.0.0.1:${port}`], token: NODE_TOKEN, name: "elle", workspacesDir, runner: new LocalAcpRunner() });
+    node.start();
+    await inbox.waitFor((m) => m.type === "nodes.updated" && m.nodes.some((x: any) => x.name === "elle" && x.connected));
+    send(ws, { type: "agent.save", id: "s1", agent: { id: "elde", name: "Elde", command: fakeAgent.command, args: fakeAgent.args, node: "elle" } });
+    const answer = await inbox.waitFor((m) => m.id === "s1", 20_000);
+    assert.equal(answer.type, "agent.list.result", JSON.stringify(answer));
+    assert.ok(existsSync(workspacesDir));
+    node.stop();
+    ws.terminate();
+    await stop();
+  });
+});
+
