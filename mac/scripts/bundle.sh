@@ -32,7 +32,7 @@ iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 # the non-interactive setup script and the service unit.
 COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs --no-fflags -czf "$APP/Contents/Resources/server.tar.gz" \
   --exclude=./node_modules --exclude=./data --exclude=./test -C ../server .
-cp ../infra/hub-setup.sh ../infra/kervan.service "$APP/Contents/Resources/"
+cp ../infra/hub-setup.sh ../infra/kervan.service ../infra/mac-node-setup.sh "$APP/Contents/Resources/"
 
 # The same certificate on every release keeps the app's identity, which the updater checks before it installs.
 IDENTITY="${KERVAN_SIGN_IDENTITY:-Kervan Release}"

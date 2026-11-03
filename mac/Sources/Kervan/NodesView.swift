@@ -11,6 +11,7 @@ struct NodesSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            MacNodeCard()
             if model.connection.state.isConnected, let address = model.activeAddress {
                 HubConnectionCard(appHub: NodeSetup.hub(of: address))
                     .padding(.bottom, 10)
@@ -354,7 +355,7 @@ private struct InstallProgressList: View {
 }
 
 /// Icons in a calm accent, text wrapping freely: for short guidance lists.
-private struct GuideLabelStyle: LabelStyle {
+struct GuideLabelStyle: LabelStyle {
     func makeBody(configuration: Configuration) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             configuration.icon.foregroundStyle(Color.kervanLapis).frame(width: 18)

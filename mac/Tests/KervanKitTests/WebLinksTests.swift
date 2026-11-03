@@ -89,3 +89,55 @@ import Testing
         #expect(ServerWording.translated("an agent's own words") == "an agent's own words")
     }
 }
+
+@Suite struct MacNodeTests {
+    @Test func suggestsANameFromTheHostName() {
+        #expect(MacNode.suggestedName(from: "Enes's MacBook Pro.local") == "enes-s-macbook-pro")
+        #expect(MacNode.suggestedName(from: "local") == "mac")
+        #expect(MacNode.suggestedName(from: "") == "mac")
+        #expect(MacNode.isValidName(MacNode.suggestedName(from: "İşçi--Makine")))
+        #expect(MacNode.suggestedName(from: String(repeating: "a", count: 50)).count == 32)
+    }
+
+    @Test func checksNames() {
+        for good in ["macbook", "a", "mac-2"] { #expect(MacNode.isValidName(good), "\(good)") }
+        for bad in ["", "local", "-mac", "Mac", "a b", "a;b", String(repeating: "a", count: 33)] { #expect(!MacNode.isValidName(bad), "\(bad)") }
+    }
+
+    @Test func keepsEveryArgumentOneWordForTheShell() {
+        let command = MacNode.installCommand(script: "/Applications/My Apps/Kervan's.app/x.sh", hub: "h.ts.net:7420", code: "abc", name: "mac", log: "/tmp/a b.log")
+        #expect(command == "'/bin/bash' '/Applications/My Apps/Kervan'\\''s.app/x.sh' 'install' '--hub' 'http://h.ts.net:7420' '--code' 'abc' '--name' 'mac' >> '/tmp/a b.log' 2>&1")
+        #expect(MacNode.removeCommand(script: "/x.sh", log: "/l") == "'/bin/bash' '/x.sh' 'remove' >> '/l' 2>&1")
+    }
+
+    @Test func commandReachesTheShellIntactThroughAppleScript() throws {
+        // Run for real, without the prompt: what could break is the quoting between AppleScript and the shell.
+        var arguments = MacNode.adminArguments(for: #"printf %s 'a "b" \c d'"#)
+        arguments[1] = arguments[1].replacingOccurrences(of: " with administrator privileges", with: "")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        process.arguments = arguments
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        try process.run()
+        process.waitUntilExit()
+        let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        #expect(output.trimmingCharacters(in: .newlines) == #"a "b" \c d"#)
+    }
+
+    @Test func tellsAClosedPromptFromAFailure() {
+        #expect(MacNode.wasCancelled("0:60: execution error: User canceled. (-128)"))
+        #expect(!MacNode.wasCancelled("0:60: execution error: Kervan: this Mac can't reach the hub. (1)"))
+    }
+
+    @Test func followsTheSetupsStages() {
+        #expect(MacNode.Step.reached(in: "") == .checking)
+        #expect(MacNode.Step.reached(in: "==> checking the hub (x)\n==> user and folders\n==> Kervan code\n") == .code)
+        #expect(MacNode.Step.reached(in: "==> joining the hub as 'mac'\n==> service\n") == .service)
+    }
+
+    @Test func knowsWhetherItsInstalled() {
+        #expect(MacNode.isInstalled { $0 == MacNode.service })
+        #expect(!MacNode.isInstalled { _ in false })
+    }
+}

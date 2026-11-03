@@ -1,6 +1,6 @@
 # This Mac as a node
 
-Status: steps 1 and 2 done, the rest planned. The script runs by hand for now; nothing in the app calls it yet. Comes from a request to start a session from the phone and have it use the Ollama models and agents on the Mac.
+Status: steps 1 to 3 done, the rest planned. Comes from a request to start a session from the phone and have it use the Ollama models and agents on the Mac.
 
 ## What the user gets
 
@@ -126,6 +126,12 @@ Acceptance:
 - From a fresh Mac user, one button gets to a connected node.
 - Cancelling the macOS prompt leaves nothing behind and says so.
 - `swift test` covers the command building.
+
+Done on 2026-11-03, against a throwaway hub on loopback with the same version. From the app, setup reached "connected", a real model answered through a session on the node, and Remove took the node off the hub and left no folder, service or process. It did leave the `_kervan-node` user, without saying so: the script ignored `dscl`'s failure. It now retries and fails with a message, and install copes with a user left without its group. Why the delete failed is unknown, and the retry hasn't been shown to fix it yet. `remove` deleted the user both times it ran from Terminal, and not the one time it ran from the app through `osascript`, so macOS's privacy controls are the likely cause (the same route got "Operation not permitted" reading the script from the Desktop). This isn't confirmed, and the real `dscl` error hasn't been seen. For now the app shows a command to finish the job in Terminal; that path hasn't run yet.
+
+The first tries found two real problems. macOS's prompt didn't show or closed by itself when the app wasn't in front, so the app now comes to the front first; this was seen once, without a clear cause, so watch for it. The "nothing changed" notice sat below the fold, so a closed prompt looked as if nothing had happened; it's at the top now, with what macOS said.
+
+Not covered: the failure path, closing the prompt on purpose, Update and Connect here with a real older node, and a real hub. The risk notice still takes a little scrolling at the sheet's height. Setup uses the address the app is connected to, not the choice in "How nodes reach the hub".
 
 ### Step 4. Models and agents come from the node they run on
 

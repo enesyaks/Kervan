@@ -51,8 +51,17 @@ free_id() {
 }
 
 make_user() {
-  dscl . -read "/Users/$NODE_USER" >/dev/null 2>&1 && return
   local id
+  if dscl . -read "/Users/$NODE_USER" >/dev/null 2>&1; then
+    # A removal that stopped halfway can leave the user without its group.
+    if ! dscl . -read "/Groups/$NODE_USER" >/dev/null 2>&1; then
+      id="$(dscl . -read "/Users/$NODE_USER" PrimaryGroupID | awk '{print $2}')"
+      dscl . -create "/Groups/$NODE_USER"
+      dscl . -create "/Groups/$NODE_USER" PrimaryGroupID "$id"
+      dscl . -create "/Groups/$NODE_USER" Password '*'
+    fi
+    return
+  fi
   id="$(free_id)"
   dscl . -create "/Groups/$NODE_USER"
   dscl . -create "/Groups/$NODE_USER" PrimaryGroupID "$id"
@@ -137,6 +146,9 @@ install_node() {
   )
   chown "$NODE_USER:$NODE_USER" "$ROOT/node.env"
   chmod 600 "$ROOT/node.env"
+  # The app shows this; the key file above stays private.
+  echo "$NAME" >"$ROOT/node-name"
+  chmod 644 "$ROOT/node-name"
 
   step "service"
   cat >"$ROOT/run-node" <<RUN
@@ -243,9 +255,19 @@ remove_node() {
     launchctl bootout "user/$uid" >/dev/null 2>&1 || true
     pkill -9 -u "$uid" >/dev/null 2>&1 || true
   fi
-  dscl . -delete "/Users/$NODE_USER" >/dev/null 2>&1 || true
+  # The user can't always be deleted at once, while macOS is still ending its helpers.
+  local attempt
+  for attempt in 1 2 3 4 5; do
+    dscl . -read "/Users/$NODE_USER" >/dev/null 2>&1 || break
+    dscl . -delete "/Users/$NODE_USER" 2>&1 || true
+    [[ -z "$uid" ]] || pkill -9 -u "$uid" >/dev/null 2>&1 || true
+    sleep 1
+  done
   dscl . -delete "/Groups/$NODE_USER" >/dev/null 2>&1 || true
   rm -rf "${ROOT:?}"
+  if dscl . -read "/Users/$NODE_USER" >/dev/null 2>&1; then
+    fail "the service and files are gone, but macOS kept the hidden user $NODE_USER. To delete it, run this in Terminal: sudo dscl . -delete /Users/$NODE_USER"
+  fi
   echo "Kervan: the node is gone from this Mac. Remove it from the hub in Settings > Nodes too."
 }
 
