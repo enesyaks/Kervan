@@ -105,3 +105,7 @@ Through the real entry points, on a VM under systemd, as an agent's own command:
   code it can read remains possible.
 - **Approved commands** still do what they do inside what `kervan-agent` can reach.
 - **A file an agent makes readable only by itself** (`chmod 600`) can't be downloaded or copied for a review by the server.
+
+## Related
+
+[Rehearsal](rehearsal.md) needs a stricter boundary than this one: it runs commands nobody has approved yet.

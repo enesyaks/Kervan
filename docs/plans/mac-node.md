@@ -173,6 +173,8 @@ Done on 2026-11-03: `mac-node-setup.sh keep-awake on|off` runs `caffeinate -s` f
 
 ### Step 7. Try it for real
 
+The checklist and failure log for this step are in [phone-trial.md](phone-trial.md).
+
 With the user, on this Mac with real Ollama models and a hub on the same version: start a Qwen Code or Goose session from a real phone, approve a command, attach a file, then put the Mac to sleep and wake it. Run `/ecc:security-scan` and repeat the attacks from the last pen test against the node's messages, which that test didn't cover.
 
 Acceptance:
