@@ -68,6 +68,7 @@ final class AppModel {
         savedHost = ServerAddress(serverInput)?.host
 
         connection.onMessage = { store.handle($0) }
+        connection.onConnectionLost = { store.connectionLost() }
         connection.onRetrying = { [weak self] attempt in self?.moveToTailscale(afterAttempt: attempt) }
         store.onHubAddresses = { [weak self] addresses in self?.remember(addresses) }
         showOnboarding = environment["KERVAN_ONBOARDING"] != nil

@@ -39,6 +39,8 @@ public final class KervanConnection {
     @ObservationIgnored public var onMessage: (@MainActor (ServerMessage) -> Void)?
     /// Each time the server couldn't be reached and another try is coming, with the attempt that failed.
     @ObservationIgnored public var onRetrying: (@MainActor (Int) -> Void)?
+    /// When a connection that was up has ended, or is ended here: no answer to what it carried will come.
+    @ObservationIgnored public var onConnectionLost: (@MainActor () -> Void)?
 
     private let client: PeerInfo
     private let session: URLSession
@@ -66,12 +68,14 @@ public final class KervanConnection {
     }
 
     public func disconnect() {
+        let wasUp = activeTask != nil
         runTask?.cancel()
         runTask = nil
         activeTask = nil
         state = .disconnected
         latency = nil
         pendingPings.removeAll()
+        if wasUp { onConnectionLost?() }
     }
 
     private func run(address: ServerAddress, token: String) async {
@@ -82,6 +86,7 @@ public final class KervanConnection {
             let (failure, wasConnected) = await runSession(address: address, token: token)
             if Task.isCancelled { return }
             latency = nil
+            if wasConnected { onConnectionLost?() }
             guard failure.isRetryable else {
                 state = .failed(failure)
                 return

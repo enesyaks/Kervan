@@ -439,10 +439,29 @@ public final class SessionStore {
                 do {
                     try await send(message)
                 } catch {
-                    awaiting.removeValue(forKey: id)?.resume(returning: L("Couldn't send to the server: \(error.localizedDescription)", "Sunucuya gönderilemedi: \(error.localizedDescription)"))
+                    awaiting.removeValue(forKey: id)?.resume(returning: Self.couldntSend(error))
                 }
             }
         }
+    }
+
+    /// Ends everything still waiting for an answer: it was lost with the connection, and a reconnect won't bring it.
+    public func connectionLost() {
+        let reason = L(
+            "The connection to the server was lost before it answered; it may still have gone through.",
+            "Sunucu yanıt vermeden bağlantı koptu; işlem yine de gerçekleşmiş olabilir."
+        )
+        let waiting = awaiting.values
+        awaiting.removeAll()
+        for waiter in waiting { waiter.resume(returning: reason) }
+        if pendingAgentSave != nil {
+            pendingAgentSave = nil
+            agentSaveError = reason
+        }
+    }
+
+    private static func couldntSend(_ error: any Error) -> String {
+        L("Couldn't send to the server: \(error.localizedDescription)", "Sunucuya gönderilemedi: \(error.localizedDescription)")
     }
 
     /// What a lead and its helpers have spent together, from what their agents reported; nil when none reported a cost.
@@ -492,7 +511,14 @@ public final class SessionStore {
         let id = Self.newID()
         agentSaveError = nil
         pendingAgentSave = id
-        await request(.agentSave(id: id, agent: agent))
+        do {
+            try await send(.agentSave(id: id, agent: agent))
+        } catch {
+            if pendingAgentSave == id {
+                pendingAgentSave = nil
+                agentSaveError = Self.couldntSend(error)
+            }
+        }
         while pendingAgentSave == id { try? await Task.sleep(for: .milliseconds(100)) }
     }
 
@@ -713,7 +739,7 @@ public final class SessionStore {
         do {
             try await send(message)
         } catch {
-            lastError = L("Couldn't send to the server: \(error.localizedDescription)", "Sunucuya gönderilemedi: \(error.localizedDescription)")
+            lastError = Self.couldntSend(error)
         }
     }
 
