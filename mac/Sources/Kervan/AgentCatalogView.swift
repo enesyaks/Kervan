@@ -15,8 +15,22 @@ struct AgentCatalogSheet: View {
     @State private var showUnavailable = false
     /// The node to add agents to; nil for the server itself.
     @State private var node: String?
+    /// The machine last chosen by hand, so the next visit starts there.
+    @AppStorage("agentCatalog.node") private var rememberedNode = ""
+    @State private var startingLMStudio = false
+    @State private var lmStudioFailure: String?
 
-    private var connectedNodes: [String] { model.store.nodeInfos.filter(\.connected).map(\.name) }
+    private var connectedNodes: [String] { model.store.nodeInfos.connectedNames }
+
+    /// What the machine list can't say by itself.
+    private var machineNote: String? {
+        let offline = model.store.nodeInfos.offlineNames
+        if !offline.isEmpty {
+            let names = offline.joined(separator: ", ")
+            return L("\(names) can't be reached, so it can't be chosen now. It appears here once it connects again; a Mac may be asleep.", "\(names) şu an bağlı değil, bu yüzden seçilemiyor. Yeniden bağlanınca burada görünür; Mac uykuda olabilir.")
+        }
+        return connectedNodes.isEmpty ? L("To install on another machine, add it in Settings › Nodes.", "Başka bir makineye kurmak için Ayarlar › Node'lar bölümünden ekleyin.") : nil
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -33,19 +47,33 @@ struct AgentCatalogSheet: View {
             .padding([.horizontal, .top], 22)
             .padding(.bottom, 12)
 
-            if !connectedNodes.isEmpty {
-                Picker(L("Run on", "Nerede çalışsın"), selection: $node) {
+            // Always here, so it's clear agents can go elsewhere, and why a machine can't be chosen right now.
+            VStack(alignment: .leading, spacing: 6) {
+                Picker(L("Run on", "Nerede çalışsın"), selection: Binding(
+                    get: { node },
+                    set: { node = $0; rememberedNode = $0 ?? "" }
+                )) {
                     Text(L("This server", "Bu sunucu")).tag(String?.none)
                     ForEach(connectedNodes, id: \.self) { Text($0).tag(String?.some($0)) }
                 }
                 .disabled(installing != nil)
-                .padding(.horizontal, 22)
-                .padding(.bottom, 12)
                 .onChange(of: node) { _, chosen in
                     errors = [:]
                     Task { loadError = await model.store.loadOfferedAgents(node: chosen) }
                 }
+                .onChange(of: connectedNodes) { _, nodes in
+                    if let chosen = node, !nodes.contains(chosen) { node = nil }
+                    else if node == nil, nodes.contains(rememberedNode) { node = rememberedNode }
+                }
+                if let note = machineNote {
+                    Text(note)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
+            .padding(.horizontal, 22)
+            .padding(.bottom, 12)
 
             if let ollama = model.store.ollama, ollama.running {
                 LocalModelNote(app: .ollama, status: ollama, node: node).padding(.horizontal, 22).padding(.bottom, 12)
@@ -68,13 +96,21 @@ struct AgentCatalogSheet: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
-                    Button(L("Check again", "Yeniden bak")) {
-                        Task { loadError = await model.store.loadOfferedAgents(node: node) }
+                    if node == MacNode.installedName(), LMStudioTool.path() != nil {
+                        Button(startingLMStudio ? L("Starting…", "Başlatılıyor…") : L("Start it", "Başlat")) { startLMStudio() }
+                            .disabled(startingLMStudio)
                     }
-                    .disabled(installing != nil)
                 }
                 .padding(.horizontal, 22)
-                .padding(.bottom, 12)
+                .padding(.bottom, lmStudioFailure == nil ? 12 : 4)
+                if let lmStudioFailure {
+                    Text(lmStudioFailure)
+                        .font(.callout)
+                        .foregroundStyle(.kervanCoral)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 22)
+                        .padding(.bottom, 12)
+                }
             }
 
             TextField(L("Search agents", "Ajan ara"), text: $search)
@@ -99,7 +135,43 @@ struct AgentCatalogSheet: View {
         }
         .frame(width: 580, height: 460) // fits under the Settings window; the list scrolls
         .background(Color.kervanCanvas)
-        .task { loadError = await model.store.loadOfferedAgents() }
+        .task {
+            if connectedNodes.contains(rememberedNode) {
+                node = rememberedNode // its change loads the list
+            } else {
+                loadError = await model.store.loadOfferedAgents()
+            }
+        }
+        // A model downloaded with Ollama or LM Studio while this is open shows up by itself.
+        .task(id: node) {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                if Task.isCancelled { return }
+                if installing == nil { await model.store.refreshOfferedAgents(node: node) }
+            }
+        }
+    }
+
+    private func startLMStudio() {
+        guard let tool = LMStudioTool.path() else { return }
+        startingLMStudio = true
+        lmStudioFailure = nil
+        Task {
+            let succeeded = await Task.detached {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: tool)
+                process.arguments = LMStudioTool.startArguments
+                guard (try? process.run()) != nil else { return false }
+                process.waitUntilExit()
+                return process.terminationStatus == 0
+            }.value
+            startingLMStudio = false
+            if succeeded {
+                await model.store.refreshOfferedAgents(node: node)
+            } else {
+                lmStudioFailure = L("LM Studio's server didn't start. Open Bionic and turn it on there.", "LM Studio sunucusu başlamadı. Bionic'i açıp oradan başlatın.")
+            }
+        }
     }
 
     private var sourceLink: URL? { URL(string: "https://agentclientprotocol.com/get-started/registry") }
@@ -364,11 +436,20 @@ private struct LocalModelNote: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "cpu").foregroundStyle(Color.kervanOasis)
+            VStack(alignment: .leading, spacing: 4) {
             Text(status.models.isEmpty
                 ? L("\(app.name) is running \(place.english) but has no chat models yet. Download one there to use it.", "\(app.name) \(place.turkish) çalışıyor ama henüz sohbet modeli yok. Kullanmak için orada bir model indirin.")
                 : L("\(app.name) is running \(place.english) with \(status.models.count) models. Agents marked Local models can run one: your code and the model stay \(node == nil ? "on your server" : "on that machine").", "\(app.name) \(place.turkish) \(status.models.count) modelle çalışıyor. Yerel model işaretli ajanlar bunlardan birini çalıştırabilir; kodunuz da model de \(node == nil ? "sunucunuzda" : "o makinede") kalır."))
                 .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)
+            if !status.models.isEmpty {
+                Text(status.models.joined(separator: ", "))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+                    .textSelection(.enabled)
+            }
+            }
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)

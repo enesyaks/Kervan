@@ -389,6 +389,70 @@ extension SessionStore {
     }
 }
 
+@MainActor @Suite struct OfferedAgentRefreshTests {
+    private func result(_ id: String, models: [String]) -> ServerMessage {
+        .agentRegistryResult(id: id, agents: [], ollama: OllamaStatus(running: true, url: "u", models: models))
+    }
+
+    @Test func aModelDownloadedMeanwhileShowsUpWithoutEmptyingTheList() async throws {
+        let wire = Wire()
+        _ = try await wire.answered({ [self.result($0, models: ["a"]), .ok(id: $0)] }) { await $0.loadOfferedAgents() }
+        #expect(wire.store.ollama?.models == ["a"])
+
+        let store = wire.store
+        let task = Task { @MainActor in await store.refreshOfferedAgents(node: "mac") }
+        while wire.sent.count < 2 { await Task.yield() }
+        #expect(store.ollama?.models == ["a"], "still on screen while asking")
+        #expect(try wire.frame()["node"] as? String == "mac")
+        let id = try #require(wire.sent[1].requestID)
+        store.handle(result(id, models: ["a", "b"]))
+        store.handle(.ok(id: id))
+        await task.value
+        #expect(store.ollama?.models == ["a", "b"])
+    }
+
+    @Test func aSlowAnswerAboutAnotherMachineIsDropped() async throws {
+        let wire = Wire()
+        let store = wire.store
+        let first = Task { @MainActor in await store.refreshOfferedAgents(node: "old") }
+        while wire.sent.isEmpty { await Task.yield() }
+        let second = Task { @MainActor in await store.refreshOfferedAgents(node: "new") }
+        while wire.sent.count < 2 { await Task.yield() }
+        let (oldID, newID) = (try #require(wire.sent[0].requestID), try #require(wire.sent[1].requestID))
+
+        store.handle(result(newID, models: ["new-model"]))
+        store.handle(.ok(id: newID))
+        store.handle(result(oldID, models: ["old-model"]))
+        store.handle(.ok(id: oldID))
+        await first.value
+        await second.value
+        #expect(store.ollama?.models == ["new-model"])
+    }
+}
+
+@Suite struct LMStudioToolTests {
+    @Test func findsTheToolBionicInstalls() {
+        #expect(LMStudioTool.path(home: "/Users/x", isExecutable: { $0 == "/Users/x/.lmstudio/bin/lms" }) == "/Users/x/.lmstudio/bin/lms")
+        #expect(LMStudioTool.path(home: "/Users/x", isExecutable: { _ in false }) == nil)
+        #expect(LMStudioTool.startArguments == ["server", "start"])
+    }
+
+    @Test func readsThisMacsNodeName() {
+        #expect(MacNode.installedName(read: { _ in "kutu\n" }) == "kutu")
+        #expect(MacNode.installedName(read: { _ in " \n" }) == nil)
+        #expect(MacNode.installedName(read: { _ in nil }) == nil)
+    }
+}
+
+@Suite struct NodeListTests {
+    @Test func tellsWhichNodesCanBeChosenNow() {
+        let nodes = [NodeInfo(name: "gpu", connected: true), NodeInfo(name: "mac", connected: false), NodeInfo(name: "vm", connected: true)]
+        #expect(nodes.connectedNames == ["gpu", "vm"])
+        #expect(nodes.offlineNames == ["mac"])
+        #expect([NodeInfo]().connectedNames.isEmpty && [NodeInfo]().offlineNames.isEmpty)
+    }
+}
+
 @Suite struct UsageReportTests {
     private let report = UsageReport(
         days: [

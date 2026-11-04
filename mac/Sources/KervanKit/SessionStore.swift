@@ -83,6 +83,7 @@ public final class SessionStore {
     private var pendingCreates: Set<String> = []
     private var latestSearch: String?
     private var pendingAgentSave: String?
+    private var latestRegistryRequest: String?
     private var pendingTeams: Set<String> = []
 
     public init(send: @escaping Sender) {
@@ -315,7 +316,20 @@ public final class SessionStore {
         offeredAgents = nil
         ollama = nil
         lmStudio = nil
-        return await call(.agentRegistry(id: Self.newID(), node: node))
+        return await askForOfferedAgents(node: node)
+    }
+
+    /// The same question while the catalog is open, keeping what's on screen until the answer differs: a model
+    /// downloaded meanwhile shows up by itself.
+    public func refreshOfferedAgents(node: String? = nil) async {
+        _ = await askForOfferedAgents(node: node)
+    }
+
+    private func askForOfferedAgents(node: String?) async -> String? {
+        let id = Self.newID()
+        // Only the latest question counts: a slower answer about the machine chosen before must not replace it.
+        latestRegistryRequest = id
+        return await call(.agentRegistry(id: id, node: node))
     }
 
     /// Installs (or finds) a registry agent on the server and adds it, optionally on a local model; nil, or why not.
@@ -622,10 +636,10 @@ public final class SessionStore {
         case .githubUpdated(let status, let error):
             github = status
             githubError = error
-        case .agentRegistryResult(_, let agents, let status, let studio):
-            offeredAgents = agents
-            ollama = status
-            lmStudio = studio
+        case .agentRegistryResult(let id, let agents, let status, let studio) where id == latestRegistryRequest:
+            if offeredAgents != agents { offeredAgents = agents }
+            if ollama != status { ollama = status }
+            if lmStudio != studio { lmStudio = studio }
         case .agentLoginStarted(_, let agent, let url, let code, let needsCode):
             agentLoginAnswer = AgentLoginPrompt(agent: agent, url: url, code: code, needsCode: needsCode)
         case .agentLoginFinished(let agent, let signedIn, let error):

@@ -63,6 +63,13 @@ public struct HubAddress: Codable, Equatable, Sendable, Identifiable {
 }
 
 /// A machine running kervan-node for this server, as the server last saw it.
+extension Array where Element == NodeInfo {
+    /// The nodes an agent can be added to right now.
+    public var connectedNames: [String] { filter(\.connected).map(\.name) }
+    /// Known nodes that can't be reached right now, e.g. a Mac that's asleep.
+    public var offlineNames: [String] { filter { !$0.connected }.map(\.name) }
+}
+
 public struct NodeInfo: Codable, Equatable, Sendable, Identifiable {
     public let name: String
     public let connected: Bool

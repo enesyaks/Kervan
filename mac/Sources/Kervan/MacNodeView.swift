@@ -101,9 +101,7 @@ struct MacNodeCard: View {
     @State private var awakeRunner = MacNodeRunner()
     @State private var keepAwake = FileManager.default.fileExists(atPath: MacNode.keepAwakeService)
 
-    private var name: String? {
-        (try? String(contentsOfFile: MacNode.nameFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
+    private var name: String? { MacNode.installedName() }
 
     /// Why setup can't start now, if so.
     private var blocked: String? {

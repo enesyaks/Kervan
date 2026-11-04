@@ -9,6 +9,12 @@ public enum MacNode {
     /// Written by the setup script, readable by anyone: the node's key file isn't.
     public static let nameFile = "/opt/kervan-node/node-name"
 
+    /// The name this Mac has as a node, if it is one.
+    public static func installedName(read: (String) -> String? = { try? String(contentsOfFile: $0, encoding: .utf8) }) -> String? {
+        let name = read(nameFile)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name?.isEmpty == false ? name : nil
+    }
+
     public static func isInstalled(fileExists: (String) -> Bool = FileManager.default.fileExists(atPath:)) -> Bool {
         fileExists(service)
     }
@@ -94,5 +100,16 @@ public enum MacNode {
         public static func reached(in output: String) -> Step {
             allCases.last { output.contains($0.marker) } ?? .checking
         }
+    }
+}
+
+/// LM Studio's command-line tool, which its Bionic app installs for the user. A node runs as another user and can't
+/// start LM Studio's server, which belongs to the user's own session; the app can.
+public enum LMStudioTool {
+    public static let startArguments = ["server", "start"]
+
+    public static func path(home: String = NSHomeDirectory(), isExecutable: (String) -> Bool = FileManager.default.isExecutableFile(atPath:)) -> String? {
+        let path = (home as NSString).appendingPathComponent(".lmstudio/bin/lms")
+        return isExecutable(path) ? path : nil
     }
 }
