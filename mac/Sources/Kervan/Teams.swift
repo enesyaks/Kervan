@@ -214,6 +214,8 @@ private struct RoleEditor: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @State private var skills: [SkillInfo] = []
+    @State private var saving = false
+    @State private var failure: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -221,6 +223,12 @@ private struct RoleEditor: View {
                 TextField(L("ID", "Kimlik"), text: $role.id, prompt: Text("inceleyici"))
                     .font(.body.monospaced())
                     .disabled(!isNew)
+                if isNew, !role.id.isEmpty, !Role.isValidID(role.id) {
+                    Label(L("Use lowercase English letters, digits and '-', e.g. code-reviewer.", "Küçük İngilizce harf, rakam ve '-' kullanın; ör. kod-inceleyici."), systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(.kervanCoral)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 TextField(L("Name", "Ad"), text: $role.name, prompt: Text(L("Code reviewer", "Kod inceleyici")))
                 Picker(L("Agent", "Ajan"), selection: $role.agent) {
                     ForEach(model.store.agents) { Text($0.displayName).tag($0.id) }
@@ -256,16 +264,29 @@ private struct RoleEditor: View {
             .formStyle(.grouped)
             .scrollContentBackground(.hidden)
 
+            if let failure {
+                Label(failure, systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout)
+                    .foregroundStyle(.kervanCoral)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 16)
+            }
             HStack {
                 Spacer()
                 Button(L("Cancel", "Vazgeç"), role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
                 Button(isNew ? L("Add", "Ekle") : L("Save", "Kaydet")) {
-                    Task { await model.store.saveRole(role) }
-                    dismiss()
+                    saving = true
+                    failure = nil
+                    Task {
+                        // Stays open until the server answers: a refusal has nowhere else to be seen from Settings.
+                        failure = await model.store.saveRole(role)
+                        saving = false
+                        if failure == nil { dismiss() }
+                    }
                 }
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
-                .disabled(role.id.isEmpty || role.name.trimmingCharacters(in: .whitespaces).isEmpty || role.agent.isEmpty)
+                .disabled(saving || !Role.isValidID(role.id) || role.name.trimmingCharacters(in: .whitespaces).isEmpty || role.agent.isEmpty)
             }
             .padding(16)
         }

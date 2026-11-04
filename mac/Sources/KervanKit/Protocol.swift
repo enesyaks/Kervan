@@ -284,6 +284,11 @@ public struct McpServerSummary: Codable, Equatable, Sendable, Identifiable {
 
 /// A job in a team: which agent, what it's told up front, what it may use.
 public struct Role: Codable, Equatable, Sendable, Identifiable {
+    /// What the server accepts as an id: lowercase English letters, digits and '-'.
+    public static func isValidID(_ id: String) -> Bool {
+        id.range(of: "^[a-z0-9][a-z0-9-]{0,63}$", options: .regularExpression) != nil
+    }
+
     public var id: String
     public var name: String
     public var agent: String

@@ -143,3 +143,10 @@ import Testing
         #expect(!MacNode.isInstalled { _ in false })
     }
 }
+
+@Suite struct RoleIDTests {
+    @Test func acceptsWhatTheServerAccepts() {
+        for good in ["inceleyici", "kod-inceleyici", "qa1"] { #expect(Role.isValidID(good), "\(good)") }
+        for bad in ["", "-a", "Kod", "kod inceleyici", "şef", "İnceleyici", String(repeating: "a", count: 65)] { #expect(!Role.isValidID(bad), "\(bad)") }
+    }
+}

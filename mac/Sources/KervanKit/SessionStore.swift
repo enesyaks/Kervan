@@ -463,8 +463,9 @@ public final class SessionStore {
         sessions.filter { $0.parentId == leadID }.sorted { $0.createdAt < $1.createdAt }
     }
 
-    public func saveRole(_ role: Role) async {
-        await request(.roleSave(id: Self.newID(), role: role))
+    /// Nil, or why the server refused it.
+    public func saveRole(_ role: Role) async -> String? {
+        await call(.roleSave(id: Self.newID(), role: role))
     }
 
     public func deleteRole(_ id: String) async {
