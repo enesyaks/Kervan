@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
-import { AcpRegistry, commandNames, ollamaURL, packageName, platformKey, type RegistryEntry } from "../src/agentregistry.ts";
+import { AcpRegistry, commandNames, ollamaURL, packageName, platformKey, toolCallProblem, type RegistryEntry } from "../src/agentregistry.ts";
 import { fakeAgent, HELLO, Inbox, openSocket, opened, send, startServer } from "./helpers.ts";
 
 describe("ACP registry helpers", () => {
@@ -50,7 +50,19 @@ describe("agents from the ACP registry", () => {
     const archive = readFileSync(join(work, "agent.tar.gz"));
     const sum = createHash("sha256").update(archive).digest("hex");
 
-    files = createServer((req, res) => {
+    files = createServer(async (req, res) => {
+      if (req.url === "/v1/chat/completions") {
+        let text = "";
+        for await (const chunk of req) text += chunk;
+        const { model, tools } = JSON.parse(text) as { model: string; tools?: unknown[] };
+        if (model === "refuser") {
+          res.statusCode = 400;
+          return res.end("{}");
+        }
+        if (model === "silent") return; // Never answers.
+        const message = model === "talker" || !tools?.length ? { content: '{"name":"write_file"}' } : { content: "", tool_calls: [{ function: { name: "write_file" } }] };
+        return res.end(JSON.stringify({ choices: [{ message }] }));
+      }
       if (req.url === "/agent.tar.gz") return res.end(archive);
       // No content-length: only counting the bytes can catch this one.
       if (req.url === "/streamed.tar.gz") {
@@ -58,6 +70,19 @@ describe("agents from the ACP registry", () => {
         return res.end(archive);
       }
       if (req.url === "/api/tags") return res.end(JSON.stringify({ models: ollamaModels.map((name) => ({ name })) }));
+      if (req.url === "/api/v0/models") {
+        return res.end(
+          JSON.stringify({
+            data: [
+              { id: "helper", type: "llm", publisher: "model-extension-pack" },
+              { id: "chat-model", type: "llm", publisher: "mlx-community" },
+              { id: "talker", type: "llm", publisher: "someone" },
+              { id: "vision-model", type: "vlm", publisher: "someone" },
+              { id: "embedder", type: "embeddings", publisher: "nomic-ai" },
+            ],
+          }),
+        );
+      }
       res.statusCode = 404;
       res.end();
     });
@@ -124,6 +149,51 @@ describe("agents from the ACP registry", () => {
     await assert.rejects(new AcpRegistry(tools).install({ agentId: "tampered" }), /doesn't match the checksum/);
     await assert.rejects(new AcpRegistry(tools).install({ agentId: "unsigned" }), /no published checksum/);
     await assert.rejects(new AcpRegistry(tools).install({ agentId: "claude-acp" }), /comes with Kervan/);
+  });
+
+  it("points an agent at a chat model from LM Studio, and only a chat model", async () => {
+    process.env.LMSTUDIO_URL = base;
+    const registry = new AcpRegistry(join(work, "tools-lm"));
+    try {
+      const status = await registry.lmStudio();
+      assert.deepEqual(status, { running: true, url: base, models: ["chat-model", "talker", "vision-model"] });
+      const installed = await registry.install({ agentId: "goose", lmStudioModel: "chat-model" });
+      assert.equal(installed.name.endsWith("(chat-model)"), true);
+      assert.deepEqual(installed.env, { GOOSE_PROVIDER: "openai", GOOSE_MODEL: "chat-model", OPENAI_HOST: base, OPENAI_API_KEY: "lm-studio" });
+      await assert.rejects(registry.install({ agentId: "goose", lmStudioModel: "embedder" }), /LM Studio has no model 'embedder'/);
+      await assert.rejects(registry.install({ agentId: "found-agent", lmStudioModel: "chat-model" }), /can't be set up for LM Studio/);
+      await assert.rejects(registry.install({ agentId: "goose", lmStudioModel: "chat-model", ollamaModel: "qwen3-coder:30b" }), /choose one/);
+    } finally {
+      delete process.env.LMSTUDIO_URL;
+    }
+  });
+
+  it("won't add a model that writes its tool calls as text, and installs nothing for it", async () => {
+    process.env.LMSTUDIO_URL = base;
+    const tools = join(work, "tools-talker");
+    try {
+      await assert.rejects(new AcpRegistry(tools).install({ agentId: "goose", lmStudioModel: "talker" }), /wrote its tool call as plain text/);
+      assert.equal(existsSync(join(tools, "goose")), false, "nothing installed");
+    } finally {
+      delete process.env.LMSTUDIO_URL;
+    }
+  });
+
+  it("tells a model's tool call from every way of not making one", async () => {
+    assert.equal(await toolCallProblem(base, "chat-model"), undefined);
+    assert.match((await toolCallProblem(base, "talker"))!, /plain text/);
+    assert.match((await toolCallProblem(base, "refuser"))!, /HTTP 400/);
+    assert.match((await toolCallProblem(base, "silent", 50))!, /didn't answer/);
+    assert.match((await toolCallProblem("http://127.0.0.1:9", "chat-model"))!, /couldn't be tried/);
+  });
+
+  it("says LM Studio isn't there when nothing answers", async () => {
+    process.env.LMSTUDIO_URL = "http://127.0.0.1:9";
+    try {
+      assert.deepEqual(await new AcpRegistry(join(work, "tools-lm2")).lmStudio(), { running: false, url: "http://127.0.0.1:9", models: [] });
+    } finally {
+      delete process.env.LMSTUDIO_URL;
+    }
   });
 
   it("points an agent at a model from the server's Ollama", async () => {

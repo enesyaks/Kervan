@@ -4,7 +4,7 @@ import SwiftUI
 
 /// The agents of the Agent Client Protocol's registry, as the chosen machine sees them: ones installed on it by hand
 /// (added with one click), ones it can install for Kervan without sudo, and the rest with why not. Agents that can
-/// run a local model offer that machine's Ollama models.
+/// run a local model offer that machine's Ollama and LM Studio models.
 struct AgentCatalogSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
@@ -48,7 +48,7 @@ struct AgentCatalogSheet: View {
             }
 
             if let ollama = model.store.ollama, ollama.running {
-                OllamaNote(status: ollama, node: node).padding(.horizontal, 22).padding(.bottom, 12)
+                LocalModelNote(app: .ollama, status: ollama, node: node).padding(.horizontal, 22).padding(.bottom, 12)
             } else if let node, model.store.ollama != nil {
                 Label(L("Ollama isn't running on \(node). Start it there to use its models; other agents can still be added.", "\(node) üzerinde Ollama çalışmıyor. Modellerini kullanmak için orada başlatın; diğer ajanlar yine eklenebilir."), systemImage: "cpu")
                     .font(.callout)
@@ -56,6 +56,25 @@ struct AgentCatalogSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 22)
                     .padding(.bottom, 12)
+            }
+
+            if let lmStudio = model.store.lmStudio, lmStudio.running {
+                LocalModelNote(app: .lmStudio, status: lmStudio, node: node).padding(.horizontal, 22).padding(.bottom, 12)
+            } else if let node, model.store.lmStudio != nil {
+                // A service can't see whether LM Studio is installed, only whether its local server answers.
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Label(L("Using LM Studio on \(node)? Turn on its local server there (lms server start) to see its models.", "\(node) üzerinde LM Studio mu kullanıyorsunuz? Modellerini görmek için orada yerel sunucusunu açın (lms server start)."), systemImage: "cpu")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    Button(L("Check again", "Yeniden bak")) {
+                        Task { loadError = await model.store.loadOfferedAgents(node: node) }
+                    }
+                    .disabled(installing != nil)
+                }
+                .padding(.horizontal, 22)
+                .padding(.bottom, 12)
             }
 
             TextField(L("Search agents", "Ajan ara"), text: $search)
@@ -156,10 +175,11 @@ struct AgentCatalogSheet: View {
         CatalogRow(
             agent: agent,
             ollamaModels: (model.store.ollama?.running == true && agent.ollama) ? model.store.ollama?.models ?? [] : [],
+            lmStudioModels: (model.store.lmStudio?.running == true && agent.ollama) ? model.store.lmStudio?.models ?? [] : [],
             installing: installing == agent.id,
             busy: installing != nil,
             error: errors[agent.id],
-            install: { install(agent, ollamaModel: $0) }
+            install: { install(agent, model: $0) }
         )
     }
 
@@ -169,11 +189,11 @@ struct AgentCatalogSheet: View {
         return agent.name.localizedCaseInsensitiveContains(query) || agent.description.localizedCaseInsensitiveContains(query)
     }
 
-    private func install(_ agent: OfferedAgent, ollamaModel: String?) {
+    private func install(_ agent: OfferedAgent, model localModel: LocalModel?) {
         installing = agent.id
         errors[agent.id] = nil
         Task {
-            if let failure = await model.store.installAgent(agent.id, ollamaModel: ollamaModel, node: node) {
+            if let failure = await model.store.installAgent(agent.id, ollamaModel: localModel?.ollama, lmStudioModel: localModel?.lmStudio, node: node) {
                 errors[agent.id] = failure
             }
             installing = nil
@@ -181,15 +201,38 @@ struct AgentCatalogSheet: View {
     }
 }
 
+/// The app a local model comes from.
+private enum LocalModelApp {
+    case ollama, lmStudio
+
+    var name: String {
+        switch self {
+        case .ollama: "Ollama"
+        case .lmStudio: "LM Studio"
+        }
+    }
+}
+
+/// A local model to run an agent on.
+private struct LocalModel {
+    let app: LocalModelApp
+    let name: String
+
+    var ollama: String? { app == .ollama ? name : nil }
+    var lmStudio: String? { app == .lmStudio ? name : nil }
+}
+
 /// One agent: what it is, where it stands, and the way to add it.
 private struct CatalogRow: View {
     let agent: OfferedAgent
     /// The chosen machine's Ollama models, when this agent can use them.
     let ollamaModels: [String]
+    /// The same from LM Studio.
+    let lmStudioModels: [String]
     let installing: Bool
     let busy: Bool
     let error: String?
-    let install: (String?) -> Void
+    let install: (LocalModel?) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -201,13 +244,13 @@ private struct CatalogRow: View {
                             Text(version).font(.caption.monospacedDigit()).foregroundStyle(.tertiary)
                         }
                         if agent.ollama {
-                            Text("Ollama")
+                            Text(L("Local models", "Yerel model"))
                                 .font(.caption2.weight(.semibold))
                                 .foregroundStyle(Color.kervanOasis)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
                                 .background(Color.kervanOasis.opacity(0.12), in: Capsule())
-                                .help(L("Can run a local model from Ollama.", "Ollama'dan yerel bir model çalıştırabilir."))
+                                .help(L("Can run a local model from Ollama or LM Studio.", "Ollama ya da LM Studio'dan yerel bir model çalıştırabilir."))
                         }
                     }
                     if !agent.description.isEmpty {
@@ -270,14 +313,23 @@ private struct CatalogRow: View {
             switch agent.status {
             case .found, .installable:
                 let label = agent.status == .found ? L("Add", "Ekle") : L("Install", "Kur")
-                if ollamaModels.isEmpty {
+                if ollamaModels.isEmpty && lmStudioModels.isEmpty {
                     Button(label) { install(nil) }.disabled(busy)
                 } else {
                     Menu(label) {
                         Button(L("With its own sign-in", "Kendi girişiyle")) { install(nil) }
-                        Section(L("With an Ollama model", "Bir Ollama modeliyle")) {
-                            ForEach(ollamaModels, id: \.self) { name in
-                                Button(name) { install(name) }
+                        if !ollamaModels.isEmpty {
+                            Section(L("With an Ollama model", "Bir Ollama modeliyle")) {
+                                ForEach(ollamaModels, id: \.self) { name in
+                                    Button(name) { install(LocalModel(app: .ollama, name: name)) }
+                                }
+                            }
+                        }
+                        if !lmStudioModels.isEmpty {
+                            Section(L("With an LM Studio model", "Bir LM Studio modeliyle")) {
+                                ForEach(lmStudioModels, id: \.self) { name in
+                                    Button(name) { install(LocalModel(app: .lmStudio, name: name)) }
+                                }
                             }
                         }
                     }
@@ -299,8 +351,9 @@ private struct CatalogRow: View {
     }
 }
 
-/// Ollama answering on the chosen machine, and how agents can use it.
-private struct OllamaNote: View {
+/// A local model app answering on the chosen machine, and how agents can use it.
+private struct LocalModelNote: View {
+    let app: LocalModelApp
     let status: OllamaStatus
     var node: String?
 
@@ -312,8 +365,8 @@ private struct OllamaNote: View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "cpu").foregroundStyle(Color.kervanOasis)
             Text(status.models.isEmpty
-                ? L("Ollama is running \(place.english) but has no models yet. Pull one there (ollama pull qwen3-coder) to use it.", "Ollama \(place.turkish) çalışıyor ama henüz modeli yok. Kullanmak için orada bir model indirin (ollama pull qwen3-coder).")
-                : L("Ollama is running \(place.english) with \(status.models.count) models. Agents marked Ollama can run one: your code and the model stay \(node == nil ? "on your server" : "on that machine").", "Ollama \(place.turkish) \(status.models.count) modelle çalışıyor. Ollama işaretli ajanlar bunlardan birini çalıştırabilir; kodunuz da model de \(node == nil ? "sunucunuzda" : "o makinede") kalır."))
+                ? L("\(app.name) is running \(place.english) but has no chat models yet. Download one there to use it.", "\(app.name) \(place.turkish) çalışıyor ama henüz sohbet modeli yok. Kullanmak için orada bir model indirin.")
+                : L("\(app.name) is running \(place.english) with \(status.models.count) models. Agents marked Local models can run one: your code and the model stay \(node == nil ? "on your server" : "on that machine").", "\(app.name) \(place.turkish) \(status.models.count) modelle çalışıyor. Yerel model işaretli ajanlar bunlardan birini çalıştırabilir; kodunuz da model de \(node == nil ? "sunucunuzda" : "o makinede") kalır."))
                 .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)
         }

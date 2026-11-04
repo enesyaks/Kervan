@@ -20,7 +20,7 @@ export const MAX_NODE_FRAME_BYTES = Math.ceil((MAX_NODE_FILE_BYTES * 4) / 3) + 6
 
 export interface NodeAgentOptions {
   /** Where the catalog's agents come from; tests pass their own. */
-  registry?: Pick<AcpRegistry, "offer" | "ollama" | "install">;
+  registry?: Pick<AcpRegistry, "offer" | "ollama" | "lmStudio" | "install">;
   /** ws(s)://hub:7420 — the hub's addresses, tried in turn; the path is added. */
   hubUrls: string[];
   /** Where addresses the hub tells us about are kept, so a hub whose IP changed is still found. */
@@ -44,7 +44,7 @@ export class NodeAgent {
   private ws?: WebSocket;
   private stopped = false;
   private retry?: NodeJS.Timeout;
-  private readonly registry: Pick<AcpRegistry, "offer" | "ollama" | "install">;
+  private readonly registry: Pick<AcpRegistry, "offer" | "ollama" | "lmStudio" | "install">;
   private retryMs = 1000;
   /** Every address we know for the hub, the one that last worked first. */
   private hubs: string[];
@@ -195,10 +195,10 @@ export class NodeAgent {
         if (!process.setConfig) throw new Error("this agent has no settings");
         return process.setConfig(params.configId, params.value);
       })
-      // The catalog as this machine sees it: the agents it has and can install, and its own Ollama.
+      // The catalog as this machine sees it: the agents it has and can install, and its own local models.
       .on("registry.offer", async (params: { added: string[] }) => {
-        const [agents, ollama] = await Promise.all([this.registry.offer(new Set(params.added)), this.registry.ollama()]);
-        return { agents, ollama };
+        const [agents, ollama, lmStudio] = await Promise.all([this.registry.offer(new Set(params.added)), this.registry.ollama(), this.registry.lmStudio()]);
+        return { agents, ollama, lmStudio };
       })
       .on("registry.install", (params: InstallRequest) => this.registry.install(params))
       .on("files.list", async (params: { key: string }) => listTree(await this.workspace(params.key)))

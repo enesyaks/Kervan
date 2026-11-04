@@ -554,7 +554,7 @@ public struct OfferedAgent: Codable, Equatable, Sendable, Identifiable {
     public let source: String?
     public let path: String?
     public let reason: String?
-    /// Can run a model from the server's Ollama.
+    /// Can run a local model from that machine's Ollama or LM Studio.
     public let ollama: Bool
 
     public init(id: String, name: String, description: String, version: String? = nil, website: String? = nil, status: Status, source: String? = nil, path: String? = nil, reason: String? = nil, ollama: Bool = false) {
@@ -571,7 +571,7 @@ public struct OfferedAgent: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
-/// Ollama on the server: whether it answers, and the models it has.
+/// Ollama or LM Studio on a machine: whether it answers, and the models it has.
 public struct OllamaStatus: Codable, Equatable, Sendable {
     public let running: Bool
     public let url: String

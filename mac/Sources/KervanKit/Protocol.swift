@@ -649,7 +649,7 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
     case agentLogout(id: String, agent: String)
     /// The ACP registry's agents and where each stands on the server; installing one. The app only.
     case agentRegistry(id: String, node: String? = nil)
-    case agentInstall(id: String, agentId: String, ollamaModel: String?, node: String? = nil)
+    case agentInstall(id: String, agentId: String, ollamaModel: String?, node: String? = nil, lmStudioModel: String? = nil)
     case projectList(id: String)
     case projectSave(id: String, project: ProjectInput)
     case projectDelete(id: String, projectId: String)
@@ -702,7 +702,7 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
         case type, `protocol`, client, id, agent, sessionId, text, requestId, optionId, attachments, title, archived, query
         case skills, mcpServers, server, name, agentId, role, roleId, roles, orchestrate, budgetUsd, configId, value
         case projectId, since, seq, paths, project, schedule, scheduleId, days, timeZone, terminalId, data, message, body
-        case enabled, deviceId, shared, removeWorktree, card, cardId, column, alerts, split, code, ollamaModel, node
+        case enabled, deviceId, shared, removeWorktree, card, cardId, column, alerts, split, code, ollamaModel, node, lmStudioModel
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -754,12 +754,13 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
             try c.encode("agent.registry", forKey: .type)
             try c.encode(id, forKey: .id)
             try c.encodeIfPresent(node, forKey: .node)
-        case .agentInstall(let id, let agentId, let ollamaModel, let node):
+        case .agentInstall(let id, let agentId, let ollamaModel, let node, let lmStudioModel):
             try c.encodeIfPresent(node, forKey: .node)
             try c.encode("agent.install", forKey: .type)
             try c.encode(id, forKey: .id)
             try c.encode(agentId, forKey: .agentId)
             try c.encodeIfPresent(ollamaModel, forKey: .ollamaModel)
+            try c.encodeIfPresent(lmStudioModel, forKey: .lmStudioModel)
         case .webStatus(let id):
             try c.encode("web.status", forKey: .type)
             try c.encode(id, forKey: .id)
@@ -1034,7 +1035,7 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
     /// The page to sign an agent in on; for Codex the code to enter there, for Claude the page shows a code to bring back.
     case agentLoginStarted(id: String, agent: String, url: URL, code: String?, needsCode: Bool)
     case agentLoginFinished(agent: String, signedIn: Bool, error: String?)
-    case agentRegistryResult(id: String, agents: [OfferedAgent], ollama: OllamaStatus)
+    case agentRegistryResult(id: String, agents: [OfferedAgent], ollama: OllamaStatus, lmStudio: OllamaStatus? = nil)
     /// A type this client doesn't know yet. Ignored, so the server can add types without a version bump.
     case unknown(type: String)
 
@@ -1043,7 +1044,7 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
         case nodes, roles, team, teams, name, expiresAt, hubAddresses
         case changes, projects, schedules, report, terminalId, backlog, data, ports, pullRequest, web, github, url, error
         case projectId, cards, alerts
-        case agent, needsCode, signedIn, ollama
+        case agent, needsCode, signedIn, ollama, lmStudio
     }
 
     public init(from decoder: any Decoder) throws {
@@ -1171,7 +1172,8 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
             self = .agentRegistryResult(
                 id: try c.decode(String.self, forKey: .id),
                 agents: try c.decode([OfferedAgent].self, forKey: .agents),
-                ollama: try c.decode(OllamaStatus.self, forKey: .ollama)
+                ollama: try c.decode(OllamaStatus.self, forKey: .ollama),
+                lmStudio: try c.decodeIfPresent(OllamaStatus.self, forKey: .lmStudio)
             )
         case "agent.login.finished":
             self = .agentLoginFinished(

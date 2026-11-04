@@ -30,9 +30,10 @@ describe("the agent catalog on a node", () => {
       return [{ id: "qwen-code", name: "Qwen", description: "", ollama: true, status: added.has("qwen-code") ? ("added" as const) : ("installable" as const) }];
     },
     ollama: async () => ({ running: true, url: "http://127.0.0.1:11434", models: ["model-on-the-node"] }),
-    install: async (request: { agentId: string; ollamaModel?: string }) => ({
+    lmStudio: async () => ({ running: true, url: "http://127.0.0.1:1235", models: ["studio-model-on-the-node"] }),
+    install: async (request: { agentId: string; ollamaModel?: string; lmStudioModel?: string }) => ({
       id: request.agentId,
-      name: `Qwen (${request.ollamaModel})`,
+      name: `Qwen (${request.ollamaModel ?? request.lmStudioModel})`,
       command: fakeAgent.command,
       args: fakeAgent.args,
       env: { OPENAI_BASE_URL: "http://127.0.0.1:11434/v1" },
@@ -61,6 +62,7 @@ describe("the agent catalog on a node", () => {
     const answer = await ask({ type: "agent.registry", node: "kutu" });
     assert.equal(answer.type, "agent.registry.result", JSON.stringify(answer));
     assert.deepEqual(answer.ollama.models, ["model-on-the-node"]);
+    assert.deepEqual(answer.lmStudio.models, ["studio-model-on-the-node"]);
     assert.deepEqual(answer.agents.map((a: any) => [a.id, a.status]), [["qwen-code", "installable"]]);
   });
 
@@ -77,6 +79,12 @@ describe("the agent catalog on a node", () => {
   it("says its node is there", async () => {
     const list = await inbox.waitFor((m) => m.type === "agents.updated" && m.agentDetails.some((a: any) => a.id === "qwen-code-kutu"));
     assert.deepEqual(list.agentDetails.find((a: any) => a.id === "qwen-code-kutu"), { id: "qwen-code-kutu", name: "Qwen (model-on-the-node)", node: "kutu", online: true });
+  });
+
+  it("passes the LM Studio model chosen on to the node", async () => {
+    const answer = await ask({ type: "agent.install", agentId: "qwen-code", lmStudioModel: "studio-model-on-the-node", node: "kutu" }, 30_000);
+    assert.equal(answer.type, "agent.list.result", JSON.stringify(answer));
+    assert.equal(answer.agents.find((a: any) => a.id === "qwen-code-kutu")?.name, "Qwen (studio-model-on-the-node)");
   });
 
   it("then shows it as added on that node, and only there", async () => {

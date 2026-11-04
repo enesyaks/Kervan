@@ -56,6 +56,8 @@ public final class SessionStore {
     /// The ACP registry's agents as the server sees them, and its Ollama; nil until asked for.
     public private(set) var offeredAgents: [OfferedAgent]?
     public private(set) var ollama: OllamaStatus?
+    /// That machine's LM Studio; nil until asked for, and from a server or node too old to say.
+    public private(set) var lmStudio: OllamaStatus?
     /// Web access as the server last told it; nil until asked for.
     public private(set) var webAccess: WebAccessStatus?
     /// The shell open in each session's folder, by session id.
@@ -312,13 +314,14 @@ public final class SessionStore {
         // What one machine offers says nothing about another.
         offeredAgents = nil
         ollama = nil
+        lmStudio = nil
         return await call(.agentRegistry(id: Self.newID(), node: node))
     }
 
-    /// Installs (or finds) a registry agent on the server and adds it, optionally on an Ollama model; nil, or why not.
+    /// Installs (or finds) a registry agent on the server and adds it, optionally on a local model; nil, or why not.
     /// It can take a few minutes. The agent list and the catalog refresh when it's done.
-    public func installAgent(_ agentId: String, ollamaModel: String? = nil, node: String? = nil) async -> String? {
-        let failure = await call(.agentInstall(id: Self.newID(), agentId: agentId, ollamaModel: ollamaModel, node: node))
+    public func installAgent(_ agentId: String, ollamaModel: String? = nil, lmStudioModel: String? = nil, node: String? = nil) async -> String? {
+        let failure = await call(.agentInstall(id: Self.newID(), agentId: agentId, ollamaModel: ollamaModel, node: node, lmStudioModel: lmStudioModel))
         if failure == nil { _ = await loadOfferedAgents(node: node) }
         return failure
     }
@@ -593,9 +596,10 @@ public final class SessionStore {
         case .githubUpdated(let status, let error):
             github = status
             githubError = error
-        case .agentRegistryResult(_, let agents, let status):
+        case .agentRegistryResult(_, let agents, let status, let studio):
             offeredAgents = agents
             ollama = status
+            lmStudio = studio
         case .agentLoginStarted(_, let agent, let url, let code, let needsCode):
             agentLoginAnswer = AgentLoginPrompt(agent: agent, url: url, code: code, needsCode: needsCode)
         case .agentLoginFinished(let agent, let signedIn, let error):

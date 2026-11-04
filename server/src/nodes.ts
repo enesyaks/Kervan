@@ -311,8 +311,8 @@ export class NodeHub {
     return size;
   }
 
-  /** What the catalog offers on this node, and its own Ollama. An error there is an answer, not the hub's failure. */
-  async offerAgents(node: string, added: string[]): Promise<{ agents: OfferedAgent[]; ollama: OllamaStatus }> {
+  /** What the catalog offers on this node, and its own local models. An error there is an answer, not the hub's failure. */
+  async offerAgents(node: string, added: string[]): Promise<{ agents: OfferedAgent[]; ollama: OllamaStatus; lmStudio?: OllamaStatus }> {
     return this.ask(node, "registry.offer", { added });
   }
 

@@ -360,10 +360,10 @@ export type ClientMessage =
   | { type: "agent.login.code"; id: string; agent: string; code: string }
   | { type: "agent.login.cancel"; id: string; agent: string }
   | { type: "agent.logout"; id: string; agent: string }
-  /** The agents of the ACP registry and where each stands on this server or on `node`, and that machine's Ollama. */
+  /** The agents of the ACP registry and where each stands on this server or on `node`, and that machine's local models. */
   | { type: "agent.registry"; id: string; node?: string }
-  /** Installs (or finds) a registry agent for the service user and adds it; optionally runs it on an Ollama model. */
-  | { type: "agent.install"; id: string; agentId: string; ollamaModel?: string; node?: string }
+  /** Installs (or finds) a registry agent for the service user and adds it; optionally runs it on a local model. */
+  | { type: "agent.install"; id: string; agentId: string; ollamaModel?: string; lmStudioModel?: string; node?: string }
   | { type: "project.list"; id: string }
   | { type: "project.save"; id: string; project: Record<string, unknown> }
   | { type: "project.delete"; id: string; projectId: string }
@@ -470,7 +470,7 @@ export type ServerMessage =
   | { type: "agent.login.started"; id: string; agent: string; url: string; code?: string; needsCode: boolean }
   /** A sign-in ended; the agent list has the new `signedIn`. */
   | { type: "agent.login.finished"; agent: string; signedIn: boolean; error?: string }
-  | { type: "agent.registry.result"; id: string; agents: OfferedAgent[]; ollama: OllamaStatus };
+  | { type: "agent.registry.result"; id: string; agents: OfferedAgent[]; ollama: OllamaStatus; lmStudio?: OllamaStatus };
 
 export type ParseResult =
   | { ok: true; message: ClientMessage }
@@ -606,6 +606,10 @@ export function parseClientMessage(raw: string): ParseResult {
   if (data.type === "agent.install" && data.ollamaModel !== undefined) {
     if (typeof data.ollamaModel !== "string") return fail("bad_message", "agent.install needs a string 'ollamaModel'");
     message.ollamaModel = data.ollamaModel;
+  }
+  if (data.type === "agent.install" && data.lmStudioModel !== undefined) {
+    if (typeof data.lmStudioModel !== "string") return fail("bad_message", "agent.install needs a string 'lmStudioModel'");
+    message.lmStudioModel = data.lmStudioModel;
   }
   if (data.type === "session.prompt" && (message.text.trim() === "" || message.text.length > MAX_PROMPT_CHARS)) {
     return fail("bad_message", `prompt text must be 1–${MAX_PROMPT_CHARS} characters`);

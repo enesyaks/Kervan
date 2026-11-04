@@ -218,19 +218,20 @@ async function handleRequest(
       if (node) {
         const suffix = nodeAgentSuffix(node);
         const added = catalog.list().filter((agent) => agent.node === node).map((agent) => (agent.id.endsWith(suffix) ? agent.id.slice(0, -suffix.length) : agent.id));
-        const { agents, ollama } = await requireNodes(sessions).offerAgents(node, added);
-        return send(ws, { type: "agent.registry.result", id: message.id, agents, ollama });
+        const { agents, ollama, lmStudio } = await requireNodes(sessions).offerAgents(node, added);
+        return send(ws, { type: "agent.registry.result", id: message.id, agents, ollama, ...(lmStudio ? { lmStudio } : {}) });
       }
       const registry = registryFor(sessions);
       const added = new Set(catalog.list().filter((agent) => agent.node === LOCAL_NODE).map((agent) => agent.id));
-      const [agents, ollama] = await Promise.all([registry.offer(added), registry.ollama()]);
-      return send(ws, { type: "agent.registry.result", id: message.id, agents, ollama });
+      const [agents, ollama, lmStudio] = await Promise.all([registry.offer(added), registry.ollama(), registry.lmStudio()]);
+      return send(ws, { type: "agent.registry.result", id: message.id, agents, ollama, lmStudio });
     }
     case "agent.install": {
       const catalog = requireCatalog(sessions);
-      const model = (message as { ollamaModel?: unknown }).ollamaModel;
-      if (model !== undefined && typeof model !== "string") throw new KervanError("bad_message", "'ollamaModel' must be a string");
-      const request = { agentId: message.agentId, ...(model ? { ollamaModel: model } : {}) };
+      const { ollamaModel, lmStudioModel } = message as { ollamaModel?: unknown; lmStudioModel?: unknown };
+      if (ollamaModel !== undefined && typeof ollamaModel !== "string") throw new KervanError("bad_message", "'ollamaModel' must be a string");
+      if (lmStudioModel !== undefined && typeof lmStudioModel !== "string") throw new KervanError("bad_message", "'lmStudioModel' must be a string");
+      const request = { agentId: message.agentId, ...(ollamaModel ? { ollamaModel } : {}), ...(lmStudioModel ? { lmStudioModel } : {}) };
       const node = targetNode(message);
       if (node) {
         const installed = await requireNodes(sessions).installAgent(node, request);

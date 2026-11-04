@@ -62,7 +62,7 @@ export interface OfferedAgent {
   path?: string;
   /** Why it can't be added from here, for "unavailable". */
   reason?: string;
-  /** It can be set up to use a model from the server's Ollama. */
+  /** It can be set up to use a local model from this machine's Ollama or LM Studio. */
   ollama: boolean;
 }
 
@@ -72,10 +72,11 @@ export interface OllamaStatus {
   models: string[];
 }
 
-/** What a client asked to add: the agent, and an Ollama model to run it with if it should. */
+/** What a client asked to add: the agent, and at most one local model to run it with. */
 export interface InstallRequest {
   agentId: string;
   ollamaModel?: string;
+  lmStudioModel?: string;
 }
 
 /** The agent definition to save once installed, in the shape `AgentCatalog.save` takes. */
@@ -111,6 +112,21 @@ const OLLAMA_SETUP: Record<string, (url: string, model: string) => { env: Record
     authMethod: "openai",
   }),
 };
+
+/** LM Studio has no API key by default and speaks OpenAI's protocol, which is how both agents reach it. */
+const LM_STUDIO_SETUP: typeof OLLAMA_SETUP = {
+  goose: (url, model) => ({ env: { GOOSE_PROVIDER: "openai", GOOSE_MODEL: model, OPENAI_HOST: url, OPENAI_API_KEY: "lm-studio" } }),
+  "qwen-code": (url, model) => ({
+    env: { OPENAI_BASE_URL: `${url}/v1`, OPENAI_API_KEY: "lm-studio", OPENAI_MODEL: model },
+    authMethod: "openai",
+  }),
+};
+
+// Its port differs between machines and a service user can't read its settings, so the usual ones are tried.
+const LM_STUDIO_URLS = ["http://127.0.0.1:1234", "http://127.0.0.1:1235"];
+
+// Long enough for a large model to load into memory first.
+const TOOL_CHECK_TIMEOUT_MS = 5 * 60_000;
 
 /** This machine in the registry's terms, e.g. "linux-x86_64". */
 export function platformKey(platform: string = process.platform, arch: string = process.arch): string {
@@ -169,6 +185,50 @@ export function ollamaURL(host = process.env.OLLAMA_HOST): string {
   const url = new URL(withScheme);
   if (!url.port && !/^https?:\/\/[^/]+:\d+/.test(withScheme)) url.port = "11434";
   return url.origin;
+}
+
+/**
+ * Why `model` can't run an agent, or undefined if it can: one real tool call, because the apps' own lists can't be
+ * trusted. Ollama says some models support tools, and they then write the call out as text, which an agent can't run.
+ */
+export async function toolCallProblem(url: string, model: string, timeoutMs = TOOL_CHECK_TIMEOUT_MS): Promise<string | undefined> {
+  let response: Response;
+  try {
+    response = await fetch(`${url}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      signal: AbortSignal.timeout(timeoutMs),
+      body: JSON.stringify({
+        model,
+        stream: false,
+        temperature: 0,
+        messages: [{ role: "user", content: "Create the file a.txt containing hi. Use the write_file tool." }],
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: "write_file",
+              description: "Write a file",
+              parameters: {
+                type: "object",
+                properties: { file_path: { type: "string" }, content: { type: "string" } },
+                required: ["file_path", "content"],
+              },
+            },
+          },
+        ],
+      }),
+    });
+  } catch (error) {
+    if ((error as Error).name === "TimeoutError") return `${model} didn't answer a test request within ${Math.round(timeoutMs / 60_000)} minutes, so it was not added`;
+    return `${model} couldn't be tried: ${(error as Error).message}`;
+  }
+  if (!response.ok) return `${model} refused a test request that uses tools (HTTP ${response.status}), so an agent can't work with it`;
+  const body = (await response.json().catch(() => undefined)) as { choices?: { message?: { tool_calls?: unknown[] } }[] } | undefined;
+  if (!body?.choices?.[0]?.message?.tool_calls?.length) {
+    return `${model} wrote its tool call as plain text instead of making it, so an agent on it couldn't run anything. Choose another model`;
+  }
+  return undefined;
 }
 
 /**
@@ -242,6 +302,26 @@ export class AcpRegistry {
     }
   }
 
+  /** LM Studio's chat models: its list also holds embedding models and its own helpers, which can't run an agent. */
+  async lmStudio(): Promise<OllamaStatus> {
+    const urls = process.env.LMSTUDIO_URL ? [process.env.LMSTUDIO_URL.replace(/\/+$/, "")] : LM_STUDIO_URLS;
+    for (const url of urls) {
+      try {
+        const response = await fetch(`${url}/api/v0/models`, { signal: AbortSignal.timeout(2_000) });
+        if (!response.ok) continue;
+        const body = (await response.json()) as { data?: { id?: unknown; type?: unknown; publisher?: unknown }[] };
+        const models = (body.data ?? [])
+          .filter((m) => (m.type === "llm" || m.type === "vlm") && m.publisher !== "model-extension-pack")
+          .map((m) => m.id)
+          .filter((id): id is string => typeof id === "string");
+        return { running: true, url, models };
+      } catch {
+        // Not there, or not LM Studio: try the next one.
+      }
+    }
+    return { running: false, url: urls[0]!, models: [] };
+  }
+
   /** Installs (or finds) an agent and says how to start it; saving it in the catalog is the caller's. */
   async install(request: InstallRequest): Promise<InstalledAgent> {
     const entry = (await this.entries()).find((e) => e.id === request.agentId);
@@ -250,23 +330,29 @@ export class AcpRegistry {
     if (this.installing.has(entry.id)) throw new KervanError("bad_message", `${entry.name} is being installed already`);
     this.installing.add(entry.id);
     try {
-      const tools = await this.tools();
-      const launch = await this.place(entry, tools);
-      let env = { ...(launch.env ?? {}) };
+      let env: Record<string, string> = {};
       let authMethod: string | undefined;
-      if (request.ollamaModel) {
-        const setup = OLLAMA_SETUP[entry.id];
-        if (!setup) throw new KervanError("bad_message", `${entry.name} can't be set up for Ollama from here`);
-        const ollama = await this.ollama();
-        if (!ollama.running) throw new KervanError("bad_message", `Ollama isn't answering at ${ollama.url}`);
-        if (!ollama.models.includes(request.ollamaModel)) throw new KervanError("bad_message", `Ollama has no model '${request.ollamaModel}'`);
-        const settings = setup(ollama.url, request.ollamaModel);
-        env = { ...env, ...settings.env };
+      if (request.ollamaModel && request.lmStudioModel) throw new KervanError("bad_message", "choose one local model");
+      const model = request.ollamaModel ?? request.lmStudioModel;
+      if (model) {
+        const app = request.ollamaModel ? "Ollama" : "LM Studio";
+        const setup = (request.ollamaModel ? OLLAMA_SETUP : LM_STUDIO_SETUP)[entry.id];
+        if (!setup) throw new KervanError("bad_message", `${entry.name} can't be set up for ${app} from here`);
+        const status = await (request.ollamaModel ? this.ollama() : this.lmStudio());
+        if (!status.running) throw new KervanError("bad_message", `${app} isn't answering at ${status.url}`);
+        if (!status.models.includes(model)) throw new KervanError("bad_message", `${app} has no model '${model}'`);
+        // Before installing anything: a model that can't call tools leaves nothing worth having installed.
+        const problem = await toolCallProblem(status.url, model);
+        if (problem) throw new KervanError("bad_message", problem);
+        const settings = setup(status.url, model);
+        env = settings.env;
         authMethod = settings.authMethod;
       }
+      const launch = await this.place(entry, await this.tools());
+      env = { ...(launch.env ?? {}), ...env };
       return {
         id: entry.id,
-        name: request.ollamaModel ? `${entry.name} (${request.ollamaModel})` : entry.name,
+        name: model ? `${entry.name} (${model})` : entry.name,
         command: launch.command,
         args: launch.args,
         ...(Object.keys(env).length > 0 ? { env } : {}),
