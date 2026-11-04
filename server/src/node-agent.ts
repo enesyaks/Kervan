@@ -17,6 +17,10 @@ export const NODE_PATH = "/v1/node";
 /** Files moved between hub and node travel inside one WebSocket message. */
 export const MAX_NODE_FILE_BYTES = 50 * 1024 * 1024;
 export const MAX_NODE_FRAME_BYTES = Math.ceil((MAX_NODE_FILE_BYTES * 4) / 3) + 64 * 1024;
+/** The same round the hub keeps with its clients. */
+const HEARTBEAT_MS = 30_000;
+/** A hub that accepts a connection and then says nothing shouldn't hold up the next try. */
+const HANDSHAKE_TIMEOUT_MS = 15_000;
 
 export interface NodeAgentOptions {
   /** Where the catalog's agents come from; tests pass their own. */
@@ -29,6 +33,9 @@ export interface NodeAgentOptions {
   name: string;
   workspacesDir: string;
   runner: AgentRunner;
+  /** How often the node checks that the hub is still there; tests pass a short one. */
+  heartbeatMs?: number;
+  now?: () => number;
 }
 
 /**
@@ -44,6 +51,7 @@ export class NodeAgent {
   private ws?: WebSocket;
   private stopped = false;
   private retry?: NodeJS.Timeout;
+  private heartbeat?: NodeJS.Timeout;
   private readonly registry: Pick<AcpRegistry, "offer" | "ollama" | "lmStudio" | "install">;
   private retryMs = 1000;
   /** Every address we know for the hub, the one that last worked first. */
@@ -73,6 +81,7 @@ export class NodeAgent {
   stop(): void {
     this.stopped = true;
     clearTimeout(this.retry);
+    clearInterval(this.heartbeat);
     this.ws?.close();
     this.closeAll();
   }
@@ -84,6 +93,7 @@ export class NodeAgent {
     const ws = new WebSocket(new URL(NODE_PATH, hubUrl), {
       headers: { authorization: `Bearer ${token}`, "x-kervan-node": name },
       maxPayload: MAX_NODE_FRAME_BYTES,
+      handshakeTimeout: HANDSHAKE_TIMEOUT_MS,
     });
     this.ws = ws;
     const rpc = new Rpc(ws);
@@ -93,6 +103,7 @@ export class NodeAgent {
       opened = true;
       this.retryMs = 1000;
       log("info", "connected to hub", { hub: hubUrl, node: name });
+      this.watch(ws);
       void rpc
         .call<{ hubs?: string[] } | null>("hello", { version: VERSION })
         .then((answer) => this.learn(hubUrl, answer?.hubs ?? []))
@@ -101,6 +112,7 @@ export class NodeAgent {
     ws.on("unexpected-response", (_req, res) => log("error", "hub refused the node", { status: res.statusCode }));
     ws.on("error", (error) => log("warn", "hub connection error", { error: error.message }));
     ws.on("close", () => {
+      clearInterval(this.heartbeat);
       this.closeAll();
       if (this.stopped) return;
       // A connection that worked is tried again first; an address that never answered gives way to the next.
@@ -113,6 +125,37 @@ export class NodeAgent {
       this.retry = setTimeout(() => this.connect(), delay);
       if (opened || wrapped) this.retryMs = Math.min(this.retryMs * 2, 30_000);
     });
+  }
+
+  /**
+   * Notices a hub that has gone. After a Mac sleeps the hub has dropped its side, but nothing tells this side: the socket
+   * stays open and silent, and the node would stay away for good. A timer waking long after it was due means this
+   * machine was asleep, so there's no need to wait a round to find out.
+   */
+  private watch(ws: WebSocket): void {
+    const every = this.options.heartbeatMs ?? HEARTBEAT_MS;
+    const now = this.options.now ?? Date.now;
+    let heard = true;
+    let last = now();
+    const alive = () => {
+      heard = true;
+    };
+    ws.on("pong", alive);
+    ws.on("ping", alive);
+    ws.on("message", alive);
+    clearInterval(this.heartbeat);
+    this.heartbeat = setInterval(() => {
+      const slept = now() - last > every * 2;
+      last = now();
+      if (slept || !heard) {
+        log("warn", slept ? "woke up; connecting to the hub again" : "the hub stopped answering; connecting again");
+        ws.terminate();
+        return;
+      }
+      heard = false;
+      ws.ping();
+    }, every);
+    this.heartbeat.unref();
   }
 
   /** Keeps the address that worked first, then everything the hub says it can be reached at, on disk. */
