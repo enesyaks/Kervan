@@ -22,7 +22,7 @@
     "@agentclientprotocol/codex-acp": "^2.4.0",
     "@agentclientprotocol/sdk": "^2.1.0",
     "@google/gemini-cli": "^0.66.0",
-    "ws": "^8.22.0",
+    "ws": "^8.22.1",
     "yaml": "^2.9.1"
   }
 }
