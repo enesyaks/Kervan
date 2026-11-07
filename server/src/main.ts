@@ -18,6 +18,7 @@ import { OrchestraHub, orchestraSocketPath } from "./orchestra.ts";
 import { NodeHub } from "./nodes.ts";
 import { Checkpoints } from "./checkpoints.ts";
 import { ProjectRegistry } from "./projects.ts";
+import { attachProjectMaps } from "./projectmap.ts";
 import { Scheduler } from "./schedules.ts";
 
 const config = loadConfig();
@@ -69,6 +70,7 @@ const scheduler = new Scheduler(join(config.dataDir, "schedules.json"), {
 scheduler.onChange = (schedules) => sessions.broadcast({ type: "schedules.updated", schedules });
 sessions.scheduler = scheduler;
 attachBoard(sessions, join(config.dataDir, "board.json"));
+attachProjectMaps(sessions);
 attachAlerts(sessions, join(config.dataDir, "alerts.json"));
 scheduler.start((task) =>
   sessions.runTask({ agent: task.agent, title: task.title, prompt: task.prompt, scheduleId: task.id, ...(task.projectId ? { projectId: task.projectId } : {}) }),

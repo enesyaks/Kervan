@@ -161,6 +161,20 @@ export interface ProjectInfo {
   /** Given to every agent in the project before its first message. */
   instructions: string;
   createdAt: string;
+  /** The project map: what an agent learned scanning the repository once, given to later sessions so they don't rescan it. */
+  map?: ProjectMapInfo;
+}
+
+export interface ProjectMapInfo {
+  status: "building" | "ready" | "failed";
+  /** The agent that builds or built it. */
+  agent: string;
+  /** The commit the project folder was at when the map was started; absent outside git. */
+  commit?: string;
+  updatedAt: string;
+  /** The session that builds or built it. */
+  sessionId?: string;
+  error?: string;
 }
 
 export type ScheduleWhen =
@@ -367,6 +381,9 @@ export type ClientMessage =
   | { type: "project.list"; id: string }
   | { type: "project.save"; id: string; project: Record<string, unknown> }
   | { type: "project.delete"; id: string; projectId: string }
+  /** (Re)builds the project map with `agent`; answered with `project.list.result`. */
+  | { type: "project.map"; id: string; projectId: string; agent: string }
+  | { type: "project.map.get"; id: string; projectId: string }
   | { type: "schedule.list"; id: string }
   | { type: "schedule.save"; id: string; schedule: Record<string, unknown> }
   | { type: "schedule.delete"; id: string; scheduleId: string }
@@ -445,6 +462,8 @@ export type ServerMessage =
   | { type: "project.list.result"; id: string; projects: ProjectInfo[] }
   /** Broadcast after a project was added, changed or removed. */
   | { type: "projects.updated"; projects: ProjectInfo[] }
+  /** The map's text (Markdown); empty while there is none. */
+  | { type: "project.map.result"; id: string; projectId: string; text: string }
   | { type: "schedule.list.result"; id: string; schedules: ScheduleInfo[] }
   /** Broadcast after a schedule ran or changed. */
   | { type: "schedules.updated"; schedules: ScheduleInfo[] }
@@ -549,6 +568,8 @@ const STRING_FIELDS: Record<string, readonly string[]> = {
   "project.list": ["id"],
   "project.save": ["id"],
   "project.delete": ["id", "projectId"],
+  "project.map": ["id", "projectId", "agent"],
+  "project.map.get": ["id", "projectId"],
   "schedule.list": ["id"],
   "schedule.save": ["id"],
   "schedule.delete": ["id", "scheduleId"],

@@ -1,16 +1,18 @@
 import { cleanEnv } from "./agentenv.ts";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
-import { isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { KervanError, type ProjectInfo } from "./protocol.ts";
+import { KervanError, type ProjectInfo, type ProjectMapInfo } from "./protocol.ts";
 
 const run = promisify(execFile);
 const MAX_INSTRUCTIONS = 20_000;
 /** git clone of a large repository can take a while; past this it is given up. */
 const CLONE_TIMEOUT_MS = 10 * 60_000;
+/** A map is read by every session in the project before its first message, so it has to stay short. */
+export const MAX_MAP = 40_000;
 
 const bad = (message: string): never => {
   throw new KervanError("bad_message", message);
@@ -40,13 +42,22 @@ export class ProjectRegistry {
   private readonly file: string;
   /** New and cloned projects go here. */
   private readonly root: string;
+  /** Project maps, one Markdown file per project, beside the project list and outside the repositories. */
+  private readonly maps: string;
   private projects: Map<string, ProjectInfo>;
 
   constructor(file: string, root: string) {
     this.file = file;
     this.root = root;
+    this.maps = join(dirname(file), "project-maps");
     const stored = existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as ProjectInfo[]) : [];
     this.projects = new Map(stored.map((p) => [p.id, p]));
+    // Whatever was mapping when the server stopped won't report back any more.
+    for (const project of this.projects.values()) {
+      if (project.map?.status === "building") {
+        project.map = { ...project.map, status: "failed", error: "the server restarted while mapping", updatedAt: new Date().toISOString() };
+      }
+    }
   }
 
   get(id: string): ProjectInfo | undefined {
@@ -118,7 +129,32 @@ export class ProjectRegistry {
   /** Forgets the project; its folder and the sessions in it stay. */
   remove(id: string): void {
     if (!this.projects.delete(id)) bad(`no project '${id}'`);
+    rmSync(this.mapFile(id), { force: true });
     this.persist();
+  }
+
+  /** Where the project's map stands; `text` (cut to MAX_MAP) replaces the stored map. */
+  setMap(id: string, map: ProjectMapInfo, text?: string): void {
+    const project = this.projects.get(id);
+    if (!project) return;
+    if (text !== undefined) {
+      mkdirSync(this.maps, { recursive: true, mode: 0o700 });
+      const temp = `${this.mapFile(id)}.tmp`;
+      writeFileSync(temp, text.slice(0, MAX_MAP), { mode: 0o600 });
+      renameSync(temp, this.mapFile(id));
+    }
+    project.map = map;
+    this.persist();
+  }
+
+  /** The last map that was built, even while a new one is being built; "" if there is none. */
+  mapText(id: string): string {
+    const file = this.mapFile(id);
+    return existsSync(file) ? readFileSync(file, "utf8") : "";
+  }
+
+  private mapFile(id: string): string {
+    return join(this.maps, `${id}.md`);
   }
 
   private freeFolder(base: string): string {

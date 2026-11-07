@@ -18,6 +18,7 @@ import { OrchestraHub } from "../src/orchestra.ts";
 import { NodeHub } from "../src/nodes.ts";
 import { Checkpoints } from "../src/checkpoints.ts";
 import { ProjectRegistry } from "../src/projects.ts";
+import { attachProjectMaps } from "../src/projectmap.ts";
 import { Scheduler } from "../src/schedules.ts";
 
 export const TEST_TOKEN = "test-token-0123456789";
@@ -68,6 +69,7 @@ export async function startServer(
   });
   sessions!.scheduler = scheduler;
   attachBoard(sessions!, join(dataDir, "board.json"));
+  attachProjectMaps(sessions!);
   attachAlerts(sessions!, join(dataDir, "alerts.json"));
   scheduler.start((task) => sessions!.runTask({ agent: task.agent, title: task.title, prompt: task.prompt, scheduleId: task.id }), 60_000);
   const web = new WebAccess(join(dataDir, "web.json"));

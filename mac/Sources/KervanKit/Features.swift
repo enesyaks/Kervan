@@ -147,13 +147,38 @@ public struct ProjectInfo: Codable, Equatable, Sendable, Identifiable {
     public let path: String
     public let instructions: String
     public let createdAt: String
+    /// What an agent learned scanning the repository once; later sessions get it so they don't rescan it.
+    public let map: ProjectMapInfo?
 
-    public init(id: String, name: String, path: String, instructions: String = "", createdAt: String = "") {
+    public init(id: String, name: String, path: String, instructions: String = "", createdAt: String = "", map: ProjectMapInfo? = nil) {
         self.id = id
         self.name = name
         self.path = path
         self.instructions = instructions
         self.createdAt = createdAt
+        self.map = map
+    }
+}
+
+public struct ProjectMapInfo: Codable, Equatable, Sendable {
+    public enum Status: String, Codable, Sendable { case building, ready, failed }
+    public let status: Status
+    /// The agent that builds or built it.
+    public let agent: String
+    /// The commit the project folder was at when the map was started; nil outside git.
+    public let commit: String?
+    public let updatedAt: String
+    /// The session that builds or built it.
+    public let sessionId: String?
+    public let error: String?
+
+    public init(status: Status, agent: String, commit: String? = nil, updatedAt: String, sessionId: String? = nil, error: String? = nil) {
+        self.status = status
+        self.agent = agent
+        self.commit = commit
+        self.updatedAt = updatedAt
+        self.sessionId = sessionId
+        self.error = error
     }
 }
 
@@ -279,13 +304,16 @@ public struct ProjectInput: Encodable, Equatable, Sendable {
     public var instructions: String
     public var path: String?
     public var gitUrl: String?
+    /// A new project only: the agent that maps it right after it's added.
+    public var mapAgent: String?
 
-    public init(id: String? = nil, name: String, instructions: String = "", path: String? = nil, gitUrl: String? = nil) {
+    public init(id: String? = nil, name: String, instructions: String = "", path: String? = nil, gitUrl: String? = nil, mapAgent: String? = nil) {
         self.id = id
         self.name = name
         self.instructions = instructions
         self.path = path
         self.gitUrl = gitUrl
+        self.mapAgent = mapAgent
     }
 }
 

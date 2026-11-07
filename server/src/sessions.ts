@@ -10,6 +10,7 @@ import {
   type AgentDetail,
   type ChangeSet,
   type ConfigOption,
+  type ProjectInfo,
   type PullRequestInfo,
   type ServerMessage,
   type TeamInfo,
@@ -22,6 +23,7 @@ import { commitAll, repositoryBranch, type Checkpoints } from "./checkpoints.ts"
 import { openPullRequest } from "./pullrequest.ts";
 import type { ProjectRegistry } from "./projects.ts";
 import type { Board } from "./board.ts";
+import type { ProjectMaps } from "./projectmap.ts";
 import type { Alerts } from "./alerts.ts";
 import { localParts, type Scheduler } from "./schedules.ts";
 import { TerminalHub } from "./terminals.ts";
@@ -178,6 +180,7 @@ export class SessionManager {
   /** Set once the scheduler exists (it needs this manager to start its sessions). */
   scheduler?: Scheduler;
   board?: Board;
+  maps?: ProjectMaps;
   /** Helpers waiting to rest, by session id. */
   private readonly idleTimers = new Map<string, NodeJS.Timeout>();
   alerts?: Alerts;
@@ -838,6 +841,7 @@ export class SessionManager {
     const project = session.info.projectId ? this.projects?.get(session.info.projectId) : undefined;
     const parts = [
       project?.instructions ? `[Kervan] Project "${project.name}" — instructions from the user:\n${project.instructions}` : undefined,
+      project ? this.mapPreface(project) : undefined,
       lead
         ? `[Kervan] You are a helper agent named "${session.info.title}", started by the lead agent "${lead.info.title}". ` +
           "Messages come from the lead, not the user, and your final answer each turn goes back to it: " +
@@ -872,6 +876,20 @@ export class SessionManager {
       await this.skillPreface(session),
     ].filter(Boolean);
     return parts.length > 0 ? parts.join("\n\n") : undefined;
+  }
+
+  /** The project map, so the agent goes to the part of the repository its task is about instead of reading all of it. */
+  private mapPreface(project: ProjectInfo): string | undefined {
+    const text = this.projects?.mapText(project.id);
+    if (!text) return undefined;
+    const since = project.map?.commit
+      ? ` It was made at commit ${project.map.commit.slice(0, 12)}; \`git log --stat ${project.map.commit.slice(0, 12)}..HEAD\` shows what changed since.`
+      : "";
+    return (
+      "[Kervan] Project map, written by an agent that scanned this repository earlier. Use it to go straight to the files " +
+      "your task is about; don't scan the whole repository again. Read the files themselves before you change them: " +
+      `the map may be out of date.${since}\n\n${text}`
+    );
   }
 
   private async skillPreface(session: Session): Promise<string | undefined> {
@@ -1024,10 +1042,11 @@ export class SessionManager {
   }
 
   /** A scheduled task or a board card: a new session that gets `prompt` as soon as its agent is up. Resolves with its id. */
-  async runTask(task: { agent: string; title: string; prompt: string; projectId?: string; scheduleId?: string; split?: boolean }): Promise<string> {
+  async runTask(task: { agent: string; title: string; prompt: string; projectId?: string; scheduleId?: string; split?: boolean; shared?: boolean }): Promise<string> {
     const info = await this.create(task.agent, [], [], {
       title: task.title,
       ...(task.split ? { split: true } : {}),
+      ...(task.shared ? { shared: true } : {}),
       ...(task.scheduleId ? { scheduleId: task.scheduleId } : {}),
       ...(task.projectId && this.projects?.get(task.projectId) ? { projectId: task.projectId } : {}),
     });
@@ -1036,6 +1055,11 @@ export class SessionManager {
     if (session.info.status !== "idle") throw new Error(session.info.error ?? "the agent didn't start");
     this.prompt(info.id, task.prompt);
     return info.id;
+  }
+
+  /** Everything the agent said since the last message it was given. */
+  reply(sessionId: string): string {
+    return lastReply(this.require(sessionId).events);
   }
 
   /** What agents spent in the last `days` days, by local day in `timeZone`, and the sessions that spent most. */

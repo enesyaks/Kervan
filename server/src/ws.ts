@@ -60,6 +60,7 @@ const WEB_ALLOWED = new Set<string>([
   "ping",
   // Projects and their boards, to look at; cards are made and moved from the app.
   "project.list",
+  "project.map.get",
   "board.list",
   "session.list",
   "session.history",
@@ -300,10 +301,26 @@ async function handleRequest(
       });
     case "project.list":
       return send(ws, { type: "project.list.result", id: message.id, projects: sessions.projects?.list() ?? [] });
-    case "project.save":
-      await requireProjects(sessions).save(message.project);
+    case "project.save": {
+      // For a new project only: map it right away with this agent.
+      const mapAgent = message.project.id === undefined ? message.project.mapAgent : undefined;
+      if (mapAgent !== undefined) {
+        if (typeof mapAgent !== "string" || !sessions.agentKinds.includes(mapAgent)) throw new KervanError("unknown_agent", `no agent named '${String(mapAgent)}'`);
+        if (!sessions.maps) throw new KervanError("bad_message", "this server can't map projects");
+      }
+      const project = await requireProjects(sessions).save(message.project);
       sessions.broadcast({ type: "projects.updated", projects: requireProjects(sessions).list() });
+      // The project is saved either way; a map that doesn't start says so on the project.
+      if (typeof mapAgent === "string") void sessions.maps!.build(project.id, mapAgent).catch((error) => log("warn", "couldn't map the project", { error: String(error) }));
       return send(ws, { type: "project.list.result", id: message.id, projects: requireProjects(sessions).list() });
+    }
+    case "project.map":
+      if (!sessions.maps) throw new KervanError("bad_message", "this server can't map projects");
+      await sessions.maps.build(message.projectId, message.agent);
+      return send(ws, { type: "project.list.result", id: message.id, projects: requireProjects(sessions).list() });
+    case "project.map.get":
+      if (!requireProjects(sessions).get(message.projectId)) throw new KervanError("bad_message", `no project '${message.projectId}'`);
+      return send(ws, { type: "project.map.result", id: message.id, projectId: message.projectId, text: requireProjects(sessions).mapText(message.projectId) });
     case "project.delete":
       requireProjects(sessions).remove(message.projectId);
       sessions.broadcast({ type: "projects.updated", projects: requireProjects(sessions).list() });

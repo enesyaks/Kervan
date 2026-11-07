@@ -57,6 +57,7 @@ struct ProjectView: View {
                 }
             } content: {
                 BoardSection(projectID: projectID)
+                ProjectMapSection(project: project)
                 SettingsCard(title: L("Instructions", "Talimatlar")) {
                     Text(project.instructions.isEmpty
                         ? L("No instructions. Agents still read CLAUDE.md or AGENTS.md in the folder themselves.", "Talimat yok. Ajanlar klasördeki CLAUDE.md ya da AGENTS.md dosyalarını yine kendileri okur.")
@@ -105,6 +106,129 @@ struct ProjectView: View {
     }
 }
 
+/// The project map: an agent scans the repository once, and every later session in the project gets what it wrote,
+/// so it goes straight to the files its task is about instead of reading the whole repository again.
+private struct ProjectMapSection: View {
+    let project: ProjectInfo
+    @Environment(AppModel.self) private var model
+    @State private var agent = ""
+    @State private var showing = false
+    @State private var error: String?
+
+    /// Mapping runs in the project folder, so only agents on the server itself that answer over ACP can do it.
+    static func agents(_ store: SessionStore) -> [AgentInfo] {
+        store.agents.filter { $0.node == nil && !$0.terminal }
+    }
+
+    var body: some View {
+        let map = project.map
+        let building = map?.status == .building
+        SettingsCard(
+            title: L("Project map", "Proje haritası"),
+            footer: L(
+                "An agent reads the repository once and writes down what is where. Every session and card in this project gets the map first, so agents go straight to the right files instead of reading everything again.",
+                "Bir ajan depoyu bir kez okur ve neyin nerede olduğunu yazar. Bu projedeki her oturum ve kart önce haritayı alır; böylece ajanlar her şeyi yeniden okumak yerine doğrudan ilgili dosyalara gider."
+            )
+        ) {
+            HStack(spacing: 8) {
+                if building { ProgressView().controlSize(.small) }
+                Text(status(map))
+                    .foregroundStyle(map?.status == .failed ? Color.kervanCoral : Color.secondary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+            }
+            HStack {
+                Picker(L("Agent", "Ajan"), selection: $agent) {
+                    ForEach(Self.agents(model.store)) { Text($0.displayName).tag($0.id) }
+                }
+                .fixedSize()
+                .disabled(building)
+                Button(map == nil ? L("Build map", "Haritayı çıkar") : L("Rebuild map", "Haritayı yenile")) {
+                    Task { error = await model.store.buildProjectMap(project.id, agent: agent) }
+                }
+                .disabled(building || agent.isEmpty || !model.connection.state.isConnected)
+                if building, let sessionID = map?.sessionId {
+                    Button(L("Watch", "İzle")) { model.selectedSessionID = sessionID }
+                }
+                Spacer()
+                // A failed rebuild keeps the last good map, and sessions still get it.
+                if map?.status == .ready || map?.status == .failed {
+                    Button(L("Show map", "Haritayı göster")) { showing = true }
+                }
+            }
+            if let error {
+                Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.kervanCoral)
+            }
+        }
+        .onAppear(perform: pickAgent)
+        .onChange(of: model.store.agents) { pickAgent() }
+        .sheet(isPresented: $showing) { ProjectMapSheet(project: project) }
+    }
+
+    private func status(_ map: ProjectMapInfo?) -> String {
+        guard let map else { return L("No map yet.", "Henüz harita yok.") }
+        switch map.status {
+        case .building:
+            return L("\(model.store.agentName(map.agent)) is reading the repository…", "\(model.store.agentName(map.agent)) depoyu okuyor…")
+        case .failed:
+            return L("The last try failed: \(map.error ?? "unknown error")", "Son deneme olmadı: \(map.error ?? "bilinmeyen hata")")
+        case .ready:
+            let when = SchedulesView.date(map.updatedAt)?.formatted(.relative(presentation: .named).locale(Language.shared.locale)) ?? map.updatedAt
+            if let commit = map.commit {
+                return L("Built at \(commit.prefix(7)) · \(when)", "\(commit.prefix(7)) commit'inde çıkarıldı · \(when)")
+            }
+            return L("Built \(when)", "Çıkarıldı · \(when)")
+        }
+    }
+
+    private func pickAgent() {
+        let offered = Self.agents(model.store)
+        guard !offered.contains(where: { $0.id == agent }) else { return }
+        let preferred = [project.map?.agent, model.defaultAgent?.id].compactMap { $0 }
+        agent = preferred.first { id in offered.contains { $0.id == id } } ?? offered.first?.id ?? ""
+    }
+}
+
+/// The map's text, as the agents in the project get it.
+private struct ProjectMapSheet: View {
+    let project: ProjectInfo
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    @State private var error: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Group {
+                if let error {
+                    Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.kervanCoral).padding(16)
+                } else if let text = model.store.projectMaps[project.id] {
+                    ScrollView {
+                        Text(text.isEmpty ? L("No map yet.", "Henüz harita yok.") : text)
+                            .font(.body.monospaced())
+                            .foregroundStyle(text.isEmpty ? Color.secondary : Color.primary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(16)
+                    }
+                } else {
+                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            HStack {
+                Text(L("Map of \(project.name)", "\(project.name) haritası")).foregroundStyle(.secondary)
+                Spacer()
+                Button(L("Done", "Tamam")) { dismiss() }.keyboardShortcut(.defaultAction)
+            }
+            .padding(16)
+        }
+        .frame(width: 620, height: 520)
+        .background(Color.kervanCanvas)
+        .task { error = await model.store.loadProjectMap(project.id) }
+    }
+}
+
 /// Makes a project (from a repository to clone, a folder on the server, or an empty folder) or edits one.
 struct ProjectSheet: View {
     enum Source: String, CaseIterable, Identifiable {
@@ -126,6 +250,7 @@ struct ProjectSheet: View {
     @State private var instructions = ""
     @State private var source = Source.clone
     @State private var location = ""
+    @State private var mapAfterAdding = true
     @State private var saving = false
     @State private var error: String?
 
@@ -148,6 +273,14 @@ struct ProjectSheet: View {
                             .font(.body.monospaced())
                     case .empty:
                         Text(L("A new empty folder is made in Kervan's projects folder.", "Kervan'ın proje klasöründe yeni, boş bir klasör açılır.")).font(.caption).foregroundStyle(.secondary)
+                    }
+                    if source != .empty, let mapper = mapAgent {
+                        Toggle(L("Map the project after adding it", "Ekledikten sonra projenin haritasını çıkar"), isOn: $mapAfterAdding)
+                        Text(L(
+                            "\(mapper.name) reads the repository once, so agents here don't have to read all of it for every task.",
+                            "\(mapper.name) depoyu bir kez okur; böylece buradaki ajanlar her görevde hepsini okumak zorunda kalmaz."
+                        ))
+                        .font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 Section {
@@ -187,6 +320,12 @@ struct ProjectSheet: View {
         }
     }
 
+    /// Who maps a new project: the default agent if it can, else the first one on the server that can.
+    private var mapAgent: AgentInfo? {
+        let offered = ProjectMapSection.agents(model.store)
+        return offered.first { $0.id == model.defaultAgent?.id } ?? offered.first
+    }
+
     private var canSave: Bool {
         guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
         return project != nil || source == .empty || !location.trimmingCharacters(in: .whitespaces).isEmpty
@@ -201,7 +340,8 @@ struct ProjectSheet: View {
             name: name.trimmingCharacters(in: .whitespaces),
             instructions: instructions,
             path: project == nil && source == .folder ? place : nil,
-            gitUrl: project == nil && source == .clone ? place : nil
+            gitUrl: project == nil && source == .clone ? place : nil,
+            mapAgent: project == nil && source != .empty && mapAfterAdding ? mapAgent?.id : nil
         )
         let before = Set(model.store.projects.map(\.id))
         if let failure = await model.store.saveProject(input) {

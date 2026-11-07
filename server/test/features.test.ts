@@ -343,6 +343,56 @@ describe("changes, projects, schedules, terminals, ports, usage", () => {
     assert.equal(sessions.workspace(shared), repo);
   });
 
+  it("maps a new project once and gives the map to the sessions that come after", async () => {
+    const { ws, inbox } = await client();
+    const git = (cwd: string, ...args: string[]) =>
+      execFileSync("git", ["-C", cwd, "-c", "user.name=T", "-c", "user.email=t@t", ...args], { encoding: "utf8" }).trim();
+    const repo = mkdtempSync(join(tmpdir(), "kervan-mapped-"));
+    execFileSync("git", ["init", "-q", repo]);
+    writeFileSync(join(repo, "README.md"), "hi\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "first");
+    const head = git(repo, "rev-parse", "HEAD");
+
+    assert.equal((await ask(ws, inbox, { type: "project.save", project: { name: "Haritasız", path: repo, mapAgent: "nobody" } })).type, "error");
+    const saved = await ask(ws, inbox, { type: "project.save", project: { name: "Haritalı", path: repo, mapAgent: "fake" } });
+    assert.equal(saved.type, "project.list.result", JSON.stringify(saved));
+    const projectId = saved.projects.find((p: any) => p.name === "Haritalı").id;
+    const ready = await inbox.waitFor(
+      (m) => m.type === "projects.updated" && m.projects.find((p: any) => p.id === projectId)?.map?.status === "ready",
+      15_000,
+    );
+    const map = ready.projects.find((p: any) => p.id === projectId).map;
+    assert.equal(map.agent, "fake");
+    assert.equal(map.commit, head);
+    // The mapping session read the project folder itself, and is put away once it answered.
+    const mapper = sessions.list().find((s) => s.id === map.sessionId)!;
+    assert.equal(sessions.workspace(mapper.id), repo);
+    await inbox.waitFor((m) => m.type === "session.updated" && m.session.id === mapper.id && m.session.archived);
+
+    const text = (await ask(ws, inbox, { type: "project.map.get", projectId })).text;
+    assert.match(text, /^echo: Scan this repository once/);
+
+    // A later session gets the map before its first message, and is told how to see what changed since.
+    const sessionId = await idleSession(ws, inbox, { projectId });
+    const preface = await turn(ws, inbox, sessionId, "prefacecheck");
+    assert.match(preface, /\[Kervan\] Project map/);
+    assert.match(preface, /echo: Scan this repository once/);
+    assert.ok(preface.includes(`git log --stat ${head.slice(0, 12)}..HEAD`));
+
+    // Rebuilding goes through the same steps; an unknown agent or project is refused.
+    assert.equal((await ask(ws, inbox, { type: "project.map", projectId, agent: "nobody" })).type, "error");
+    assert.equal((await ask(ws, inbox, { type: "project.map", projectId: "nope", agent: "fake" })).type, "error");
+    const again = await ask(ws, inbox, { type: "project.map", projectId, agent: "fake" });
+    assert.equal(again.type, "project.list.result", JSON.stringify(again));
+    await inbox.waitFor(
+      (m) => m.type === "projects.updated" && m.projects.find((p: any) => p.id === projectId)?.map?.sessionId !== map.sessionId &&
+        m.projects.find((p: any) => p.id === projectId)?.map?.status === "ready",
+      15_000,
+    );
+    assert.equal((await ask(ws, inbox, { type: "project.map.get", projectId: "nope" })).type, "error");
+  });
+
   it("works in a project's folder with its instructions, and commits to its repository", async () => {
     const { ws, inbox } = await client();
     const repo = mkdtempSync(join(tmpdir(), "kervan-project-"));
