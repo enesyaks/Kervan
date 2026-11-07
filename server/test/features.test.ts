@@ -22,6 +22,15 @@ import type { SessionManager } from "../src/sessions.ts";
 import { VERSION } from "../src/version.ts";
 import { HELLO, Inbox, openSocket, opened, send, startServer, TEST_TOKEN } from "./helpers.ts";
 
+/** Waits until a file is gone: a card's leftover files are deleted after the answer. */
+async function gone(path: string): Promise<void> {
+  for (let i = 0; i < 200; i++) {
+    if (!existsSync(path)) return;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  throw new Error(`${path} is still there`);
+}
+
 describe("changes, projects, schedules, terminals, ports, usage", () => {
   let port = 0;
   let sessions: SessionManager;
@@ -318,8 +327,7 @@ describe("changes, projects, schedules, terminals, ports, usage", () => {
     assert.deepEqual(card.files, [file, dropped]);
     // Editing the card without a file lets that file go.
     await ask(ws, inbox, { type: "card.save", card: { id: card.id, title: "Resim", prompt: "look at the picture", agent: "fake", files: [file] } });
-    await new Promise((r) => setTimeout(r, 100));
-    assert.equal(existsSync(join(dataDir, "card-files", dropped)), false);
+    await gone(join(dataDir, "card-files", dropped));
 
     assert.equal((await ask(ws, inbox, { type: "card.move", cardId: card.id, column: "working" })).type, "ok");
     const started = await inbox.waitFor((m) => m.type === "board.updated" && m.cards.some((c: any) => c.id === card.id && c.sessionId));
@@ -327,8 +335,7 @@ describe("changes, projects, schedules, terminals, ports, usage", () => {
     assert.equal(readFileSync(join(sessions.workspace(sessionId), "uploads", "ekran görüntüsü.png"), "utf8"), "png bytes");
     const history = await ask(ws, inbox, { type: "session.history", sessionId });
     assert.deepEqual(history.events.find((e: any) => e.kind === "user_message").attachments, ["uploads/ekran görüntüsü.png"]);
-    await new Promise((r) => setTimeout(r, 100));
-    assert.equal(existsSync(join(dataDir, "card-files", file)), false);
+    await gone(join(dataDir, "card-files", file));
   });
 
   it("gives each session in a git project a worktree of its own, and keeps the work when the worktree goes", async () => {
