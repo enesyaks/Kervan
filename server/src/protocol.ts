@@ -249,6 +249,8 @@ export interface CardInfo {
   agent: string;
   /** The session it starts splits large work into helpers. */
   split?: boolean;
+  /** Files that go with the prompt, as "<upload id>/<name>" from PUT /v1/cards/files; the name is after the "/". */
+  files?: string[];
   column: CardColumn;
   sessionId?: string;
   /** The prompt has been sent; from here the column follows the session. */

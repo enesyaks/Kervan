@@ -292,6 +292,45 @@ describe("changes, projects, schedules, terminals, ports, usage", () => {
     assert.equal(again.sessionId, sessionId);
   });
 
+  it("sends a card's files with its prompt, copied into the session's uploads folder", async () => {
+    const { ws, inbox } = await client();
+    const made = await ask(ws, inbox, { type: "project.save", project: { name: "Ekli" } });
+    const project = made.projects.find((p: any) => p.name === "Ekli");
+    const put = (name: string, body: string, token = TEST_TOKEN) =>
+      fetch(`http://127.0.0.1:${port}/v1/cards/files?name=${encodeURIComponent(name)}`, {
+        method: "PUT",
+        headers: { authorization: `Bearer ${token}` },
+        body,
+      });
+    assert.equal((await put("x.txt", "x", "wrong")).status, 401);
+    assert.equal((await put("../x.txt", "x")).status, 400);
+    const shot = await put("ekran görüntüsü.png", "png bytes");
+    assert.equal(shot.status, 201);
+    const { file } = (await shot.json()) as { file: string };
+    assert.match(file, /^[0-9a-f-]{36}\/ekran görüntüsü\.png$/);
+    const dropped = ((await (await put("eski.txt", "old")).json()) as { file: string }).file;
+
+    // Only files uploaded here are accepted.
+    const bad = await ask(ws, inbox, { type: "card.save", card: { projectId: project.id, title: "t", prompt: "p", agent: "fake", files: ["../../board.json"] } });
+    assert.equal(bad.type, "error");
+    const saved = await ask(ws, inbox, { type: "card.save", card: { projectId: project.id, title: "Resim", prompt: "look at the picture", agent: "fake", files: [file, dropped] } });
+    const card = saved.cards.find((c: any) => c.title === "Resim");
+    assert.deepEqual(card.files, [file, dropped]);
+    // Editing the card without a file lets that file go.
+    await ask(ws, inbox, { type: "card.save", card: { id: card.id, title: "Resim", prompt: "look at the picture", agent: "fake", files: [file] } });
+    await new Promise((r) => setTimeout(r, 100));
+    assert.equal(existsSync(join(dataDir, "card-files", dropped)), false);
+
+    assert.equal((await ask(ws, inbox, { type: "card.move", cardId: card.id, column: "working" })).type, "ok");
+    const started = await inbox.waitFor((m) => m.type === "board.updated" && m.cards.some((c: any) => c.id === card.id && c.sessionId));
+    const sessionId = started.cards.find((c: any) => c.id === card.id).sessionId;
+    assert.equal(readFileSync(join(sessions.workspace(sessionId), "uploads", "ekran görüntüsü.png"), "utf8"), "png bytes");
+    const history = await ask(ws, inbox, { type: "session.history", sessionId });
+    assert.deepEqual(history.events.find((e: any) => e.kind === "user_message").attachments, ["uploads/ekran görüntüsü.png"]);
+    await new Promise((r) => setTimeout(r, 100));
+    assert.equal(existsSync(join(dataDir, "card-files", file)), false);
+  });
+
   it("gives each session in a git project a worktree of its own, and keeps the work when the worktree goes", async () => {
     const { ws, inbox } = await client();
     const git = (cwd: string, ...args: string[]) =>

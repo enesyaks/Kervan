@@ -2,7 +2,7 @@ import AppKit
 import KervanKit
 import SwiftUI
 
-/// A file picked for the next message. It is uploaded to the session's `uploads/` folder at once.
+/// A file picked for the next message (uploaded to the session's `uploads/` folder at once) or for a board card.
 struct Attachment: Identifiable, Equatable {
     enum State: Equatable {
         case uploading
@@ -12,7 +12,8 @@ struct Attachment: Identifiable, Equatable {
 
     let id = UUID()
     let name: String
-    let remotePath: String
+    /// Where it lands in the workspace; for a card file, the server's reference once uploaded.
+    var remotePath: String
     var state: State = .uploading
 
     var isReady: Bool { state == .ready }
@@ -30,6 +31,12 @@ struct Attachment: Identifiable, Equatable {
             n += 1
         }
         self.remotePath = path
+    }
+
+    init(name: String, remotePath: String, state: State) {
+        self.name = name
+        self.remotePath = remotePath
+        self.state = state
     }
 }
 
@@ -66,7 +73,7 @@ struct AttachmentChip: View {
 
     private static func help(_ attachment: Attachment) -> String {
         switch attachment.state {
-        case .uploading: L("Uploading: \(attachment.remotePath)", "Yükleniyor: \(attachment.remotePath)")
+        case .uploading: L("Uploading: \(attachment.name)", "Yükleniyor: \(attachment.name)")
         case .ready: L("Uploaded: \(attachment.remotePath)", "Yüklendi: \(attachment.remotePath)")
         case .failed(let reason): L("Upload failed: \(reason)", "Yüklenemedi: \(reason)")
         }

@@ -1,3 +1,4 @@
+import AppKit
 import KervanKit
 import SwiftUI
 
@@ -122,6 +123,13 @@ private struct CardTile: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(card.title).font(.callout.weight(.semibold)).lineLimit(2)
             Text(card.prompt).font(.caption).foregroundStyle(.secondary).lineLimit(3)
+            if let files = card.files, !files.isEmpty {
+                Label(files.map(CardInfo.fileName).joined(separator: ", "), systemImage: "paperclip")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
             HStack(spacing: 6) {
                 Text(model.store.agentName(card.agent))
                     .font(.caption2.weight(.medium))
@@ -180,6 +188,7 @@ struct CardDraft: Identifiable {
     var prompt = ""
     var agent: String
     var split = false
+    var files: [Attachment] = []
 
     init(projectID: String, agent: String) {
         self.projectID = projectID
@@ -193,6 +202,7 @@ struct CardDraft: Identifiable {
         prompt = card.prompt
         agent = card.agent
         split = card.split ?? false
+        files = (card.files ?? []).map { Attachment(name: CardInfo.fileName($0), remotePath: $0, state: .ready) }
     }
 }
 
@@ -202,6 +212,8 @@ private struct CardSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var failure: String?
     @State private var saving = false
+    @State private var dropTargeted = false
+    @State private var pasteMonitor: Any?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -219,6 +231,28 @@ private struct CardSheet: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text(L("Files", "Dosyalar"))
+                        Spacer()
+                        Button(L("Add Files…", "Dosya ekle…"), systemImage: "paperclip", action: chooseFiles)
+                    }
+                    if !draft.files.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                ForEach(draft.files) { file in
+                                    AttachmentChip(attachment: file) { draft.files.removeAll { $0.id == file.id } }
+                                }
+                            }
+                        }
+                    }
+                    Text(L(
+                        "Drop files here or paste a screenshot with ⌘V. They go to the session's uploads folder with the prompt.",
+                        "Dosyaları buraya bırakın ya da ekran görüntüsünü ⌘V ile yapıştırın. İstemle birlikte oturumun uploads klasörüne gider."
+                    ))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
             }
             .formStyle(.grouped)
             .scrollContentBackground(.hidden)
@@ -232,18 +266,84 @@ private struct CardSheet: View {
                     .buttonStyle(.borderedProminent)
                     .tint(.kervanLapis)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(saving || draft.title.trimmingCharacters(in: .whitespaces).isEmpty || draft.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(saving || !draft.files.allSatisfy(\.isReady) || draft.title.trimmingCharacters(in: .whitespaces).isEmpty || draft.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         .padding(22)
         .frame(width: 480)
+        .overlay {
+            if dropTargeted {
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(Color.kervanLapis, style: StrokeStyle(lineWidth: 2, dash: [6, 5]))
+                    .background(Color.kervanLapis.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+                    .overlay {
+                        Label(L("Drop to add the files to the card.", "Bırakın; dosyalar karta eklenecek."), systemImage: "arrow.down.doc")
+                            .font(.headline)
+                            .foregroundStyle(Color.kervanLapis)
+                    }
+                    .padding(8)
+                    .allowsHitTesting(false)
+            }
+        }
+        .dropDestination(for: URL.self) { urls, _ in
+            attach(urls)
+            return true
+        } isTargeted: { dropTargeted = $0 }
+        .onAppear {
+            // ⌘V with a screenshot on the pasteboard adds it to the card; text pastes as usual.
+            pasteMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+                      event.charactersIgnoringModifiers == "v", let file = PastedImage.take()
+                else { return event }
+                attach([file])
+                return nil
+            }
+        }
+        .onDisappear {
+            if let pasteMonitor { NSEvent.removeMonitor(pasteMonitor) }
+            pasteMonitor = nil
+        }
+    }
+
+    private func chooseFiles() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.prompt = L("Add", "Ekle")
+        if panel.runModal() == .OK { attach(panel.urls) }
+    }
+
+    /// Uploads each file to the server right away; the card can be saved once all are there.
+    private func attach(_ urls: [URL]) {
+        guard let client = model.fileClient else { return }
+        for url in urls where url.isFileURL {
+            if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                failure = L("Folders can't be attached yet: \(url.lastPathComponent)", "Klasörler henüz eklenemiyor: \(url.lastPathComponent)")
+                continue
+            }
+            let file = Attachment(name: url.lastPathComponent, remotePath: "", state: .uploading)
+            draft.files.append(file)
+            Task {
+                let result: (String, Attachment.State)
+                do {
+                    result = (try await client.uploadCardFile(url, name: url.lastPathComponent), .ready)
+                } catch {
+                    result = ("", .failed(error.localizedDescription))
+                }
+                if let index = draft.files.firstIndex(where: { $0.id == file.id }) {
+                    draft.files[index].remotePath = result.0
+                    draft.files[index].state = result.1
+                }
+            }
+        }
     }
 
     private func save() async {
         saving = true
         defer { saving = false }
         failure = await model.store.saveCard(CardInput(
-            id: draft.cardID, projectId: draft.projectID, title: draft.title, prompt: draft.prompt, agent: draft.agent, split: draft.split
+            id: draft.cardID, projectId: draft.projectID, title: draft.title, prompt: draft.prompt, agent: draft.agent, split: draft.split,
+            files: draft.files.map(\.remotePath)
         ))
         if failure == nil { dismiss() }
     }

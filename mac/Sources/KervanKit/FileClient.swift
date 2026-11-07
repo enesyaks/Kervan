@@ -87,6 +87,20 @@ public struct FileClient: Sendable {
         try Self.check(response)
     }
 
+    /// Uploads a file for a board card that may not be saved yet; returns the reference to put in the card's `files`.
+    public func uploadCardFile(_ file: URL, name: String) async throws -> String {
+        struct Staged: Decodable { let file: String }
+        var components = URLComponents(url: URL(string: "v1/cards/files", relativeTo: base)!.absoluteURL, resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "name", value: name)]
+        // "+" would read as a space on the server.
+        components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
+        var request = request(components.url!)
+        request.httpMethod = "PUT"
+        let (data, response) = try await session.upload(for: request, fromFile: file)
+        try Self.check(response)
+        return try JSONDecoder().decode(Staged.self, from: data).file
+    }
+
     /// Downloads into `folder`, keeping the file name; returns where it landed.
     public func download(sessionID: String, path: String, into folder: URL) async throws -> URL {
         let (temporary, response) = try await session.download(for: request(url(sessionID: sessionID, path: path)))

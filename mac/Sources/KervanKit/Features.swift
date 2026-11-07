@@ -273,10 +273,19 @@ public struct CardInfo: Codable, Equatable, Sendable, Identifiable {
     public let prompt: String
     public let agent: String
     public let split: Bool?
+    /// "<upload id>/<name>" references from `FileClient.uploadCardFile`.
+    public let files: [String]?
     public let column: CardColumn
     public let sessionId: String?
     public let createdAt: String
     public let updatedAt: String
+}
+
+extension CardInfo {
+    /// What a card file reference is called: the part after the upload id.
+    public static func fileName(_ reference: String) -> String {
+        reference.split(separator: "/", maxSplits: 1).last.map(String.init) ?? reference
+    }
 }
 
 /// A new card, or new wording for one that hasn't started.
@@ -287,9 +296,11 @@ public struct CardInput: Encodable, Equatable, Sendable {
     public var prompt: String
     public var agent: String
     public var split: Bool
+    public var files: [String]
 
-    public init(id: String? = nil, projectId: String, title: String, prompt: String, agent: String, split: Bool = false) {
+    public init(id: String? = nil, projectId: String, title: String, prompt: String, agent: String, split: Bool = false, files: [String] = []) {
         self.split = split
+        self.files = files
         self.id = id
         self.projectId = projectId
         self.title = title

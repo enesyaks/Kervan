@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { cp, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentRegistry } from "./agents.ts";
-import { isSafeRelativePath } from "./files.ts";
+import { isSafeRelativePath, placeFile } from "./files.ts";
 import { log } from "./log.ts";
 import {
   KervanError,
@@ -1041,8 +1041,20 @@ export class SessionManager {
     return { ...reviewer.info };
   }
 
-  /** A scheduled task or a board card: a new session that gets `prompt` as soon as its agent is up. Resolves with its id. */
-  async runTask(task: { agent: string; title: string; prompt: string; projectId?: string; scheduleId?: string; split?: boolean; shared?: boolean }): Promise<string> {
+  /**
+   * A scheduled task or a board card: a new session that gets `prompt` as soon as its agent is up. Resolves with its id.
+   * `files` (on this server's disk) are copied into the session's uploads/ folder and go along with the prompt.
+   */
+  async runTask(task: {
+    agent: string;
+    title: string;
+    prompt: string;
+    projectId?: string;
+    scheduleId?: string;
+    split?: boolean;
+    shared?: boolean;
+    files?: { source: string; name: string }[];
+  }): Promise<string> {
     const info = await this.create(task.agent, [], [], {
       title: task.title,
       ...(task.split ? { split: true } : {}),
@@ -1053,7 +1065,17 @@ export class SessionManager {
     const session = this.require(info.id);
     await session.ready;
     if (session.info.status !== "idle") throw new Error(session.info.error ?? "the agent didn't start");
-    this.prompt(info.id, task.prompt);
+    const attachments: string[] = [];
+    for (const file of task.files ?? []) {
+      // Two files named "rapor.pdf": the second becomes "rapor 2.pdf".
+      const dot = file.name.lastIndexOf(".");
+      const [stem, ext] = dot > 0 ? [file.name.slice(0, dot), file.name.slice(dot)] : [file.name, ""];
+      let path = `uploads/${file.name}`;
+      for (let n = 2; attachments.includes(path); n++) path = `uploads/${stem} ${n}${ext}`;
+      await placeFile(this, info.id, path, file.source);
+      attachments.push(path);
+    }
+    this.prompt(info.id, task.prompt, attachments);
     return info.id;
   }
 
