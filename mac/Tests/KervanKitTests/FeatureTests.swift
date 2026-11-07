@@ -340,3 +340,28 @@ import Testing
         #expect(helper.resting == true)
     }
 }
+
+@Suite struct ProjectMapTests {
+    @Test func aProjectDecodesWithAndWithoutAMap() throws {
+        let plain = try ServerMessage.decode(#"{"type":"projects.updated","projects":[{"id":"p","name":"n","path":"/w","instructions":"","createdAt":"t"}]}"#)
+        guard case .projectsUpdated(let before) = plain else { Issue.record("not a project list"); return }
+        #expect(before.first?.map == nil)
+        let mapped = try ServerMessage.decode(#"{"type":"project.list.result","id":"r","projects":[{"id":"p","name":"n","path":"/w","instructions":"","createdAt":"t","map":{"status":"ready","agent":"claude","commit":"abc1234def","updatedAt":"u","sessionId":"s"}}]}"#)
+        guard case .projectListResult(_, let after) = mapped else { Issue.record("not a project list"); return }
+        #expect(after.first?.map == ProjectMapInfo(status: .ready, agent: "claude", commit: "abc1234def", updatedAt: "u", sessionId: "s"))
+    }
+
+    @Test func mapRequestsEncodeAndTheTextLandsInTheStore() throws {
+        let build: String = try ClientMessage.projectMap(id: "b", projectId: "p", agent: "claude").jsonString()
+        #expect(build.contains(#""type":"project.map""#) && build.contains(#""projectId":"p""#) && build.contains(#""agent":"claude""#))
+        let get: String = try ClientMessage.projectMapGet(id: "g", projectId: "p").jsonString()
+        #expect(get.contains(#""type":"project.map.get""#) && get.contains(#""projectId":"p""#))
+        #expect(try ClientMessage.projectSave(id: "s", project: ProjectInput(name: "n", mapAgent: "claude")).jsonString().contains(#""mapAgent":"claude""#))
+        let unmapped: String = try ClientMessage.projectSave(id: "s", project: ProjectInput(name: "n")).jsonString()
+        #expect(!unmapped.contains("mapAgent"))
+
+        let result = try ServerMessage.decode(#"{"type":"project.map.result","id":"g","projectId":"p","text":"# Map"}"#)
+        guard case .projectMapResult(let id, let project, let text) = result else { Issue.record("not a map"); return }
+        #expect(id == "g" && project == "p" && text == "# Map")
+    }
+}

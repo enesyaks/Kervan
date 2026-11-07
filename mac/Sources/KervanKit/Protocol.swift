@@ -660,6 +660,9 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
     case projectList(id: String)
     case projectSave(id: String, project: ProjectInput)
     case projectDelete(id: String, projectId: String)
+    /// (Re)builds the project map with `agent`; the project's `map` follows how it goes.
+    case projectMap(id: String, projectId: String, agent: String)
+    case projectMapGet(id: String, projectId: String)
     /// Phone alerts (ntfy, webhook). The app only.
     case alertsGet(id: String)
     case alertsSave(id: String, alerts: AlertInput)
@@ -829,6 +832,15 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
             try c.encode(cardId, forKey: .cardId)
         case .projectDelete(let id, let projectId):
             try c.encode("project.delete", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(projectId, forKey: .projectId)
+        case .projectMap(let id, let projectId, let agent):
+            try c.encode("project.map", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(projectId, forKey: .projectId)
+            try c.encode(agent, forKey: .agent)
+        case .projectMapGet(let id, let projectId):
+            try c.encode("project.map.get", forKey: .type)
             try c.encode(id, forKey: .id)
             try c.encode(projectId, forKey: .projectId)
         case .scheduleList(let id):
@@ -1023,6 +1035,8 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
     case schedulesUpdated([ScheduleInfo])
     /// Broadcast after a project was added, changed or removed.
     case projectsUpdated([ProjectInfo])
+    /// The map's text (Markdown); empty while there is none.
+    case projectMapResult(id: String, projectId: String, text: String)
     case alertsResult(id: String, alerts: AlertSettings)
     case boardResult(id: String, projectId: String, cards: [CardInfo])
     case boardUpdated(projectId: String, cards: [CardInfo])
@@ -1050,7 +1064,7 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
         case type, `protocol`, server, agents, agentDetails, id, code, message, session, sessions, sessionId, events, event, hits, servers
         case nodes, roles, team, teams, name, expiresAt, hubAddresses
         case changes, projects, schedules, report, terminalId, backlog, data, ports, pullRequest, web, github, url, error
-        case projectId, cards, alerts
+        case projectId, cards, alerts, text
         case agent, needsCode, signedIn, ollama, lmStudio
     }
 
@@ -1138,6 +1152,8 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
             self = .scheduleListResult(id: try c.decode(String.self, forKey: .id), schedules: try c.decode([ScheduleInfo].self, forKey: .schedules))
         case "projects.updated":
             self = .projectsUpdated(try c.decode([ProjectInfo].self, forKey: .projects))
+        case "project.map.result":
+            self = .projectMapResult(id: try c.decode(String.self, forKey: .id), projectId: try c.decode(String.self, forKey: .projectId), text: try c.decode(String.self, forKey: .text))
         case "schedules.updated":
             self = .schedulesUpdated(try c.decode([ScheduleInfo].self, forKey: .schedules))
         case "usage.report.result":
