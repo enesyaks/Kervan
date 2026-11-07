@@ -360,7 +360,7 @@ import Testing
         let unmapped: String = try ClientMessage.projectSave(id: "s", project: ProjectInput(name: "n")).jsonString()
         #expect(!unmapped.contains("mapAgent"))
 
-        let result = try ServerMessage.decode(#"{"type":"project.map.result","id":"g","projectId":"p","text":"# Map"}"#)
+        let result = try ServerMessage.decode(##"{"type":"project.map.result","id":"g","projectId":"p","text":"# Map"}"##)
         guard case .projectMapResult(let id, let project, let text) = result else { Issue.record("not a map"); return }
         #expect(id == "g" && project == "p" && text == "# Map")
     }
