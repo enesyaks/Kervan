@@ -210,6 +210,8 @@ describe("sessions", () => {
     const sessionId = await idleSession(ws, inbox);
     send(ws, { type: "session.prompt", id: nextId(), sessionId, text: "whoami" });
     const before = await inbox.waitFor((m) => m.type === "session.event" && m.sessionId === sessionId && m.event.kind === "agent_message_chunk");
+    // The first chunk is not the end of the turn, and a session that is still answering refuses the next message.
+    await inbox.waitFor((m) => m.type === "session.event" && m.sessionId === sessionId && m.event.kind === "turn_end");
 
     send(ws, { type: "session.prompt", id: nextId(), sessionId, text: "crash" });
     await inbox.waitFor(

@@ -47,6 +47,8 @@ public final class SessionStore {
     public private(set) var alerts: AlertSettings?
     /// Task boards by project, as last reported.
     public private(set) var boards: [String: [CardInfo]] = [:]
+    /// Project maps' text by project, as last asked for.
+    public private(set) var projectMaps: [String: String] = [:]
     /// The server's GitHub sign-in as last reported; nil until asked for.
     public private(set) var github: GitHubStatus?
     /// Why the last GitHub sign-in didn't finish, if it didn't.
@@ -387,6 +389,18 @@ public final class SessionStore {
         await call(.projectDelete(id: Self.newID(), projectId: id))
     }
 
+    /// Starts (re)building the project's map; nil, or why not. The project's `map` says how it goes.
+    @discardableResult
+    public func buildProjectMap(_ id: String, agent: String) async -> String? {
+        await call(.projectMap(id: Self.newID(), projectId: id, agent: agent))
+    }
+
+    /// Asks for the map's text, which lands in `projectMaps`; nil, or why not.
+    @discardableResult
+    public func loadProjectMap(_ id: String) async -> String? {
+        await call(.projectMapGet(id: Self.newID(), projectId: id))
+    }
+
     public func loadSchedules() async {
         await request(.scheduleList(id: Self.newID()))
     }
@@ -629,6 +643,8 @@ public final class SessionStore {
             alerts = settings
         case .boardResult(_, let projectId, let cards), .boardUpdated(let projectId, let cards):
             boards[projectId] = cards
+        case .projectMapResult(_, let projectId, let text):
+            projectMaps[projectId] = text
         case .githubStatusResult(_, let status):
             github = status
         case .githubCode(_, let code, let url):

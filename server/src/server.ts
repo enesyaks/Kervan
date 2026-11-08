@@ -3,7 +3,8 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { log } from "./log.ts";
 import type { SessionManager } from "./sessions.ts";
 import { VERSION } from "./version.ts";
-import { handleFiles } from "./files.ts";
+import { handleFiles, TooLargeError } from "./files.ts";
+import { KervanError } from "./protocol.ts";
 import { handleSkills, type SkillLibrary } from "./skills.ts";
 import { attachWebSocket, isAuthorized, requestUrl } from "./ws.ts";
 import { handleOnboarding } from "./onboarding.ts";
@@ -154,6 +155,33 @@ export function createKervanServer({
         return;
       }
       handleSkills(req, res, skills, maxUploadBytes).catch(failed);
+      return;
+    }
+
+    // A file for a board card, uploaded before the card is saved; the app puts the answer's `file` in the card.
+    if (url.pathname === "/v1/cards/files") {
+      if (!isAuthorized(req.headers.authorization, token)) return sendJson(res, 401, { error: "unauthorized" });
+      if (req.method !== "PUT" && req.method !== "POST") return sendJson(res, 405, { error: "method_not_allowed" });
+      const board = sessions.board;
+      if (!board) return sendJson(res, 404, { error: "not_found" });
+      const name = url.searchParams.get("name") ?? (req.headers["x-file-name"] as string | undefined)?.trim() ?? "";
+      Promise.resolve()
+        .then(() => board.stageFile(req, name, maxUploadBytes))
+        .then(
+          (staged) => {
+            log("info", "card file uploaded", staged);
+            sendJson(res, 201, staged);
+          },
+          (error) => {
+            if (res.headersSent) return res.destroy();
+            if (error instanceof TooLargeError) {
+              sendJson(res, 413, { error: "too_large", maxBytes: maxUploadBytes });
+              return req.resume();
+            }
+            if (error instanceof KervanError) return sendJson(res, 400, { error: error.code, message: error.message });
+            failed(error);
+          },
+        );
       return;
     }
 

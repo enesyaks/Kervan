@@ -22,6 +22,15 @@ import type { SessionManager } from "../src/sessions.ts";
 import { VERSION } from "../src/version.ts";
 import { HELLO, Inbox, openSocket, opened, send, startServer, TEST_TOKEN } from "./helpers.ts";
 
+/** Waits until a file is gone: a card's leftover files are deleted after the answer. */
+async function gone(path: string): Promise<void> {
+  for (let i = 0; i < 200; i++) {
+    if (!existsSync(path)) return;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  throw new Error(`${path} is still there`);
+}
+
 describe("changes, projects, schedules, terminals, ports, usage", () => {
   let port = 0;
   let sessions: SessionManager;
@@ -292,6 +301,43 @@ describe("changes, projects, schedules, terminals, ports, usage", () => {
     assert.equal(again.sessionId, sessionId);
   });
 
+  it("sends a card's files with its prompt, copied into the session's uploads folder", async () => {
+    const { ws, inbox } = await client();
+    const made = await ask(ws, inbox, { type: "project.save", project: { name: "Ekli" } });
+    const project = made.projects.find((p: any) => p.name === "Ekli");
+    const put = (name: string, body: string, token = TEST_TOKEN) =>
+      fetch(`http://127.0.0.1:${port}/v1/cards/files?name=${encodeURIComponent(name)}`, {
+        method: "PUT",
+        headers: { authorization: `Bearer ${token}` },
+        body,
+      });
+    assert.equal((await put("x.txt", "x", "wrong")).status, 401);
+    assert.equal((await put("../x.txt", "x")).status, 400);
+    const shot = await put("ekran görüntüsü.png", "png bytes");
+    assert.equal(shot.status, 201);
+    const { file } = (await shot.json()) as { file: string };
+    assert.match(file, /^[0-9a-f-]{36}\/ekran görüntüsü\.png$/);
+    const dropped = ((await (await put("eski.txt", "old")).json()) as { file: string }).file;
+
+    // Only files uploaded here are accepted.
+    const bad = await ask(ws, inbox, { type: "card.save", card: { projectId: project.id, title: "t", prompt: "p", agent: "fake", files: ["../../board.json"] } });
+    assert.equal(bad.type, "error");
+    const saved = await ask(ws, inbox, { type: "card.save", card: { projectId: project.id, title: "Resim", prompt: "look at the picture", agent: "fake", files: [file, dropped] } });
+    const card = saved.cards.find((c: any) => c.title === "Resim");
+    assert.deepEqual(card.files, [file, dropped]);
+    // Editing the card without a file lets that file go.
+    await ask(ws, inbox, { type: "card.save", card: { id: card.id, title: "Resim", prompt: "look at the picture", agent: "fake", files: [file] } });
+    await gone(join(dataDir, "card-files", dropped));
+
+    assert.equal((await ask(ws, inbox, { type: "card.move", cardId: card.id, column: "working" })).type, "ok");
+    const started = await inbox.waitFor((m) => m.type === "board.updated" && m.cards.some((c: any) => c.id === card.id && c.sessionId));
+    const sessionId = started.cards.find((c: any) => c.id === card.id).sessionId;
+    assert.equal(readFileSync(join(sessions.workspace(sessionId), "uploads", "ekran görüntüsü.png"), "utf8"), "png bytes");
+    const history = await ask(ws, inbox, { type: "session.history", sessionId });
+    assert.deepEqual(history.events.find((e: any) => e.kind === "user_message").attachments, ["uploads/ekran görüntüsü.png"]);
+    await gone(join(dataDir, "card-files", file));
+  });
+
   it("gives each session in a git project a worktree of its own, and keeps the work when the worktree goes", async () => {
     const { ws, inbox } = await client();
     const git = (cwd: string, ...args: string[]) =>
@@ -341,6 +387,56 @@ describe("changes, projects, schedules, terminals, ports, usage", () => {
     // Asking for the shared folder still works.
     const shared = await idleSession(ws, inbox, { projectId: project.id, shared: true });
     assert.equal(sessions.workspace(shared), repo);
+  });
+
+  it("maps a new project once and gives the map to the sessions that come after", async () => {
+    const { ws, inbox } = await client();
+    const git = (cwd: string, ...args: string[]) =>
+      execFileSync("git", ["-C", cwd, "-c", "user.name=T", "-c", "user.email=t@t", ...args], { encoding: "utf8" }).trim();
+    const repo = mkdtempSync(join(tmpdir(), "kervan-mapped-"));
+    execFileSync("git", ["init", "-q", repo]);
+    writeFileSync(join(repo, "README.md"), "hi\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "first");
+    const head = git(repo, "rev-parse", "HEAD");
+
+    assert.equal((await ask(ws, inbox, { type: "project.save", project: { name: "Haritasız", path: repo, mapAgent: "nobody" } })).type, "error");
+    const saved = await ask(ws, inbox, { type: "project.save", project: { name: "Haritalı", path: repo, mapAgent: "fake" } });
+    assert.equal(saved.type, "project.list.result", JSON.stringify(saved));
+    const projectId = saved.projects.find((p: any) => p.name === "Haritalı").id;
+    const ready = await inbox.waitFor(
+      (m) => m.type === "projects.updated" && m.projects.find((p: any) => p.id === projectId)?.map?.status === "ready",
+      15_000,
+    );
+    const map = ready.projects.find((p: any) => p.id === projectId).map;
+    assert.equal(map.agent, "fake");
+    assert.equal(map.commit, head);
+    // The mapping session read the project folder itself, and is put away once it answered.
+    const mapper = sessions.list().find((s) => s.id === map.sessionId)!;
+    assert.equal(sessions.workspace(mapper.id), repo);
+    await inbox.waitFor((m) => m.type === "session.updated" && m.session.id === mapper.id && m.session.archived);
+
+    const text = (await ask(ws, inbox, { type: "project.map.get", projectId })).text;
+    assert.match(text, /^echo: Scan this repository once/);
+
+    // A later session gets the map before its first message, and is told how to see what changed since.
+    const sessionId = await idleSession(ws, inbox, { projectId });
+    const preface = await turn(ws, inbox, sessionId, "prefacecheck");
+    assert.match(preface, /\[Kervan\] Project map/);
+    assert.match(preface, /echo: Scan this repository once/);
+    assert.ok(preface.includes(`git log --stat ${head.slice(0, 12)}..HEAD`));
+
+    // Rebuilding goes through the same steps; an unknown agent or project is refused.
+    assert.equal((await ask(ws, inbox, { type: "project.map", projectId, agent: "nobody" })).type, "error");
+    assert.equal((await ask(ws, inbox, { type: "project.map", projectId: "nope", agent: "fake" })).type, "error");
+    const again = await ask(ws, inbox, { type: "project.map", projectId, agent: "fake" });
+    assert.equal(again.type, "project.list.result", JSON.stringify(again));
+    await inbox.waitFor(
+      (m) => m.type === "projects.updated" && m.projects.find((p: any) => p.id === projectId)?.map?.sessionId !== map.sessionId &&
+        m.projects.find((p: any) => p.id === projectId)?.map?.status === "ready",
+      15_000,
+    );
+    assert.equal((await ask(ws, inbox, { type: "project.map.get", projectId: "nope" })).type, "error");
   });
 
   it("works in a project's folder with its instructions, and commits to its repository", async () => {

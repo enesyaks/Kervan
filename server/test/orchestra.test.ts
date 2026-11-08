@@ -171,6 +171,15 @@ describe("splitting work and resting helpers", () => {
     throw new Error(`no turn end for ${id}`);
   }
 
+  /** Waits until the session has started and isn't answering, so it can take a message. */
+  async function idle(sessions: SessionManager, id: string): Promise<void> {
+    for (let i = 0; i < 200; i++) {
+      if (sessions.list().find((s) => s.id === id)?.status === "idle") return;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    throw new Error(`${id} never went idle`);
+  }
+
   it("rests an idle helper's agent, then picks it up again on the next message", async () => {
     const { sessions, stop } = await startServer({ limits: { helperIdleMinutes: 0.005 } });
     try {
@@ -215,7 +224,7 @@ describe("splitting work and resting helpers", () => {
       const plain = await sessions.create("fake", [], [], { orchestrate: true });
       assert.equal(sessions.list().find((s) => s.id === split.id)!.orchestrate, true, "splitting needs the helper tools");
       for (const s of [split, plain]) {
-        await new Promise((r) => setTimeout(r, 300));
+        await idle(sessions, s.id);
         sessions.prompt(s.id, "prefacecheck");
         await turnEnded(sessions, s.id);
       }

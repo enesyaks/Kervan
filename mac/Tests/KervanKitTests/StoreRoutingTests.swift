@@ -56,6 +56,8 @@ private struct WireDown: LocalizedError {
         ("web.revoke", { await $0.revokeWebDevice("d") }),
         ("project.save", { await $0.saveProject(ProjectInput(name: "n")) }),
         ("project.delete", { await $0.deleteProject("p") }),
+        ("project.map", { await $0.buildProjectMap("p", agent: "a") }),
+        ("project.map.get", { await $0.loadProjectMap("p") }),
         ("schedule.save", { await $0.saveSchedule(ScheduleInput(title: "t", agent: "a", prompt: "x", when: .interval(minutes: 5))) }),
         ("schedule.delete", { await $0.deleteSchedule("x") }),
         ("schedule.run", { await $0.runSchedule("x") }),

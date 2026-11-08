@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { constants, type Stats } from "node:fs";
-import { lstat, mkdir, open, readdir, readlink, realpath, rename, rm, type FileHandle } from "node:fs/promises";
+import { constants, createReadStream, type Stats } from "node:fs";
+import { lstat, mkdir, open, readFile, readdir, readlink, realpath, rename, rm, type FileHandle } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { Transform } from "node:stream";
+import { Transform, type Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { agentUser } from "./agentuser.ts";
 import { log } from "./log.ts";
@@ -142,7 +142,7 @@ export function sendJson(res: ServerResponse, status: number, body: unknown): vo
  * Streams a request body to `relPath` under `root` via a temp file, so readers never see half a file. The temp file is
  * checked once open, and `rename` looks it up by name again: moved elsewhere by a swapped link, it isn't there to rename.
  */
-export async function upload(req: IncomingMessage, root: string, relPath: string, maxBytes: number): Promise<number> {
+export async function upload(req: Readable, root: string, relPath: string, maxBytes: number): Promise<number> {
   const target = await resolveInside(root, relPath);
   const realRoot = await realRootOf(root);
   await makeDirsInside(realRoot, resolve(realRoot, dirname(relPath)));
@@ -167,6 +167,17 @@ export async function upload(req: IncomingMessage, root: string, relPath: string
     await rm(temp, { force: true });
     throw error;
   }
+}
+
+/** Copies a file from the server's own disk into a session's workspace, on this server or on a node. */
+export async function placeFile(sessions: SessionManager, sessionId: string, relPath: string, source: string): Promise<void> {
+  const where = sessions.location(sessionId);
+  if ("path" in where) {
+    await upload(createReadStream(source), where.path, relPath, Number.POSITIVE_INFINITY);
+    return;
+  }
+  if (!sessions.nodes) throw new KervanError("node_offline", "this server doesn't accept nodes");
+  await sessions.nodes.writeFile(where.node, where.key, relPath, await readFile(source));
 }
 
 /**

@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { after, before, describe, it } from "node:test";
-import { ProjectRegistry, slug } from "../src/projects.ts";
+import { MAX_MAP, ProjectRegistry, slug } from "../src/projects.ts";
 
 describe("project folders", () => {
   let dir: string;
@@ -48,6 +48,24 @@ describe("project folders", () => {
     await refusal({ name: "x".repeat(81) }, /needs a name/);
     await refusal({ name: "x", instructions: "y".repeat(20_001) }, /instructions must be/);
     await refusal({ name: "x", instructions: 42 }, /instructions must be/);
+  });
+
+  it("keeps a project's map beside the list, and gives up a map that was building when the server stopped", async () => {
+    const folder = join(dir, "mapped");
+    mkdirSync(folder);
+    const project = await projects.save({ name: "Harita", path: folder });
+    assert.equal(projects.mapText(project.id), "");
+    projects.setMap(project.id, { status: "ready", agent: "fake", updatedAt: "2026-01-01T00:00:00.000Z" }, "x".repeat(MAX_MAP + 10));
+    assert.equal(projects.mapText(project.id).length, MAX_MAP);
+    assert.ok(!readdirSync(folder).length, "nothing is written into the project folder");
+    projects.setMap(project.id, { status: "building", agent: "fake", updatedAt: "2026-01-01T00:00:00.000Z" });
+
+    const reopened = new ProjectRegistry(join(dir, "projects.json"), root);
+    assert.equal(reopened.get(project.id)?.map?.status, "failed");
+    assert.match(reopened.get(project.id)?.map?.error ?? "", /restarted/);
+    assert.equal(reopened.mapText(project.id).length, MAX_MAP, "the last map stays usable");
+    reopened.remove(project.id);
+    assert.equal(reopened.mapText(project.id), "");
   });
 
   it("uses an existing folder as it is, and normalizes its path", async () => {
