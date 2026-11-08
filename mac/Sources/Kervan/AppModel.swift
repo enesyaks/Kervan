@@ -104,6 +104,13 @@ final class AppModel {
         return server.version
     }
 
+    /// This Mac's own node version when it is older than this app. Not offered while the server itself is older:
+    /// the node would get the server's old code.
+    var outdatedMacNode: String? {
+        guard outdatedServer == nil else { return nil }
+        return MacNode.outdatedVersion(in: store.nodeInfos, named: MacNode.installedName(), current: KervanVersion.current)
+    }
+
     var canConnect: Bool { address != nil && !trimmedToken.isEmpty }
 
     var canCreateSession: Bool {

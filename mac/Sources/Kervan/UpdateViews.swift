@@ -73,6 +73,16 @@ struct SidebarNotices: View {
                     tint: .kervanSaffron
                 ) { model.showServerUpdate = true }
             }
+            if let version = model.outdatedMacNode {
+                notice(
+                    L("This Mac's node (\(version)) needs an update", "Bu Mac'in node'u (\(version)) güncellenmeli"),
+                    symbol: "laptopcomputer",
+                    tint: .kervanSaffron
+                ) {
+                    UserDefaults.standard.set(SettingsTab.nodes, forKey: SettingsTab.key)
+                    openSettings()
+                }
+            }
         }
         .padding(.horizontal, 10)
     }

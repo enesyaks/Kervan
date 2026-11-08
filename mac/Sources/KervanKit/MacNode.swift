@@ -15,6 +15,14 @@ public enum MacNode {
         return name?.isEmpty == false ? name : nil
     }
 
+    /// The version this Mac's node runs when it is older than the app, so the app can offer to bring it up to date.
+    public static func outdatedVersion(in nodes: [NodeInfo], named name: String?, current: String) -> String? {
+        guard let name, let node = nodes.first(where: { $0.name == name }), let version = node.version,
+              let theirs = SemanticVersion(version), let mine = SemanticVersion(current), theirs < mine
+        else { return nil }
+        return version
+    }
+
     public static func isInstalled(fileExists: (String) -> Bool = FileManager.default.fileExists(atPath:)) -> Bool {
         fileExists(service)
     }
