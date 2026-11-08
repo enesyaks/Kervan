@@ -236,9 +236,11 @@ describe("auto-approve", () => {
     await answer(session.id, "permission: yes");
     assert.ok(sessions.history(session.id).some((e) => e.kind === "notice" && e.text.startsWith("Auto-approve is on")), "the choice is on the record");
 
-    prompt(session.id, "askperm: delete notes.txt");
-    await waiting(session.id);
-    await sessions.cancel(session.id);
+    // A session of its own: the one above may not have finished its turn yet.
+    const major = await create({ autoApprove: true });
+    prompt(major.id, "askperm: delete notes.txt");
+    await waiting(major.id);
+    await sessions.cancel(major.id);
   });
 
   it("can be chosen for a board card, and its session starts with it", async () => {
