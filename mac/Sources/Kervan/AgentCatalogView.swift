@@ -377,7 +377,7 @@ private struct CatalogRow: View {
         if installing {
             HStack(spacing: 6) {
                 ProgressView().controlSize(.small)
-                Text(agent.status == .found ? L("Adding…", "Ekleniyor…") : L("Installing…", "Kuruluyor…"))
+                Text(agent.status == .installable ? L("Installing…", "Kuruluyor…") : L("Adding…", "Ekleniyor…"))
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
@@ -390,35 +390,55 @@ private struct CatalogRow: View {
                 } else {
                     Menu(label) {
                         Button(L("With its own sign-in", "Kendi girişiyle")) { install(nil) }
-                        if !ollamaModels.isEmpty {
-                            Section(L("With an Ollama model", "Bir Ollama modeliyle")) {
-                                ForEach(ollamaModels, id: \.self) { name in
-                                    Button(name) { install(LocalModel(app: .ollama, name: name)) }
-                                }
-                            }
-                        }
-                        if !lmStudioModels.isEmpty {
-                            Section(L("With an LM Studio model", "Bir LM Studio modeliyle")) {
-                                ForEach(lmStudioModels, id: \.self) { name in
-                                    Button(name) { install(LocalModel(app: .lmStudio, name: name)) }
-                                }
-                            }
-                        }
+                        modelSections
                     }
                     .fixedSize()
                     .disabled(busy)
                 }
             case .added, .builtin:
-                HStack(spacing: 4) {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.kervanOasis)
-                    Text(agent.status == .builtin ? L("Built in", "Yerleşik") : L("Added", "Eklendi")).foregroundStyle(.secondary)
+                HStack(spacing: 10) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.kervanOasis)
+                        Text(agent.status == .builtin ? L("Built in", "Yerleşik") : L("Added", "Eklendi")).foregroundStyle(.secondary)
+                    }
+                    .font(.callout)
+                    if (ollamaModels + lmStudioModels).contains(where: { !isAdded($0) }) {
+                        Menu(L("Add another model", "Başka model ekle")) { modelSections }
+                            .fixedSize()
+                            .disabled(busy)
+                    }
                 }
-                .font(.callout)
             case .unavailable:
                 if let site = agent.website.flatMap(URL.init(string:)) {
                     Link(L("Website", "Web sitesi"), destination: site).font(.callout)
                 }
             }
+        }
+    }
+
+    private func isAdded(_ model: String) -> Bool { agent.addedModels?.contains(model) == true }
+
+    /// The chosen machine's models, each of which becomes an agent of its own.
+    @ViewBuilder
+    private var modelSections: some View {
+        if !ollamaModels.isEmpty {
+            Section(L("With an Ollama model", "Bir Ollama modeliyle")) {
+                ForEach(ollamaModels, id: \.self) { modelButton(LocalModel(app: .ollama, name: $0)) }
+            }
+        }
+        if !lmStudioModels.isEmpty {
+            Section(L("With an LM Studio model", "Bir LM Studio modeliyle")) {
+                ForEach(lmStudioModels, id: \.self) { modelButton(LocalModel(app: .lmStudio, name: $0)) }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func modelButton(_ model: LocalModel) -> some View {
+        if isAdded(model.name) {
+            Button { } label: { Label(model.name, systemImage: "checkmark") }.disabled(true)
+        } else {
+            Button(model.name) { install(model) }
         }
     }
 }

@@ -394,6 +394,14 @@ extension SessionStore {
         .agentRegistryResult(id: id, agents: [], ollama: OllamaStatus(running: true, url: "u", models: models))
     }
 
+    @Test func anOfferSaysWhichModelsAreAddedAlreadyEvenFromAnOlderServer() throws {
+        let fields = #""id":"goose","name":"goose","description":"","status":"added","ollama":true"#
+        let current = try JSONDecoder().decode(OfferedAgent.self, from: Data(#"{\#(fields),"addedModels":["a"]}"#.utf8))
+        #expect(current.addedModels == ["a"])
+        let older = try JSONDecoder().decode(OfferedAgent.self, from: Data("{\(fields)}".utf8))
+        #expect(older.addedModels == nil)
+    }
+
     @Test func aModelDownloadedMeanwhileShowsUpWithoutEmptyingTheList() async throws {
         let wire = Wire()
         _ = try await wire.answered({ [self.result($0, models: ["a"]), .ok(id: $0)] }) { await $0.loadOfferedAgents() }

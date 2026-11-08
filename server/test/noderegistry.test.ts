@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import type WebSocket from "ws";
 import { NodeAgent } from "../src/node-agent.ts";
+import { localModelAgentId } from "../src/agentregistry.ts";
 import { LocalAcpRunner } from "../src/runner.ts";
 import { fakeAgent, HELLO, Inbox, opened, openSocket, send, startServer } from "./helpers.ts";
 
@@ -18,6 +19,7 @@ describe("the agent catalog on a node", () => {
   let node: NodeAgent;
   let n = 0;
   let seenAdded: string[] = [];
+  const ollamaAgent = localModelAgentId({ agentId: "qwen-code", ollamaModel: "model-on-the-node" }, "kutu");
   const ask = (message: object, ms = 20_000) => {
     const id = `c${++n}`;
     send(ws, { ...message, id });
@@ -33,7 +35,7 @@ describe("the agent catalog on a node", () => {
     lmStudio: async () => ({ running: true, url: "http://127.0.0.1:1235", models: ["studio-model-on-the-node"] }),
     install: async (request: { agentId: string; ollamaModel?: string; lmStudioModel?: string }) => ({
       id: request.agentId,
-      name: `Qwen (${request.ollamaModel ?? request.lmStudioModel})`,
+      name: request.ollamaModel || request.lmStudioModel ? `Qwen (${request.ollamaModel ?? request.lmStudioModel})` : "Qwen",
       command: fakeAgent.command,
       args: fakeAgent.args,
       env: { OPENAI_BASE_URL: "http://127.0.0.1:11434/v1" },
@@ -69,7 +71,7 @@ describe("the agent catalog on a node", () => {
   it("adds an agent that runs on that node, under an id of its own", async () => {
     const answer = await ask({ type: "agent.install", agentId: "qwen-code", ollamaModel: "model-on-the-node", node: "kutu" }, 30_000);
     assert.equal(answer.type, "agent.list.result", JSON.stringify(answer));
-    const added = answer.agents.find((a: any) => a.id === "qwen-code-kutu");
+    const added = answer.agents.find((a: any) => a.id === ollamaAgent);
     assert.ok(added, JSON.stringify(answer.agents.map((a: any) => a.id)));
     assert.equal(added.node, "kutu");
     assert.equal(added.name, "Qwen (model-on-the-node)", "the model chosen reaches the node");
@@ -77,20 +79,27 @@ describe("the agent catalog on a node", () => {
   });
 
   it("says its node is there", async () => {
-    const list = await inbox.waitFor((m) => m.type === "agents.updated" && m.agentDetails.some((a: any) => a.id === "qwen-code-kutu"));
-    assert.deepEqual(list.agentDetails.find((a: any) => a.id === "qwen-code-kutu"), { id: "qwen-code-kutu", name: "Qwen (model-on-the-node)", node: "kutu", online: true });
+    const list = await inbox.waitFor((m) => m.type === "agents.updated" && m.agentDetails.some((a: any) => a.id === ollamaAgent));
+    assert.deepEqual(list.agentDetails.find((a: any) => a.id === ollamaAgent), { id: ollamaAgent, name: "Qwen (model-on-the-node)", node: "kutu", online: true });
   });
 
-  it("passes the LM Studio model chosen on to the node", async () => {
+  it("adds the LM Studio model chosen beside the Ollama one, still offering the agent", async () => {
     const answer = await ask({ type: "agent.install", agentId: "qwen-code", lmStudioModel: "studio-model-on-the-node", node: "kutu" }, 30_000);
     assert.equal(answer.type, "agent.list.result", JSON.stringify(answer));
-    assert.equal(answer.agents.find((a: any) => a.id === "qwen-code-kutu")?.name, "Qwen (studio-model-on-the-node)");
+    assert.equal(answer.agents.find((a: any) => a.id === localModelAgentId({ agentId: "qwen-code", lmStudioModel: "studio-model-on-the-node" }, "kutu"))?.name, "Qwen (studio-model-on-the-node)");
+    assert.equal(answer.agents.find((a: any) => a.id === ollamaAgent)?.name, "Qwen (model-on-the-node)", "the first model is still there");
+    const offer = await ask({ type: "agent.registry", node: "kutu" });
+    assert.equal(offer.agents[0].status, "installable");
+    assert.deepEqual(offer.agents[0].addedModels, ["model-on-the-node", "studio-model-on-the-node"]);
   });
 
   it("then shows it as added on that node, and only there", async () => {
+    const plain = await ask({ type: "agent.install", agentId: "qwen-code", node: "kutu" }, 30_000);
+    assert.ok(plain.agents.some((a: any) => a.id === "qwen-code-kutu"), JSON.stringify(plain));
     const onNode = await ask({ type: "agent.registry", node: "kutu" });
-    assert.deepEqual(seenAdded, ["qwen-code"]);
+    assert.ok(seenAdded.includes("qwen-code"));
     assert.equal(onNode.agents[0].status, "added");
+    assert.deepEqual(onNode.agents[0].addedModels, ["model-on-the-node", "studio-model-on-the-node"], "models can still be seen once it's added");
     const list = await ask({ type: "agent.registry" });
     assert.notEqual(list.type, "error", JSON.stringify(list));
     assert.equal(list.agents.find((a: any) => a.id === "qwen-code")?.status === "added", false);

@@ -64,6 +64,8 @@ export interface OfferedAgent {
   reason?: string;
   /** It can be set up to use a local model from this machine's Ollama or LM Studio. */
   ollama: boolean;
+  /** The local models it has been added with on this machine already. */
+  addedModels?: string[];
 }
 
 export interface OllamaStatus {
@@ -77,6 +79,29 @@ export interface InstallRequest {
   agentId: string;
   ollamaModel?: string;
   lmStudioModel?: string;
+}
+
+/**
+ * The catalog id of an agent added with a local model, so each model is an agent of its own. Hashed, node included,
+ * because ids are short and model names aren't valid in them; undefined when no model was asked for.
+ */
+export function localModelAgentId(request: InstallRequest, node?: string): string | undefined {
+  const model = request.ollamaModel ? `ollama:${request.ollamaModel}` : request.lmStudioModel ? `lmstudio:${request.lmStudioModel}` : undefined;
+  if (!model) return undefined;
+  return `${request.agentId}-${createHash("sha256").update(`${node ?? ""}\n${model}`).digest("hex").slice(0, 8)}`;
+}
+
+const localModelAgentName = (agent: string, model: string) => `${agent} (${model})`;
+
+/**
+ * Says which local models each offered agent already runs on this machine. By name, the one thing shared with agents
+ * added before each model had its own id; a renamed one only loses its mark, and adding it again is harmless.
+ */
+export function markAddedModels(agents: OfferedAgent[], models: string[], names: Set<string>): OfferedAgent[] {
+  return agents.map((agent) => {
+    const addedModels = agent.ollama ? models.filter((model) => names.has(localModelAgentName(agent.name, model))) : [];
+    return addedModels.length > 0 ? { ...agent, addedModels } : agent;
+  });
 }
 
 /** The agent definition to save once installed, in the shape `AgentCatalog.save` takes. */
@@ -352,7 +377,7 @@ export class AcpRegistry {
       env = { ...(launch.env ?? {}), ...env };
       return {
         id: entry.id,
-        name: model ? `${entry.name} (${model})` : entry.name,
+        name: model ? localModelAgentName(entry.name, model) : entry.name,
         command: launch.command,
         args: launch.args,
         ...(Object.keys(env).length > 0 ? { env } : {}),
@@ -413,22 +438,29 @@ export class AcpRegistry {
     const folder = join(this.toolsDir, entry.id);
     const how = this.installMethod(entry, tools).source;
     if (npx && how === "npm") {
-      rmSync(folder, { recursive: true, force: true });
-      mkdirSync(folder, { recursive: true });
-      const npmArgs = ["install", "--prefix", folder, "--no-audit", "--no-fund", "--loglevel=error", npx.package];
-      // A package's install scripts run here, so they run as an agent would, and see no more.
-      const npmOptions = { env: cleanEnv(["npm_config_*", "NPM_*"]), timeout: 10 * 60_000 };
-      await (agentUser() ? runAsAgent("npm", npmArgs, npmOptions) : run("npm", npmArgs, npmOptions)).catch(
-        (error: { stderr?: string }) => {
-          throw new KervanError("bad_message", `npm couldn't install ${npx.package}: ${error.stderr?.trim().split("\n").pop() || String(error)}`);
-        },
-      );
+      if (!isPlaced(folder, npx.package, join(folder, "node_modules", packageName(npx.package), "package.json"))) {
+        rmSync(folder, { recursive: true, force: true });
+        mkdirSync(folder, { recursive: true });
+        const npmArgs = ["install", "--prefix", folder, "--no-audit", "--no-fund", "--loglevel=error", npx.package];
+        // A package's install scripts run here, so they run as an agent would, and see no more.
+        const npmOptions = { env: cleanEnv(["npm_config_*", "NPM_*"]), timeout: 10 * 60_000 };
+        await (agentUser() ? runAsAgent("npm", npmArgs, npmOptions) : run("npm", npmArgs, npmOptions)).catch(
+          (error: { stderr?: string }) => {
+            throw new KervanError("bad_message", `npm couldn't install ${npx.package}: ${error.stderr?.trim().split("\n").pop() || String(error)}`);
+          },
+        );
+        writeFileSync(join(folder, PLACED_FILE), npx.package);
+      }
       return { command: npmBinary(folder, npx.package, commandNames(entry)), args: npx.args ?? [], ...(npx.env ? { env: npx.env } : {}) };
     }
     if (download && how === "download") {
-      rmSync(folder, { recursive: true, force: true });
-      mkdirSync(folder, { recursive: true });
-      const command = await fetchArchive(download, folder, this.maxDownloadBytes);
+      const command = archiveCommand(download, folder);
+      if (!isPlaced(folder, download.sha256!, command)) {
+        rmSync(folder, { recursive: true, force: true });
+        mkdirSync(folder, { recursive: true });
+        await fetchArchive(download, folder, this.maxDownloadBytes);
+        writeFileSync(join(folder, PLACED_FILE), download.sha256!);
+      }
       return { command, args: download.args ?? [], ...(download.env ? { env: download.env } : {}) };
     }
     if (uvx && how === "uvx") {
@@ -439,6 +471,28 @@ export class AcpRegistry {
 }
 
 const order = (status: OfferedAgent["status"]) => ["found", "installable", "added", "builtin", "unavailable"].indexOf(status);
+
+// Written once an install has finished, naming what was installed.
+const PLACED_FILE = ".kervan-placed";
+
+/**
+ * Whether `folder` holds this very release, finished. Another model of an agent reuses its copy: installing again
+ * would delete the program agents already added are running from.
+ */
+function isPlaced(folder: string, source: string, file: string): boolean {
+  try {
+    return readFileSync(join(folder, PLACED_FILE), "utf8") === source && existsSync(file);
+  } catch {
+    return false;
+  }
+}
+
+/** Where a download's program ends up in `folder`. */
+function archiveCommand(download: BinaryLaunch, folder: string): string {
+  const command = resolve(folder, download.cmd);
+  if (command !== folder && !command.startsWith(folder + sep)) throw new KervanError("bad_message", "the registry entry points outside its folder");
+  return command;
+}
 
 /** The installed package's command: the one named like the agent, else its only (or first) one. */
 function npmBinary(folder: string, spec: string, names: string[]): string {
@@ -488,8 +542,7 @@ async function fetchArchive(download: BinaryLaunch, folder: string, maxBytes: nu
     throw new KervanError("bad_message", "the download doesn't match the checksum the registry publishes; nothing was installed");
   }
 
-  const command = resolve(folder, download.cmd);
-  if (command !== folder && !command.startsWith(folder + sep)) throw new KervanError("bad_message", "the registry entry points outside its folder");
+  const command = archiveCommand(download, folder);
   const file = new URL(download.archive).pathname;
   if (/\.(tar\.gz|tgz|tar\.bz2|tar\.xz|tar)$/.test(file)) {
     const archive = join(folder, ".download.tar");

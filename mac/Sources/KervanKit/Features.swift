@@ -556,8 +556,10 @@ public struct OfferedAgent: Codable, Equatable, Sendable, Identifiable {
     public let reason: String?
     /// Can run a local model from that machine's Ollama or LM Studio.
     public let ollama: Bool
+    /// The local models it has been added with on that machine already.
+    public let addedModels: [String]?
 
-    public init(id: String, name: String, description: String, version: String? = nil, website: String? = nil, status: Status, source: String? = nil, path: String? = nil, reason: String? = nil, ollama: Bool = false) {
+    public init(id: String, name: String, description: String, version: String? = nil, website: String? = nil, status: Status, source: String? = nil, path: String? = nil, reason: String? = nil, ollama: Bool = false, addedModels: [String]? = nil) {
         self.id = id
         self.name = name
         self.description = description
@@ -568,6 +570,7 @@ public struct OfferedAgent: Codable, Equatable, Sendable, Identifiable {
         self.path = path
         self.reason = reason
         self.ollama = ollama
+        self.addedModels = addedModels
     }
 }
 

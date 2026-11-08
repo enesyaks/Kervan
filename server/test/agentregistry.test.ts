@@ -7,7 +7,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
-import { AcpRegistry, commandNames, ollamaURL, packageName, platformKey, toolCallProblem, type RegistryEntry } from "../src/agentregistry.ts";
+import { AcpRegistry, commandNames, localModelAgentId, ollamaURL, packageName, platformKey, toolCallProblem, type RegistryEntry } from "../src/agentregistry.ts";
 import { fakeAgent, HELLO, Inbox, openSocket, opened, send, startServer } from "./helpers.ts";
 
 describe("ACP registry helpers", () => {
@@ -28,6 +28,19 @@ describe("ACP registry helpers", () => {
     assert.equal(ollamaURL("0.0.0.0"), "http://0.0.0.0:11434");
     assert.equal(ollamaURL("http://gpu-box:8080"), "http://gpu-box:8080");
   });
+
+  it("gives each local model a valid id of its own, however long the names are", () => {
+    const longNode = "a-mac-with-the-longest-name-okay";
+    const ids = [
+      localModelAgentId({ agentId: "qwen-code", ollamaModel: "hf.co/unsloth/Some-Very-Long-Model-GGUF:Q4_K_M" }, longNode),
+      localModelAgentId({ agentId: "qwen-code", ollamaModel: "hf.co/unsloth/Some-Very-Long-Model-GGUF:Q8_0" }, longNode),
+      localModelAgentId({ agentId: "qwen-code", lmStudioModel: "hf.co/unsloth/Some-Very-Long-Model-GGUF:Q8_0" }, longNode),
+      localModelAgentId({ agentId: "qwen-code", ollamaModel: "hf.co/unsloth/Some-Very-Long-Model-GGUF:Q8_0" }),
+    ];
+    assert.equal(new Set(ids).size, ids.length);
+    for (const id of ids) assert.match(id ?? "", /^[a-z][a-z0-9-]{0,31}$/);
+    assert.equal(localModelAgentId({ agentId: "qwen-code" }), undefined);
+  });
 });
 
 describe("agents from the ACP registry", () => {
@@ -43,7 +56,7 @@ describe("agents from the ACP registry", () => {
     execFileSync("mkdir", ["-p", bin, join(work, "pack")]);
     // On PATH already: as if installed by hand.
     writeFileSync(join(bin, "found-agent"), "#!/bin/sh\necho found\n", { mode: 0o755 });
-    writeFileSync(join(bin, "goose"), "#!/bin/sh\necho goose\n", { mode: 0o755 });
+    writeFileSync(join(bin, "goose"), `#!/bin/sh\nexec "${fakeAgent.command}" "${fakeAgent.args[0]}"\n`, { mode: 0o755 });
     // A downloadable agent: an archive holding a program that starts the test suite's ACP agent.
     writeFileSync(join(work, "pack", "fake-acp"), `#!/bin/sh\nexec "${fakeAgent.command}" "${fakeAgent.args[0]}"\n`, { mode: 0o755 });
     execFileSync("tar", ["-czf", join(work, "agent.tar.gz"), "-C", join(work, "pack"), "fake-acp"]);
@@ -149,6 +162,51 @@ describe("agents from the ACP registry", () => {
     await assert.rejects(new AcpRegistry(tools).install({ agentId: "tampered" }), /doesn't match the checksum/);
     await assert.rejects(new AcpRegistry(tools).install({ agentId: "unsigned" }), /no published checksum/);
     await assert.rejects(new AcpRegistry(tools).install({ agentId: "claude-acp" }), /comes with Kervan/);
+  });
+
+  it("keeps the copy already there for another model, and replaces it for a new release", async () => {
+    const tools = join(work, "tools-reuse");
+    const folder = join(tools, "downloadable");
+    await new AcpRegistry(tools).install({ agentId: "downloadable" });
+    const inUse = join(folder, "in-use");
+    writeFileSync(inUse, "");
+    const again = await new AcpRegistry(tools).install({ agentId: "downloadable" });
+    assert.equal(again.command, join(folder, "fake-acp"));
+    assert.ok(existsSync(inUse), "what agents already run from stays");
+
+    writeFileSync(join(folder, ".kervan-placed"), "an older release");
+    await new AcpRegistry(tools).install({ agentId: "downloadable" });
+    assert.ok(!existsSync(inUse), "a different release is installed afresh");
+  });
+
+  it("adds a second Ollama model beside the first, and marks both as added", async () => {
+    ollamaModels.push("second:7b");
+    const server = await startServer();
+    try {
+      const ws = openSocket(server.port);
+      const inbox = new Inbox(ws);
+      await opened(ws);
+      send(ws, HELLO);
+      await inbox.waitFor((m) => m.type === "welcome");
+      for (const [id, ollamaModel] of [["a", "qwen3-coder:30b"], ["b", "second:7b"]]) {
+        send(ws, { type: "agent.install", id, agentId: "goose", ollamaModel });
+        const result = await inbox.waitFor((m) => m.id === id, 30_000);
+        assert.equal(result.type, "agent.list.result", JSON.stringify(result));
+      }
+      send(ws, { type: "agent.list", id: "l" });
+      const { agents } = await inbox.waitFor((m) => m.id === "l");
+      const names = agents.filter((agent: { command: string }) => agent.command === join(bin, "goose")).map((agent: { name: string }) => agent.name);
+      assert.deepEqual(names, ["goose (qwen3-coder:30b)", "goose (second:7b)"]);
+
+      send(ws, { type: "agent.registry", id: "r" });
+      const goose = (await inbox.waitFor((m) => m.id === "r")).agents.find((agent: { id: string }) => agent.id === "goose");
+      assert.equal(goose.status, "found", "it can still be added with its own sign-in");
+      assert.deepEqual(goose.addedModels, ["qwen3-coder:30b", "second:7b"]);
+      ws.close();
+    } finally {
+      ollamaModels.pop();
+      await server.stop();
+    }
   });
 
   it("points an agent at a chat model from LM Studio, and only a chat model", async () => {

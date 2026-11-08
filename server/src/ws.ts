@@ -6,6 +6,7 @@ import { log } from "./log.ts";
 import { KervanError, PROTOCOL_VERSION, parseClientMessage, type ClientMessage, type ServerMessage } from "./protocol.ts";
 import { MAX_NODE_FRAME_BYTES, NODE_PATH } from "./node-agent.ts";
 import { NODE_NAME, LOCAL_NODE } from "./nodes.ts";
+import type { AgentCatalog } from "./catalog.ts";
 import type { SessionManager } from "./sessions.ts";
 import { listeningPorts, pipeTunnel, TUNNEL_PATH } from "./tunnel.ts";
 import { changesForBrowser, eventForBrowser } from "./webaccess.ts";
@@ -13,7 +14,7 @@ import { AttemptLimiter, type WebAccess } from "./webaccess.ts";
 import { GitHubAccess } from "./github.ts";
 import { AgentLogin } from "./agentlogin.ts";
 import { allowedConnection, tailnetOnly } from "./tailnet.ts";
-import { AcpRegistry } from "./agentregistry.ts";
+import { AcpRegistry, localModelAgentId, markAddedModels } from "./agentregistry.ts";
 
 /** One per server: the gh sign-in belongs to the user the server runs as. */
 const github = new GitHubAccess();
@@ -90,6 +91,8 @@ function targetNode(message: { node?: unknown }): string | undefined {
 }
 
 const nodeAgentSuffix = (node: string) => `-${node}`;
+
+const agentNamesOn = (catalog: AgentCatalog, node: string) => new Set(catalog.list().filter((agent) => agent.node === node).map((agent) => agent.name));
 
 function rejectUpgrade(socket: Duplex, status: number, reason: string): void {
   socket.end(`HTTP/1.1 ${status} ${reason}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
@@ -219,12 +222,14 @@ async function handleRequest(
         const suffix = nodeAgentSuffix(node);
         const added = catalog.list().filter((agent) => agent.node === node).map((agent) => (agent.id.endsWith(suffix) ? agent.id.slice(0, -suffix.length) : agent.id));
         const { agents, ollama, lmStudio } = await requireNodes(sessions).offerAgents(node, added);
-        return send(ws, { type: "agent.registry.result", id: message.id, agents, ollama, ...(lmStudio ? { lmStudio } : {}) });
+        const marked = markAddedModels(agents, [...ollama.models, ...(lmStudio?.models ?? [])], agentNamesOn(catalog, node));
+        return send(ws, { type: "agent.registry.result", id: message.id, agents: marked, ollama, ...(lmStudio ? { lmStudio } : {}) });
       }
       const registry = registryFor(sessions);
       const added = new Set(catalog.list().filter((agent) => agent.node === LOCAL_NODE).map((agent) => agent.id));
       const [agents, ollama, lmStudio] = await Promise.all([registry.offer(added), registry.ollama(), registry.lmStudio()]);
-      return send(ws, { type: "agent.registry.result", id: message.id, agents, ollama, lmStudio });
+      const marked = markAddedModels(agents, [...ollama.models, ...lmStudio.models], agentNamesOn(catalog, LOCAL_NODE));
+      return send(ws, { type: "agent.registry.result", id: message.id, agents: marked, ollama, lmStudio });
     }
     case "agent.install": {
       const catalog = requireCatalog(sessions);
@@ -233,12 +238,15 @@ async function handleRequest(
       if (lmStudioModel !== undefined && typeof lmStudioModel !== "string") throw new KervanError("bad_message", "'lmStudioModel' must be a string");
       const request = { agentId: message.agentId, ...(ollamaModel ? { ollamaModel } : {}), ...(lmStudioModel ? { lmStudioModel } : {}) };
       const node = targetNode(message);
+      // Chosen here rather than by the installer, so a node still on an older version gets it right too.
+      const modelId = localModelAgentId(request, node);
       if (node) {
         const installed = await requireNodes(sessions).installAgent(node, request);
         // Its own id: the same agent can be on this server and on any node, each set up for its machine.
-        await catalog.save({ ...installed, id: `${installed.id}${nodeAgentSuffix(node)}`, node });
+        await catalog.save({ ...installed, id: modelId ?? `${installed.id}${nodeAgentSuffix(node)}`, node });
       } else {
-        await catalog.save(await registryFor(sessions).install(request));
+        const installed = await registryFor(sessions).install(request);
+        await catalog.save({ ...installed, id: modelId ?? installed.id });
       }
       sessions.agentsChanged();
       return send(ws, agentList(message.id, sessions));
