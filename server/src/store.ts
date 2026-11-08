@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import type { SessionEvent, SessionInfo } from "./protocol.ts";
 
-const SCHEMA_VERSION = 8;
+const SCHEMA_VERSION = 9;
 
 export interface IndexedMessage {
   /** seq of the first event of the message; matches the Mac transcript row id. */
@@ -141,9 +141,9 @@ export class EventStore {
     this.migrate();
     this.upsertSession = this.db.prepare(`
       INSERT INTO sessions (id, agent, title, status, created_at, error, agent_session_id, archived, skills, mcp_servers,
-                            team_id, role, instructions, parent_id, orchestrate, budget_usd, branch, usage, config, project_id, schedule_id)
+                            team_id, role, instructions, parent_id, orchestrate, budget_usd, branch, usage, config, project_id, schedule_id, auto_approve)
       VALUES (:id, :agent, :title, :status, :createdAt, :error, :agentSessionId, :archived, :skills, :mcpServers,
-              :teamId, :role, :instructions, :parentId, :orchestrate, :budgetUsd, :branch, :usage, :config, :projectId, :scheduleId)
+              :teamId, :role, :instructions, :parentId, :orchestrate, :budgetUsd, :branch, :usage, :config, :projectId, :scheduleId, :autoApprove)
       ON CONFLICT (id) DO UPDATE SET
         title = excluded.title,
         status = excluded.status,
@@ -151,6 +151,7 @@ export class EventStore {
         archived = excluded.archived,
         usage = excluded.usage,
         config = excluded.config,
+        auto_approve = excluded.auto_approve,
         agent_session_id = COALESCE(excluded.agent_session_id, sessions.agent_session_id)
     `);
     this.insertEvent = this.db.prepare("INSERT INTO events (session_id, seq, at, body) VALUES (?, ?, ?, ?)");
@@ -217,6 +218,8 @@ export class EventStore {
           if (cost) insert.run(row.id, row.agent, row.created_at, cost);
         }
       }
+      // v9: the session answers routine permission requests by itself.
+      if (version < 9) this.db.exec("ALTER TABLE sessions ADD COLUMN auto_approve INTEGER NOT NULL DEFAULT 0");
       this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
       this.db.exec("COMMIT");
     } catch (error) {
@@ -267,6 +270,7 @@ export class EventStore {
       config: info.config ? JSON.stringify(info.config) : null,
       projectId: info.projectId ?? null,
       scheduleId: info.scheduleId ?? null,
+      autoApprove: info.autoApprove ? 1 : 0,
     });
   }
 
@@ -343,6 +347,7 @@ export class EventStore {
         ...(row.config ? { config: JSON.parse(String(row.config)) as SessionInfo["config"] } : {}),
         ...(row.project_id ? { projectId: String(row.project_id) } : {}),
         ...(row.schedule_id ? { scheduleId: String(row.schedule_id) } : {}),
+        ...(row.auto_approve === 1 ? { autoApprove: true } : {}),
         ...(row.error ? { error: String(row.error) } : {}),
       },
       ...(row.agent_session_id ? { agentSessionId: String(row.agent_session_id) } : {}),

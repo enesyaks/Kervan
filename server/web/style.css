@@ -632,6 +632,8 @@ mark { background: color-mix(in srgb, var(--saffron) 30%, transparent); color: i
   text-overflow: ellipsis;
 }
 @media (pointer: fine) { .composer-options select { font-size: 13px; } }
+.composer-options .auto-approve { display: flex; align-items: center; gap: 6px; padding: 4px 10px; font-size: 13px; color: var(--muted); background: var(--well); border-radius: 999px; }
+.composer-options .auto-approve input { margin: 0; }
 
 .menu-list .danger { color: var(--coral-text); }
 

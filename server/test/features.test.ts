@@ -748,6 +748,8 @@ describe("web client", () => {
     // A browser may read what a session changed, but undoing and committing stay with the app.
     send(ws, { type: "session.changes", id: "read", sessionId: "no-such-session" });
     assert.equal((await inbox.waitFor((m) => m.id === "read")).code, "unknown_session", "allowed: it gets as far as looking for the session");
+    send(ws, { type: "session.autoApprove", id: "auto", sessionId: "no-such-session", enabled: true });
+    assert.equal((await inbox.waitFor((m) => m.id === "auto")).code, "unknown_session", "a browser that can approve can also say to stop asking");
     for (const type of ["session.revert", "session.commit", "session.pullRequest"]) {
       send(ws, { type, id: type, sessionId: "no-such-session" });
       assert.equal((await inbox.waitFor((m) => m.id === type)).code, "forbidden", type);

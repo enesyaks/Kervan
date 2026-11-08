@@ -35,6 +35,7 @@ import type { EventStore, IndexedMessage, SearchHit, StoredTeam } from "./store.
 import type { RoleRegistry } from "./roles.ts";
 import type * as acp from "@agentclientprotocol/sdk";
 import { isOrchestraCall } from "./orchestra.ts";
+import { majorChange } from "./autoapprove.ts";
 import { LOCAL_NODE, nodeOf, type NodeHub } from "./nodes.ts";
 import {
   addWorktree,
@@ -120,6 +121,7 @@ interface CreateOptions {
 }
 
 interface PendingPermission {
+  request: PermissionRequest;
   optionIds: string[];
   resolve: (decision: PermissionDecision) => void;
 }
@@ -764,6 +766,31 @@ export class SessionManager {
     this.broadcast({ type: "session.updated", session: { ...session.info } });
   }
 
+  /** Set on a lead, it covers its helpers too: a task that stalls on a helper's question isn't on auto-approve. */
+  setAutoApprove(sessionId: string, enabled: boolean): void {
+    const session = this.require(sessionId);
+    if (session.info.parentId) throw new KervanError("bad_message", "a helper follows its lead's auto-approve");
+    if (this.isTerminal(session)) throw new KervanError("bad_message", "terminal agents don't ask for approval");
+    if (Boolean(session.info.autoApprove) === enabled) return;
+    if (enabled) session.info.autoApprove = true;
+    else delete session.info.autoApprove;
+    this.save(session);
+    this.broadcast({ type: "session.updated", session: { ...session.info } });
+    this.record(session, {
+      kind: "notice",
+      text: enabled
+        ? "Auto-approve is on: the agent only stops to ask before major changes."
+        : "Auto-approve is off: the agent asks before each action again.",
+    });
+    if (!enabled) return;
+    for (const member of [session, ...this.helperSessions(sessionId)]) {
+      for (const [requestId, { request }] of [...member.pending]) {
+        const allow = this.autoAnswer(member, request);
+        if (allow) this.resolvePermission(member, requestId, allow);
+      }
+    }
+  }
+
   /**
    * Archiving can also take away a project session's worktree; its work stays committed on its branch.
    * Unarchiving puts the worktree back.
@@ -1201,12 +1228,32 @@ export class SessionManager {
       const allow = request.options.find((o) => o.kind === "allow_once") ?? request.options.find((o) => o.kind === "allow_always");
       if (allow) return Promise.resolve(allow.optionId);
     }
+    if (this.autoApproves(session)) {
+      const allow = this.autoAnswer(session, request);
+      if (allow) return Promise.resolve(allow);
+      const reason = majorChange(request, session.cwd);
+      if (reason) this.record(session, { kind: "notice", text: `Auto-approve stopped to ask: ${reason}.` });
+    }
     const requestId = randomUUID();
     return new Promise((resolve) => {
-      session.pending.set(requestId, { optionIds: request.options.map((o) => o.optionId), resolve });
+      session.pending.set(requestId, { request, optionIds: request.options.map((o) => o.optionId), resolve });
       this.record(session, { kind: "permission_request", requestId, ...request });
       this.setStatus(session, "waiting");
     });
+  }
+
+  private autoApproves(session: Session): boolean {
+    const owner = session.info.parentId ? this.sessions.get(session.info.parentId) : session;
+    return owner?.info.autoApprove === true;
+  }
+
+  /**
+   * The option to answer with, or undefined if the user has to decide. Only ever "allow once": "allow always" would
+   * have the agent stop asking about that tool for good, including about the major uses of it.
+   */
+  private autoAnswer(session: Session, request: PermissionRequest): string | undefined {
+    if (majorChange(request, session.cwd)) return undefined;
+    return request.options.find((o) => o.kind === "allow_once")?.optionId;
   }
 
   private resolvePermission(session: Session, requestId: string, optionId: PermissionDecision): void {

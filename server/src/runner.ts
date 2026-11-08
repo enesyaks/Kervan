@@ -303,8 +303,10 @@ function toConfig(options: acp.SessionConfigOption[]): ConfigOption[] {
 /** What the user needs to judge a request: the shell command, else the files involved. */
 function describe(toolCall: acp.ToolCallUpdate): string | undefined {
   const input = toolCall.rawInput;
-  if (input && typeof input === "object" && "command" in input && typeof input.command === "string") {
-    return input.command;
+  if (input && typeof input === "object" && "command" in input) {
+    if (typeof input.command === "string") return input.command;
+    // Some agents give the command as its argument list.
+    if (Array.isArray(input.command)) return input.command.join(" ");
   }
   const paths = toolCall.locations?.map((location) => location.path) ?? [];
   return paths.length > 0 ? paths.join("\n") : undefined;

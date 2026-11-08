@@ -185,6 +185,8 @@ public struct SessionInfo: Codable, Equatable, Sendable, Identifiable {
     public var split: Bool?
     /// A helper whose agent was stopped after sitting idle; the next message starts it again.
     public var resting: Bool?
+    /// The server answers routine permission requests itself and only asks before major changes.
+    public var autoApprove: Bool?
     public var error: String?
 
     public init(
@@ -218,7 +220,7 @@ public struct SessionInfo: Codable, Equatable, Sendable, Identifiable {
 
     private enum CodingKeys: String, CodingKey {
         case id, agent, title, status, createdAt, archived, skills, mcpServers, teamId, role, parentId, orchestrate, budgetUsd, branch, usage, config
-        case projectId, scheduleId, reviewOf, split, resting, error
+        case projectId, scheduleId, reviewOf, split, resting, autoApprove, error
     }
 
     public init(from decoder: any Decoder) throws {
@@ -244,6 +246,7 @@ public struct SessionInfo: Codable, Equatable, Sendable, Identifiable {
         reviewOf = try c.decodeIfPresent(String.self, forKey: .reviewOf)
         split = try c.decodeIfPresent(Bool.self, forKey: .split)
         resting = try c.decodeIfPresent(Bool.self, forKey: .resting)
+        autoApprove = try c.decodeIfPresent(Bool.self, forKey: .autoApprove)
         error = try c.decodeIfPresent(String.self, forKey: .error)
     }
 }
@@ -731,6 +734,7 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
     case sessionCancel(id: String, sessionId: String)
     case sessionPermission(id: String, sessionId: String, requestId: String, optionId: String)
     case sessionRename(id: String, sessionId: String, title: String)
+    case sessionAutoApprove(id: String, sessionId: String, enabled: Bool)
     /// `removeWorktree` (when archiving) also takes away a project session's worktree; its work stays on its branch.
     case sessionArchive(id: String, sessionId: String, archived: Bool, removeWorktree: Bool = false)
     case sessionSearch(id: String, query: String)
@@ -983,6 +987,11 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
             try c.encode(id, forKey: .id)
             try c.encode(sessionId, forKey: .sessionId)
             try c.encode(title, forKey: .title)
+        case .sessionAutoApprove(let id, let sessionId, let enabled):
+            try c.encode("session.autoApprove", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(sessionId, forKey: .sessionId)
+            try c.encode(enabled, forKey: .enabled)
         case .sessionArchive(let id, let sessionId, let archived, let removeWorktree):
             try c.encode("session.archive", forKey: .type)
             try c.encode(id, forKey: .id)

@@ -113,6 +113,9 @@ struct ChatView: View {
                 remove: { id in attachments.removeAll { $0.id == id } },
                 options: session.map { ConfigOption.ordered($0.config) } ?? [],
                 choose: { option, value in Task { await model.store.setConfig(sessionID, configId: option.id, value: value) } },
+                // A helper follows its lead, and terminal agents never ask.
+                autoApprove: session?.parentId == nil && !model.store.isTerminal(sessionID) ? session?.autoApprove ?? false : nil,
+                setAutoApprove: { enabled in Task { await model.store.setAutoApprove(sessionID, enabled) } },
                 suggestions: suggestions,
                 pick: pick,
                 paste: pasteImage,
@@ -805,6 +808,9 @@ private struct Composer: View {
     /// The agent's settings (model, effort, mode), shown under the text field.
     let options: [ConfigOption]
     let choose: (ConfigOption, String) -> Void
+    /// Missing when this session has no such choice.
+    let autoApprove: Bool?
+    let setAutoApprove: (Bool) -> Void
     /// Slash commands or files matching what is being typed.
     let suggestions: [Suggestion]
     let pick: (Suggestion) -> Void
@@ -940,6 +946,20 @@ private struct Composer: View {
         HStack(spacing: compact ? 8 : 14) {
             ForEach(options) { option in
                 SettingMenu(option: option, compact: compact) { choose(option, $0) }
+            }
+            if let autoApprove {
+                Toggle(isOn: Binding(get: { autoApprove }, set: setAutoApprove)) {
+                    Label(L("Auto-approve", "Otomatik onay"), systemImage: "checkmark.shield")
+                        .labelStyle(compact ? AnyLabelStyle.iconOnly : AnyLabelStyle.titleAndIcon)
+                        .font(.caption)
+                }
+                .toggleStyle(.checkbox)
+                .fixedSize()
+                .help(L(
+                    "Approves routine actions by itself. It still asks before major ones: pushing, deleting folders, rewriting git history, deploying, touching secrets or files outside this task's folder.",
+                    "Sıradan işlemleri kendisi onaylar. Büyük işlemlerde yine sorar: push, klasör silme, git geçmişini değiştirme, yayına alma, gizli bilgilere ya da bu görevin klasörü dışındaki dosyalara dokunma."
+                ))
+                .accessibilityLabel(L("Auto-approve", "Otomatik onay"))
             }
             Spacer(minLength: 0)
             if hint {

@@ -54,6 +54,8 @@ export interface SessionInfo {
   reviewOf?: string;
   /** The lead judges the work's size and hands independent parts to helpers. */
   split?: boolean;
+  /** Permission requests are answered "allow once" by the server, except the major ones (see autoapprove.ts). Helpers follow their lead. */
+  autoApprove?: boolean;
   /** A helper whose agent was stopped after sitting idle; the next message starts it again where it left off. */
   resting?: boolean;
   error?: string;
@@ -406,6 +408,8 @@ export type ClientMessage =
   | { type: "session.cancel"; id: string; sessionId: string }
   | { type: "session.permission"; id: string; sessionId: string; requestId: string; optionId: string }
   | { type: "session.rename"; id: string; sessionId: string; title: string }
+  /** Turning it on also answers the requests already open, unless they are major. */
+  | { type: "session.autoApprove"; id: string; sessionId: string; enabled: boolean }
   /** `removeWorktree` (when archiving) also takes away a project session's worktree; its work stays on its branch. */
   | { type: "session.archive"; id: string; sessionId: string; archived: boolean; removeWorktree?: boolean }
   | { type: "session.search"; id: string; query: string }
@@ -529,6 +533,7 @@ const STRING_FIELDS: Record<string, readonly string[]> = {
   "session.cancel": ["id", "sessionId"],
   "session.permission": ["id", "sessionId", "requestId", "optionId"],
   "session.rename": ["id", "sessionId", "title"],
+  "session.autoApprove": ["id", "sessionId"],
   "session.archive": ["id", "sessionId"],
   "session.search": ["id", "query"],
   "mcp.list": ["id"],
@@ -689,6 +694,10 @@ export function parseClientMessage(raw: string): ParseResult {
   }
   if (data.type === "web.enable") {
     if (typeof data.enabled !== "boolean") return fail("bad_message", "web.enable needs a boolean 'enabled'");
+    (message as Record<string, unknown>).enabled = data.enabled;
+  }
+  if (data.type === "session.autoApprove") {
+    if (typeof data.enabled !== "boolean") return fail("bad_message", "session.autoApprove needs a boolean 'enabled'");
     (message as Record<string, unknown>).enabled = data.enabled;
   }
   if (data.type === "session.pullRequest") {

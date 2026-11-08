@@ -621,6 +621,18 @@ import Testing
                 == #"{"configId":"model","id":"r","sessionId":"s","type":"session.config","value":"sonnet"}"#
         )
     }
+
+    @Test func decodesAutoApproveAndAsksForAChange() throws {
+        let updated = try ServerMessage.decode(
+            #"{"type":"session.updated","session":{"id":"s","agent":"claude","title":"A","status":"idle","createdAt":"c","archived":false,"autoApprove":true}}"#
+        )
+        guard case .sessionUpdated(let info) = updated else { Issue.record("expected session.updated"); return }
+        #expect(info.autoApprove == true)
+        #expect(
+            try ClientMessage.sessionAutoApprove(id: "r", sessionId: "s", enabled: true).jsonString()
+                == #"{"enabled":true,"id":"r","sessionId":"s","type":"session.autoApprove"}"#
+        )
+    }
 }
 
 @MainActor @Suite struct NodeTests {

@@ -10,6 +10,7 @@
 //   "whoami" → answers with the ACP session id it is running (new or resumed)
 //   "delegate: <task>" → starts a helper through the `kervan` MCP server, waits, answers "helper said: <reply>"
 //   "askperm: <kind> <title>" → asks permission for that tool call, answers "permission: <optionId or cancelled>"
+//   "askalways: <kind> <title>" → the same, but offering only "allow always" (and reject)
 //   "usage <usd>" → reports a usage update with that cumulative cost
 //   "modelcheck" → the model currently chosen (session setting "model": fast | smart)
 //   with --legacy, models and modes come the older way (session/new `models` and `modes`, session/set_model,
@@ -169,13 +170,15 @@ acp
       await update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "spent" } });
       return { stopReason: "end_turn" };
     }
-    if (text.startsWith("askperm: ")) {
-      const [kind, ...rest] = text.slice("askperm: ".length).split(" ");
+    if (text.startsWith("askperm: ") || text.startsWith("askalways: ")) {
+      const [kind, ...rest] = text.slice(text.indexOf(": ") + 2).split(" ");
       const answer = await client.request("session/request_permission", {
         sessionId: params.sessionId,
         toolCall: { toolCallId: "p1", title: rest.join(" "), kind: kind as acp.ToolKind },
         options: [
-          { optionId: "yes", name: "Allow", kind: "allow_once" },
+          text.startsWith("askalways: ")
+            ? { optionId: "always", name: "Always allow", kind: "allow_always" }
+            : { optionId: "yes", name: "Allow", kind: "allow_once" },
           { optionId: "no", name: "Reject", kind: "reject_once" },
         ],
       });

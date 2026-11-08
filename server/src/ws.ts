@@ -70,6 +70,7 @@ const WEB_ALLOWED = new Set<string>([
   "session.cancel",
   "session.permission",
   "session.rename",
+  "session.autoApprove",
   "session.archive",
   "session.search",
   "session.config",
@@ -392,6 +393,9 @@ async function handleRequest(
       return send(ws, { type: "ok", id: message.id });
     case "session.rename":
       sessions.rename(message.sessionId, message.title);
+      return send(ws, { type: "ok", id: message.id });
+    case "session.autoApprove":
+      sessions.setAutoApprove(message.sessionId, message.enabled);
       return send(ws, { type: "ok", id: message.id });
     case "session.archive":
       await sessions.archive(message.sessionId, message.archived, message.removeWorktree ?? false);

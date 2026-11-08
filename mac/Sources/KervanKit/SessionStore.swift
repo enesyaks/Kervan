@@ -579,6 +579,10 @@ public final class SessionStore {
         await request(.sessionPermission(id: Self.newID(), sessionId: sessionID, requestId: requestId, optionId: optionId))
     }
 
+    public func setAutoApprove(_ sessionID: String, _ enabled: Bool) async {
+        await request(.sessionAutoApprove(id: Self.newID(), sessionId: sessionID, enabled: enabled))
+    }
+
     public func rename(_ sessionID: String, title: String) async {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }

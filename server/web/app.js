@@ -400,6 +400,15 @@ async function archive(sessionId) {
   }
 }
 
+async function setAutoApprove(sessionId, enabled) {
+  try {
+    await request({ type: "session.autoApprove", sessionId, enabled });
+  } catch (error) {
+    if (paneParts) paneParts.optionsSig = undefined; // the box goes back to what the server says
+    showFlash(error.message);
+  }
+}
+
 async function configure(sessionId, configId, value) {
   try { await request({ type: "session.config", sessionId, configId, value }); } catch (error) { showFlash(error.message); }
 }
@@ -1075,10 +1084,10 @@ function renderSessionPane() {
       state.connection === "offline" ? h("button", { class: "quiet", onclick: () => void wake() }, L("Try now", "Şimdi dene")) : null);
   }
   paneParts.menuBox.replaceChildren(...sessionMenu(session).filter(Boolean));
-  const optionsSig = JSON.stringify(session.config ?? []);
+  const optionsSig = JSON.stringify([session.config ?? [], session.autoApprove ?? false]);
   if (paneParts.optionsSig !== optionsSig) {
     paneParts.optionsSig = optionsSig;
-    paneParts.options.replaceChildren(...configMenus(session));
+    paneParts.options.replaceChildren(...configMenus(session), ...autoApproveToggle(session));
   }
   paneParts.button.className = `send${busy ? " stop" : ""}`;
   paneParts.button.replaceChildren(icon(busy ? "stop" : "send"));
@@ -1152,6 +1161,18 @@ function configMenus(session) {
     }, option.choices.map((choice) => h("option", { value: choice.value, selected: choice.value === option.value }, choice.name)));
     return h("label", { class: "setting" }, select);
   });
+}
+
+/** A helper follows its lead, and terminal agents never ask, so neither gets the box. */
+function autoApproveToggle(session) {
+  if (session.parentId || state.agents.find((agent) => agent.id === session.agent)?.terminal) return [];
+  return [h("label", {
+    class: "auto-approve",
+    title: L("Approves routine actions by itself. It still asks before major ones: pushing, deleting folders, rewriting git history, deploying, touching secrets or files outside this task's folder.",
+      "Sıradan işlemleri kendisi onaylar. Büyük işlemlerde yine sorar: push, klasör silme, git geçmişini değiştirme, yayına alma, gizli bilgilere ya da bu görevin klasörü dışındaki dosyalara dokunma."),
+  },
+    h("input", { type: "checkbox", checked: session.autoApprove === true, onchange: (e) => void setAutoApprove(session.id, e.target.checked) }),
+    L("Auto-approve", "Otomatik onay"))];
 }
 
 function openRename(session) {

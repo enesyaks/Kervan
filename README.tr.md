@@ -83,7 +83,10 @@ mikrofon düğmesi macOS diktesini başlatır.
 ### Kontrol sizde
 Komut çalıştırmak ya da dosya silmek gibi işlerde ajan durur ve **onayınızı bekler**; Dock simgesi ve
 bildirim haber verir. Bir mesajı **düzenleyip yeniden gönderebilir** ya da klasörü o mesajdan **önceye geri
-sarabilirsiniz**. Konuşma silinmez, ajana olan biten söylenir.
+sarabilirsiniz**. Konuşma silinmez, ajana olan biten söylenir. Güvendiğiniz bir görevde mesaj kutusunun altındaki
+**Otomatik onay** kutusunu işaretleyin: ajan artık yalnızca push, klasör silme, git geçmişini değiştirme, yayına alma,
+gizli bilgilere ya da görevin klasörü dışındaki dosyalara dokunma gibi büyük değişikliklerde durur. Bu bir kolaylıktır,
+korumalı alan değildir: ajanın yazdığı bir betik bunları yine fark edilmeden yapabilir.
 
 </td>
 <td><img src="docs/media/tr/permission.png" alt="Ajanın onay isteği"></td>
