@@ -713,6 +713,8 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
     case cardSave(id: String, card: CardInput)
     /// Moving a card that hasn't started to Working starts its session.
     case cardMove(id: String, cardId: String, column: CardColumn)
+    /// Answers a card's model question: the suggested model, or the session's default.
+    case cardModel(id: String, cardId: String, useDefault: Bool)
     case cardDelete(id: String, cardId: String)
     case scheduleList(id: String)
     case scheduleSave(id: String, schedule: ScheduleInput)
@@ -754,7 +756,7 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
         case type, `protocol`, client, id, agent, sessionId, text, requestId, optionId, attachments, title, archived, query
         case skills, mcpServers, server, name, agentId, role, roleId, roles, orchestrate, budgetUsd, configId, value
         case projectId, since, seq, paths, project, schedule, scheduleId, days, timeZone, terminalId, data, message, body
-        case enabled, deviceId, shared, removeWorktree, card, cardId, column, alerts, split, code, ollamaModel, node, lmStudioModel
+        case enabled, deviceId, shared, removeWorktree, card, cardId, column, alerts, split, code, ollamaModel, node, lmStudioModel, useDefault
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -868,6 +870,11 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
             try c.encode(id, forKey: .id)
             try c.encode(cardId, forKey: .cardId)
             try c.encode(column.rawValue, forKey: .column)
+        case .cardModel(let id, let cardId, let useDefault):
+            try c.encode("card.model", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(cardId, forKey: .cardId)
+            try c.encode(useDefault, forKey: .useDefault)
         case .cardDelete(let id, let cardId):
             try c.encode("card.delete", forKey: .type)
             try c.encode(id, forKey: .id)

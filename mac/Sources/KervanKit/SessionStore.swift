@@ -261,6 +261,11 @@ public final class SessionStore {
     }
 
     @discardableResult
+    public func answerCardModel(_ cardID: String, useDefault: Bool) async -> String? {
+        await call(.cardModel(id: Self.newID(), cardId: cardID, useDefault: useDefault))
+    }
+
+    @discardableResult
     public func deleteCard(_ cardID: String) async -> String? {
         await call(.cardDelete(id: Self.newID(), cardId: cardID))
     }

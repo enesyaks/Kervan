@@ -68,6 +68,22 @@ struct BoardSection: View {
         .sheet(item: $editing) { draft in
             CardSheet(draft: draft).environment(model)
         }
+        .sheet(item: choosing) { card in
+            if let choice = card.modelChoice {
+                ModelChoiceSheet(card: card, choice: choice).environment(model)
+            }
+        }
+    }
+
+    /// The card waiting for its model. The server ends the wait, so the sheet closes when the question goes away, or with the connection.
+    private var choosing: Binding<CardInfo?> {
+        Binding(
+            get: {
+                guard model.connection.state.isConnected else { return nil }
+                return (model.store.boards[projectID] ?? []).first { $0.modelChoice != nil }
+            },
+            set: { _ in }
+        )
     }
 
     private func lane(_ column: CardColumn, cards: [CardInfo]) -> some View {
@@ -176,6 +192,65 @@ private struct CardTile: View {
 
     private func move(_ column: CardColumn) {
         Task { if let failure = await model.store.moveCard(card.id, to: column) { model.store.lastError = failure } }
+    }
+}
+
+/// Says which model the card is going on with, and offers the session's default instead.
+private struct ModelChoiceSheet: View {
+    let card: CardInfo
+    let choice: CardModelChoice
+    @Environment(AppModel.self) private var model
+    @State private var countdown: ClosedRange<Date>
+    @State private var sending = false
+
+    init(card: CardInfo, choice: CardModelChoice) {
+        self.card = card
+        self.choice = choice
+        let now = Date()
+        _countdown = State(initialValue: now...now.addingTimeInterval(TimeInterval(choice.waitSeconds)))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(L("Continuing with \(choice.model)", "\(choice.model) ile devam ediliyor")).font(.title2.weight(.semibold))
+            Text(explanation).fixedSize(horizontal: false, vertical: true)
+            Text(L("Your default model: \(choice.defaultModel)", "Varsayılan modeliniz: \(choice.defaultModel)"))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 4) {
+                Text(L("Starts by itself in", "Kendiliğinden başlamasına kalan"))
+                Text(timerInterval: countdown, countsDown: true).monospacedDigit()
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button(L("Use default model", "Varsayılan modelle devam et")) { answer(useDefault: true) }
+                    .disabled(sending)
+                Button(L("Continue", "Devam et")) { answer(useDefault: false) }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.kervanLapis)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(sending)
+            }
+        }
+        .padding(22)
+        .frame(width: 420)
+        .interactiveDismissDisabled()
+    }
+
+    private var explanation: String {
+        choice.size == "small"
+            ? L("\"\(card.title)\" looks like a small task, so a cheaper model should be enough.", "\"\(card.title)\" küçük bir iş gibi görünüyor, bu yüzden daha ucuz bir model yeterli olmalı.")
+            : L("\"\(card.title)\" looks like a routine task, so a cheaper model should be enough.", "\"\(card.title)\" sıradan bir iş gibi görünüyor, bu yüzden daha ucuz bir model yeterli olmalı.")
+    }
+
+    private func answer(useDefault: Bool) {
+        sending = true
+        Task {
+            if let failure = await model.store.answerCardModel(card.id, useDefault: useDefault) { model.store.lastError = failure }
+            sending = false
+        }
     }
 }
 

@@ -36,7 +36,9 @@ let cwd = process.cwd();
 let authenticated = "none";
 let mcpNames: string[] = [];
 let mcpServers: acp.McpServer[] = [];
-let model = "fast";
+// With --tiered, models named like real ones, for the board's model suggestions.
+const tiered = process.argv.includes("--tiered");
+let model = tiered ? "default" : "fast";
 let mode = "default";
 const legacy = process.argv.includes("--legacy");
 const legacyState = () => ({
@@ -62,7 +64,13 @@ const configOptions = (): acp.SessionConfigOption[] => [
     name: "Model",
     category: "model",
     currentValue: model,
-    options: [
+    options: tiered ? [
+      { value: "default", name: "Default (recommended)", description: "Opus 5.5" },
+      { value: "opus", name: "Opus 5.5" },
+      { value: "sonnet", name: "Sonnet 5.5" },
+      { value: "haiku", name: "Haiku 5.5" },
+      { value: "old-haiku", name: "Haiku 4.5" },
+    ] : [
       { group: "small", name: "Küçük", options: [{ value: "fast", name: "Hızlı" }] },
       { group: "big", name: "Büyük", options: [{ value: "smart", name: "Akıllı", description: "Daha yavaş" }] },
     ],

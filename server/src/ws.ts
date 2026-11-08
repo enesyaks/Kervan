@@ -186,6 +186,9 @@ async function handleRequest(
     case "card.move":
       await requireBoard(sessions).move(message.cardId, message.column);
       return send(ws, { type: "ok", id: message.id });
+    case "card.model":
+      requireBoard(sessions).answerModel(message.cardId, message.useDefault);
+      return send(ws, { type: "ok", id: message.id });
     case "card.delete":
       requireBoard(sessions).remove(message.cardId);
       return send(ws, { type: "ok", id: message.id });

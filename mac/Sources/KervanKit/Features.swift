@@ -265,6 +265,14 @@ public enum CardColumn: String, Codable, CaseIterable, Sendable, Identifiable {
     public var id: String { rawValue }
 }
 
+/// A cheaper model suggested for a card about to start; with no answer the card goes on with it after `waitSeconds`.
+public struct CardModelChoice: Codable, Equatable, Sendable {
+    public let model: String
+    public let defaultModel: String
+    public let size: String
+    public let waitSeconds: Int
+}
+
 /// A task on a project's board. Once moved to Working it has a session, and its column follows that session.
 public struct CardInfo: Codable, Equatable, Sendable, Identifiable {
     public let id: String
@@ -277,6 +285,7 @@ public struct CardInfo: Codable, Equatable, Sendable, Identifiable {
     public let files: [String]?
     public let column: CardColumn
     public let sessionId: String?
+    public let modelChoice: CardModelChoice?
     public let createdAt: String
     public let updatedAt: String
 }

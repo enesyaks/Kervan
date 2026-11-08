@@ -955,7 +955,8 @@ function boardPane(projectId) {
               },
                 h("div", { class: "card-title" }, card.title),
                 h("div", { class: "card-prompt" }, card.prompt),
-                h("div", { class: "card-agent" }, agentName(card.agent)))));
+                h("div", { class: "card-agent" }, agentName(card.agent)),
+                card.modelChoice ? h("div", { class: "card-agent" }, L(`Continuing with ${card.modelChoice.model}`, `${card.modelChoice.model} ile devam ediliyor`)) : null)));
           })),
   ];
 }

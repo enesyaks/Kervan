@@ -305,6 +305,14 @@ import Testing
         let move: String = try ClientMessage.cardMove(id: "m", cardId: "c", column: .working).jsonString()
         #expect(move.contains(#""column":"working""#) && move.contains(#""type":"card.move""#))
     }
+
+    @Test func cardsCarryTheirModelQuestionAndItsAnswerEncodes() throws {
+        let board = try ServerMessage.decode(#"{"type":"board.updated","projectId":"p","cards":[{"id":"c","projectId":"p","title":"T","prompt":"Do it","agent":"claude","column":"working","modelChoice":{"model":"Haiku 5.5","defaultModel":"Opus 5.5","size":"small","waitSeconds":15},"createdAt":"a","updatedAt":"b"}]}"#)
+        guard case .boardUpdated(_, let cards) = board else { Issue.record("not a board"); return }
+        #expect(cards.first?.modelChoice?.model == "Haiku 5.5" && cards.first?.modelChoice?.waitSeconds == 15)
+        let answer: String = try ClientMessage.cardModel(id: "m", cardId: "c", useDefault: true).jsonString()
+        #expect(answer.contains(#""useDefault":true"#) && answer.contains(#""type":"card.model""#))
+    }
 }
 
 @Suite struct PhoneAlertTests {

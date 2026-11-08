@@ -45,6 +45,7 @@ private struct WireDown: LocalizedError {
         ("board.list", { await $0.loadBoard("p") }),
         ("card.save", { await $0.saveCard(CardInput(projectId: "p", title: "t", prompt: "x", agent: "a")) }),
         ("card.move", { await $0.moveCard("c", to: .done) }),
+        ("card.model", { await $0.answerCardModel("c", useDefault: true) }),
         ("card.delete", { await $0.deleteCard("c") }),
         ("github.status", { await $0.loadGitHub() }),
         ("github.disconnect", { await $0.disconnectGitHub() }),

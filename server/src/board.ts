@@ -6,7 +6,8 @@ import { Transform, type Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { TooLargeError } from "./files.ts";
 import { log } from "./log.ts";
-import { KervanError, type CardColumn, type CardInfo, type ServerMessage, type SessionInfo } from "./protocol.ts";
+import { suggestModel } from "./modelpick.ts";
+import { KervanError, type CardColumn, type CardInfo, type ConfigOption, type ServerMessage, type SessionInfo } from "./protocol.ts";
 import type { SessionManager } from "./sessions.ts";
 
 const COLUMNS: readonly CardColumn[] = ["todo", "working", "needs", "review", "done"];
@@ -17,17 +18,23 @@ const MAX_FILES = 20;
 const FILE_REF = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/(?!\.\.?$)[^/\\\0]+$/;
 /** Files uploaded for a card that was never saved are swept after this long. */
 const ORPHAN_MS = 24 * 60 * 60_000;
+/** Long enough to read the popup and answer it; short enough that a card nobody is watching isn't held up. */
+const MODEL_CHOICE_SECONDS = 15;
+
+/** A setting to change before the card's prompt goes. */
+type ConfigChange = { configId: string; value: string };
 
 export interface BoardDeps {
   hasProject: (id: string) => boolean;
   hasAgent: (id: string) => boolean;
   /** The node the agent runs on, when it isn't this server. */
   remoteNode?: (id: string) => string | undefined;
-  /** Starts a session in the project with the card's prompt and files; resolves with its id once the prompt is sent. */
-  start: (card: CardInfo, files: { source: string; name: string }[]) => Promise<string>;
+  /** Starts a session in the project with the card's prompt and files, after `choose` has seen its settings; resolves with its id once the prompt is sent. */
+  start: (card: CardInfo, files: { source: string; name: string }[], choose: (config: ConfigOption[]) => Promise<ConfigChange | undefined>) => Promise<string>;
   /** The session as it is now, to catch up after starting. */
   session: (id: string) => SessionInfo | undefined;
   broadcast: (message: ServerMessage) => void;
+  modelChoiceSeconds?: number;
 }
 
 /**
@@ -43,11 +50,20 @@ export class Board {
   private readonly file: string;
   private readonly deps: BoardDeps;
   private cards: Map<string, CardInfo>;
+  /** Cards waiting to hear which model to use. */
+  private readonly choices = new Map<string, { answer: (useDefault: boolean) => void; cancel: () => void }>();
 
   constructor(file: string, deps: BoardDeps) {
     this.file = file;
     this.deps = deps;
     const stored = existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as CardInfo[]) : [];
+    for (const card of stored) {
+      // The server stopped while the card waited: its prompt never went, so it can simply be started again.
+      if (card.modelChoice) {
+        delete card.modelChoice;
+        card.column = "todo";
+      }
+    }
     this.cards = new Map(stored.map((card) => [card.id, card]));
     this.filesDir = join(dirname(file), "card-files");
     mkdirSync(this.filesDir, { recursive: true, mode: 0o700 });
@@ -102,6 +118,7 @@ export class Board {
 
     if (typeof input.id === "string") {
       const card = this.require(input.id);
+      this.refuseWhileChoosing(card);
       if (card.sessionId) throw new KervanError("bad_message", "a card can't be changed once its session has started");
       Object.assign(card, { title, prompt, agent, updatedAt: now });
       if (input.split === true) card.split = true;
@@ -124,13 +141,15 @@ export class Board {
   async move(cardId: string, column: string): Promise<void> {
     if (!COLUMNS.includes(column as CardColumn)) throw new KervanError("bad_message", `column must be one of ${COLUMNS.join(", ")}`);
     const card = this.require(cardId);
+    this.refuseWhileChoosing(card);
     if (column === "working" && !card.sessionId) {
       this.place(card, "working");
       try {
         const files = (card.files ?? []).map((f) => ({ source: join(this.filesDir, f), name: f.slice(f.indexOf("/") + 1) }));
-        card.sessionId = await this.deps.start(card, files);
+        card.sessionId = await this.deps.start(card, files, (config) => this.chooseModel(card, config));
         card.prompted = true;
       } catch (error) {
+        if (!this.cards.has(cardId)) return; // deleted while it waited for its model
         this.place(card, "todo");
         throw new KervanError("bad_message", `couldn't start the session: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -149,8 +168,50 @@ export class Board {
   remove(cardId: string): void {
     const card = this.require(cardId);
     this.cards.delete(cardId);
+    this.choices.get(cardId)?.cancel();
     this.changed(card.projectId);
     if (!card.sessionId) this.drop(card.files ?? []);
+  }
+
+  /** The user's answer to a card's model question. One that comes after the wait ran out has nothing left to change. */
+  answerModel(cardId: string, useDefault: boolean): void {
+    this.require(cardId);
+    this.choices.get(cardId)?.answer(useDefault);
+  }
+
+  /** Suggests a cheaper model if the work allows it and holds the card's prompt until the user answers or the wait runs out. */
+  private chooseModel(card: CardInfo, config: ConfigOption[]): Promise<ConfigChange | undefined> {
+    const suggestion = suggestModel(card.title, card.prompt, config, card.split);
+    if (!suggestion) return Promise.resolve(undefined);
+    const waitSeconds = this.deps.modelChoiceSeconds ?? MODEL_CHOICE_SECONDS;
+    card.modelChoice = { model: suggestion.name, defaultModel: suggestion.defaultName, size: suggestion.size, waitSeconds };
+    this.changed(card.projectId);
+
+    return new Promise((resolve, reject) => {
+      const end = () => {
+        clearTimeout(timer);
+        this.choices.delete(card.id);
+        delete card.modelChoice;
+      };
+      const answer = (useDefault: boolean) => {
+        end();
+        this.changed(card.projectId);
+        resolve(useDefault ? undefined : { configId: suggestion.configId, value: suggestion.value });
+      };
+      const timer = setTimeout(() => answer(false), waitSeconds * 1000);
+      timer.unref();
+      this.choices.set(card.id, {
+        answer,
+        cancel: () => {
+          end();
+          reject(new Error("the card was deleted"));
+        },
+      });
+    });
+  }
+
+  private refuseWhileChoosing(card: CardInfo): void {
+    if (card.modelChoice) throw new KervanError("bad_message", "this card is waiting for its model to be chosen");
   }
 
   /** Called for every session update: moves the card linked to it. Done stays Done unless the session runs again. */
@@ -244,8 +305,8 @@ export function attachBoard(sessions: SessionManager, file: string): Board {
     hasProject: (id) => sessions.projects?.get(id) !== undefined,
     hasAgent: (id) => sessions.agentKinds.includes(id),
     remoteNode: (id) => sessions.remoteNode(id),
-    start: (card, files) =>
-      sessions.runTask({ agent: card.agent, title: card.title, prompt: card.prompt, projectId: card.projectId, files, ...(card.split ? { split: true } : {}) }),
+    start: (card, files, choose) =>
+      sessions.runTask({ agent: card.agent, title: card.title, prompt: card.prompt, projectId: card.projectId, files, ...(card.split ? { split: true } : {}), choose }),
     session: (id) => sessions.list().find((s) => s.id === id),
     broadcast: (message) => sessions.broadcast(message),
   });

@@ -257,8 +257,18 @@ export interface CardInfo {
   sessionId?: string;
   /** The prompt has been sent; from here the column follows the session. */
   prompted?: boolean;
+  /** Set while the card, about to start, waits to hear which model to use. */
+  modelChoice?: CardModelChoice;
   createdAt: string;
   updatedAt: string;
+}
+
+/** A cheaper model suggested for a starting card; without an answer the card goes on with it after `waitSeconds`. */
+export interface CardModelChoice {
+  model: string;
+  defaultModel: string;
+  size: "small" | "medium";
+  waitSeconds: number;
 }
 
 /** Whether the server can push and open pull requests: gh installed, and signed in to GitHub as `account`. */
@@ -367,6 +377,8 @@ export type ClientMessage =
   | { type: "card.save"; id: string; card: Record<string, unknown> }
   /** Moving a card that hasn't started to "working" starts its session with the card's prompt. */
   | { type: "card.move"; id: string; cardId: string; column: string }
+  /** Answers a card's `modelChoice`: the suggested model, or the session's default. */
+  | { type: "card.model"; id: string; cardId: string; useDefault: boolean }
   | { type: "card.delete"; id: string; cardId: string }
   /** GitHub sign-in for the server's gh, from the app only. */
   | { type: "github.status"; id: string }
@@ -562,6 +574,7 @@ const STRING_FIELDS: Record<string, readonly string[]> = {
   "board.list": ["id", "projectId"],
   "card.save": ["id"],
   "card.move": ["id", "cardId", "column"],
+  "card.model": ["id", "cardId"],
   "card.delete": ["id", "cardId"],
   "github.status": ["id"],
   "github.connect": ["id"],
@@ -711,6 +724,10 @@ export function parseClientMessage(raw: string): ParseResult {
     if (data.type !== type) continue;
     if (!isRecord(data[field])) return fail("bad_message", `${type} needs a '${field}' object`);
     (message as Record<string, unknown>)[field] = data[field];
+  }
+  if (data.type === "card.model") {
+    if (typeof data.useDefault !== "boolean") return fail("bad_message", "card.model needs a boolean 'useDefault'");
+    (message as Record<string, unknown>).useDefault = data.useDefault;
   }
   if (data.type === "usage.report") {
     const days = data.days ?? 30;

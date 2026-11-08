@@ -1085,6 +1085,7 @@ export class SessionManager {
   /**
    * A scheduled task or a board card: a new session that gets `prompt` as soon as its agent is up. Resolves with its id.
    * `files` (on this server's disk) are copied into the session's uploads/ folder and go along with the prompt.
+   * `choose` sees the agent's settings before the prompt goes and may name one to change; if it throws, the session is dropped.
    */
   async runTask(task: {
     agent: string;
@@ -1095,6 +1096,7 @@ export class SessionManager {
     split?: boolean;
     shared?: boolean;
     files?: { source: string; name: string }[];
+    choose?: (config: ConfigOption[]) => Promise<{ configId: string; value: string } | undefined>;
   }): Promise<string> {
     const info = await this.create(task.agent, [], [], {
       title: task.title,
@@ -1106,6 +1108,18 @@ export class SessionManager {
     const session = this.require(info.id);
     await session.ready;
     if (session.info.status !== "idle") throw new Error(session.info.error ?? "the agent didn't start");
+    if (task.choose) {
+      const change = await task.choose(session.info.config ?? []).catch(async (error: unknown) => {
+        await this.archive(info.id, true);
+        throw error;
+      });
+      if (change) {
+        // A refused switch shouldn't cost the task; it runs on the agent's default.
+        await this.setConfig(info.id, change.configId, change.value).catch((error) =>
+          log("warn", "couldn't switch the model", { id: info.id, error: String(error) }),
+        );
+      }
+    }
     const attachments: string[] = [];
     for (const file of task.files ?? []) {
       // Two files named "rapor.pdf": the second becomes "rapor 2.pdf".
