@@ -263,6 +263,7 @@ struct CardDraft: Identifiable {
     var prompt = ""
     var agent: String
     var split = false
+    var autoApprove = false
     var files: [Attachment] = []
 
     init(projectID: String, agent: String) {
@@ -277,6 +278,7 @@ struct CardDraft: Identifiable {
         prompt = card.prompt
         agent = card.agent
         split = card.split ?? false
+        autoApprove = card.autoApprove ?? false
         files = (card.files ?? []).map { Attachment(name: CardInfo.fileName($0), remotePath: $0, state: .ready) }
     }
 }
@@ -297,6 +299,8 @@ private struct CardSheet: View {
                 TextField(L("Title", "Başlık"), text: $draft.title, prompt: Text(L("e.g. Add a dark theme", "ör. Koyu tema ekle")))
                 AgentPicker(agent: $draft.agent, serverOnly: true)
                 Toggle(L("Split into helpers when the work is large", "İş büyük olduğunda yardımcılara böl"), isOn: $draft.split)
+                Toggle(L("Auto-approve: only ask before major changes", "Otomatik onay: yalnızca büyük değişikliklerde sor"), isOn: $draft.autoApprove)
+                    .help(L("Approves routine actions by itself. It still asks before major ones: pushing, deleting folders, rewriting git history, deploying, touching secrets or files outside this task's folder.", "Sıradan işlemleri kendisi onaylar. Büyük işlemlerde yine sorar: push, klasör silme, git geçmişini değiştirme, yayına alma, gizli bilgilere ya da bu görevin klasörü dışındaki dosyalara dokunma."))
                 VStack(alignment: .leading, spacing: 4) {
                     Text(L("Prompt", "İstem"))
                     TextEditor(text: $draft.prompt).frame(height: 120)
@@ -415,7 +419,7 @@ private struct CardSheet: View {
         saving = true
         defer { saving = false }
         failure = await model.store.saveCard(CardInput(
-            id: draft.cardID, projectId: draft.projectID, title: draft.title, prompt: draft.prompt, agent: draft.agent, split: draft.split,
+            id: draft.cardID, projectId: draft.projectID, title: draft.title, prompt: draft.prompt, agent: draft.agent, split: draft.split, autoApprove: draft.autoApprove,
             files: draft.files.map(\.remotePath)
         ))
         if failure == nil { dismiss() }

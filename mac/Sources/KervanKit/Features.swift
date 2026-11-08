@@ -281,6 +281,7 @@ public struct CardInfo: Codable, Equatable, Sendable, Identifiable {
     public let prompt: String
     public let agent: String
     public let split: Bool?
+    public let autoApprove: Bool?
     /// "<upload id>/<name>" references from `FileClient.uploadCardFile`.
     public let files: [String]?
     public let column: CardColumn
@@ -305,10 +306,12 @@ public struct CardInput: Encodable, Equatable, Sendable {
     public var prompt: String
     public var agent: String
     public var split: Bool
+    public var autoApprove: Bool
     public var files: [String]
 
-    public init(id: String? = nil, projectId: String, title: String, prompt: String, agent: String, split: Bool = false, files: [String] = []) {
+    public init(id: String? = nil, projectId: String, title: String, prompt: String, agent: String, split: Bool = false, autoApprove: Bool = false, files: [String] = []) {
         self.split = split
+        self.autoApprove = autoApprove
         self.files = files
         self.id = id
         self.projectId = projectId

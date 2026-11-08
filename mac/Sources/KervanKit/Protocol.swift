@@ -670,7 +670,7 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
     case ping(id: String)
     case sessionCreate(
         id: String, agent: String, skills: [String] = [], mcpServers: [String] = [], orchestrate: Bool = false,
-        budgetUsd: Double? = nil, projectId: String? = nil, shared: Bool = false, split: Bool = false
+        budgetUsd: Double? = nil, projectId: String? = nil, shared: Bool = false, split: Bool = false, autoApprove: Bool = false
     )
     /// `sinceTurn`: only what the last message changed; otherwise everything since the first one.
     case sessionChanges(id: String, sessionId: String, sinceTurn: Bool = false)
@@ -756,7 +756,7 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
         case type, `protocol`, client, id, agent, sessionId, text, requestId, optionId, attachments, title, archived, query
         case skills, mcpServers, server, name, agentId, role, roleId, roles, orchestrate, budgetUsd, configId, value
         case projectId, since, seq, paths, project, schedule, scheduleId, days, timeZone, terminalId, data, message, body
-        case enabled, deviceId, shared, removeWorktree, card, cardId, column, alerts, split, code, ollamaModel, node, lmStudioModel, useDefault
+        case autoApprove, enabled, deviceId, shared, removeWorktree, card, cardId, column, alerts, split, code, ollamaModel, node, lmStudioModel, useDefault
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -938,7 +938,7 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
         case .ping(let id):
             try c.encode("ping", forKey: .type)
             try c.encode(id, forKey: .id)
-        case .sessionCreate(let id, let agent, let skills, let mcpServers, let orchestrate, let budgetUsd, let projectId, let shared, let split):
+        case .sessionCreate(let id, let agent, let skills, let mcpServers, let orchestrate, let budgetUsd, let projectId, let shared, let split, let autoApprove):
             try c.encode("session.create", forKey: .type)
             try c.encode(id, forKey: .id)
             try c.encode(agent, forKey: .agent)
@@ -949,6 +949,7 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
             if let projectId { try c.encode(projectId, forKey: .projectId) }
             if shared { try c.encode(true, forKey: .shared) }
             if split { try c.encode(true, forKey: .split) }
+            if autoApprove { try c.encode(true, forKey: .autoApprove) }
         case .sessionConfig(let id, let sessionId, let configId, let value):
             try c.encode("session.config", forKey: .type)
             try c.encode(id, forKey: .id)

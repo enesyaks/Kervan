@@ -251,6 +251,8 @@ export interface CardInfo {
   agent: string;
   /** The session it starts splits large work into helpers. */
   split?: boolean;
+  /** The session it starts answers routine permission requests by itself. */
+  autoApprove?: boolean;
   /** Files that go with the prompt, as "<upload id>/<name>" from PUT /v1/cards/files; the name is after the "/". */
   files?: string[];
   column: CardColumn;
@@ -353,7 +355,7 @@ export type ClientMessage =
   | { type: "hello"; protocol: number; client: PeerInfo }
   | { type: "ping"; id: string }
   /** In a git project the session gets a worktree of its own unless `shared` asks for the project folder itself. */
-  | { type: "session.create"; id: string; agent: string; skills?: string[]; mcpServers?: string[]; orchestrate?: boolean; budgetUsd?: number; projectId?: string; shared?: boolean; split?: boolean }
+  | { type: "session.create"; id: string; agent: string; skills?: string[]; mcpServers?: string[]; orchestrate?: boolean; budgetUsd?: number; projectId?: string; shared?: boolean; split?: boolean; autoApprove?: boolean }
   /** `since` "session": everything since the first message; "turn": since the last one. */
   | { type: "session.changes"; id: string; sessionId: string; since?: "session" | "turn" }
   /** Puts files (all when `paths` is missing) back as they were before the user message `seq`. */
@@ -671,6 +673,10 @@ export function parseClientMessage(raw: string): ParseResult {
     if (data.split !== undefined) {
       if (typeof data.split !== "boolean") return fail("bad_message", "split must be true or false");
       (message as Record<string, unknown>).split = data.split;
+    }
+    if (data.autoApprove !== undefined) {
+      if (typeof data.autoApprove !== "boolean") return fail("bad_message", "autoApprove must be true or false");
+      (message as Record<string, unknown>).autoApprove = data.autoApprove;
     }
     if (data.shared !== undefined) {
       if (typeof data.shared !== "boolean") return fail("bad_message", "shared must be true or false");

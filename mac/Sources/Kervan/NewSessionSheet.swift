@@ -13,6 +13,8 @@ struct NewSessionSheet: View {
     /// With helpers on: the lead judges the size first and splits large work among them.
     @State private var split = false
     @State private var budget: Double?
+    /// Starts off every time, unlike the other choices: it means fewer questions, so it's decided per task.
+    @State private var autoApprove = false
     @State private var available: [SkillInfo]?
     @State private var loadError: String?
     @State private var project: String?
@@ -65,6 +67,12 @@ struct NewSessionSheet: View {
                             Text(L("The agent judges the size first: large work with separate parts it plans and hands out, small work it does itself. Idle helpers rest after a while and wake when needed.", "Ajan önce işin büyüklüğüne bakar: ayrı parçaları olan büyük işi planlayıp dağıtır, küçük işi kendisi yapar. Boşta kalan yardımcılar bir süre sonra dinlenmeye geçer, gerekince uyanır."))
                         }
                         BudgetField(budget: $budget)
+                    }
+                    if selected?.terminal != true {
+                        Toggle(isOn: $autoApprove) {
+                            Text(L("Auto-approve", "Otomatik onay"))
+                            Text(L("Approves routine actions by itself. It still asks before major ones: pushing, deleting folders, rewriting git history, deploying, touching secrets or files outside this task's folder.", "Sıradan işlemleri kendisi onaylar. Büyük işlemlerde yine sorar: push, klasör silme, git geçmişini değiştirme, yayına alma, gizli bilgilere ya da bu görevin klasörü dışındaki dosyalara dokunma."))
+                        }
                     }
                 }
 
@@ -126,7 +134,8 @@ struct NewSessionSheet: View {
                         budgetUsd: lead ? budget.flatMap { $0 > 0 ? $0 : nil } : nil,
                         projectId: folder,
                         shared: folder != nil && !ownBranch,
-                        split: lead && split
+                        split: lead && split,
+                        autoApprove: autoApprove && selected?.terminal != true
                     )
                     dismiss()
                 }

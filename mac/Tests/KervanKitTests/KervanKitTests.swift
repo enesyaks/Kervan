@@ -192,7 +192,7 @@ import Testing
     @Test func selectsOnlySessionsItCreated() async {
         let (store, outbox) = makeStore()
         await store.create(agent: "claude")
-        guard case .sessionCreate(let requestID, "claude", _, _, false, _, _, false, false)? = outbox.sent.last else {
+        guard case .sessionCreate(let requestID, "claude", _, _, false, _, _, false, false, false)? = outbox.sent.last else {
             Issue.record("expected a session.create")
             return
         }
@@ -628,6 +628,10 @@ import Testing
         )
         guard case .sessionUpdated(let info) = updated else { Issue.record("expected session.updated"); return }
         #expect(info.autoApprove == true)
+        #expect(
+            try ClientMessage.sessionCreate(id: "c", agent: "claude", autoApprove: true).jsonString()
+                == #"{"agent":"claude","autoApprove":true,"id":"c","type":"session.create"}"#
+        )
         #expect(
             try ClientMessage.sessionAutoApprove(id: "r", sessionId: "s", enabled: true).jsonString()
                 == #"{"enabled":true,"id":"r","sessionId":"s","type":"session.autoApprove"}"#

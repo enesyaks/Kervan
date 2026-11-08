@@ -118,7 +118,11 @@ interface CreateOptions {
   reviewOf?: string;
   /** Judge the work's size and hand independent parts to helpers (implies `orchestrate`). */
   split?: boolean;
+  /** Answer routine permission requests by itself; see setAutoApprove. */
+  autoApprove?: boolean;
 }
+
+const AUTO_APPROVE_ON = "Auto-approve is on: the agent only stops to ask before major changes.";
 
 interface PendingPermission {
   request: PermissionRequest;
@@ -355,6 +359,8 @@ export class SessionManager {
         ...(options.parentId ? { parentId: options.parentId } : {}),
         ...((options.orchestrate || options.split) && !options.parentId ? { orchestrate: true } : {}),
         ...(options.split && !options.parentId ? { split: true } : {}),
+        // Quietly ignored for terminal agents: the choice can come from a form that serves every agent.
+        ...(options.autoApprove && !options.parentId && this.agents.get(agent)?.protocol !== "pty" ? { autoApprove: true } : {}),
         ...(options.orchestrate && !options.parentId && options.budgetUsd ? { budgetUsd: options.budgetUsd } : {}),
         ...(worktreeFrom ? { branch: branchName(options.title ?? agent, id) } : {}),
         ...(options.projectId ? { projectId: options.projectId } : {}),
@@ -377,6 +383,7 @@ export class SessionManager {
     }
     this.sessions.set(id, session);
     this.save(session);
+    if (session.info.autoApprove) this.record(session, { kind: "notice", text: AUTO_APPROVE_ON });
     log("info", "session starting", { id, agent });
 
     session.ready = this.startAgent(session)
@@ -779,7 +786,7 @@ export class SessionManager {
     this.record(session, {
       kind: "notice",
       text: enabled
-        ? "Auto-approve is on: the agent only stops to ask before major changes."
+        ? AUTO_APPROVE_ON
         : "Auto-approve is off: the agent asks before each action again.",
     });
     if (!enabled) return;
@@ -1094,6 +1101,7 @@ export class SessionManager {
     projectId?: string;
     scheduleId?: string;
     split?: boolean;
+    autoApprove?: boolean;
     shared?: boolean;
     files?: { source: string; name: string }[];
     choose?: (config: ConfigOption[]) => Promise<{ configId: string; value: string } | undefined>;
@@ -1101,6 +1109,7 @@ export class SessionManager {
     const info = await this.create(task.agent, [], [], {
       title: task.title,
       ...(task.split ? { split: true } : {}),
+      ...(task.autoApprove ? { autoApprove: true } : {}),
       ...(task.shared ? { shared: true } : {}),
       ...(task.scheduleId ? { scheduleId: task.scheduleId } : {}),
       ...(task.projectId && this.projects?.get(task.projectId) ? { projectId: task.projectId } : {}),

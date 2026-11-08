@@ -85,7 +85,7 @@ macOS dictation.
 Before running a command or deleting a file, the agent stops and **waits for your approval**; the Dock icon
 and a notification tell you. You can **edit and resend** a message, or **rewind** the folder to before any
 message. The conversation stays, and the agent is told what happened. For a task you trust, tick **Auto-approve**
-under the message box: the agent then only stops before major changes, such as pushing, deleting folders, rewriting
+when you create it or under the message box: the agent then only stops before major changes, such as pushing, deleting folders, rewriting
 git history, deploying, or touching secrets or files outside the task's folder. It is a convenience, not a sandbox: a
 script the agent writes can still do these things unseen.
 

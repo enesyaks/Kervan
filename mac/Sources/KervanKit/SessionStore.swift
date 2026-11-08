@@ -152,13 +152,13 @@ public final class SessionStore {
 
     public func create(
         agent: String, skills: [String] = [], mcpServers: [String] = [], orchestrate: Bool = false, budgetUsd: Double? = nil,
-        projectId: String? = nil, shared: Bool = false, split: Bool = false
+        projectId: String? = nil, shared: Bool = false, split: Bool = false, autoApprove: Bool = false
     ) async {
         let id = Self.newID()
         pendingCreates.insert(id)
         await request(.sessionCreate(
             id: id, agent: agent, skills: skills, mcpServers: mcpServers, orchestrate: orchestrate, budgetUsd: budgetUsd,
-            projectId: projectId, shared: shared, split: split
+            projectId: projectId, shared: shared, split: split, autoApprove: autoApprove
         ))
     }
 

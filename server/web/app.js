@@ -347,13 +347,14 @@ async function answer(sessionId, requestId, optionId) {
   try { await request({ type: "session.permission", sessionId, requestId, optionId }); } catch (error) { showFlash(error.message); }
 }
 
-async function create(agent, split = false) {
+async function create(agent, split = false, autoApprove = false) {
   try {
     const payload = { type: "session.create", agent };
     if (split) {
       payload.orchestrate = true;
       payload.split = true;
     }
+    if (autoApprove) payload.autoApprove = true;
     const answer = await request(payload);
     state.sessions.set(answer.session.id, answer.session);
     location.hash = `#/s/${answer.session.id}`;
@@ -1007,6 +1008,9 @@ function openNewSession() {
     id: "split-helpers",
     onchange: (e) => { split = e.target.checked; },
   });
+  // Starts off every time: it means fewer questions, so it should be a choice made for this task.
+  let autoApprove = false;
+  const autoApproveCheckbox = h("input", { type: "checkbox", onchange: (e) => { autoApprove = e.target.checked; } });
   // With other machines around, the agents are listed under the machine that does the work.
   const onNodes = state.agents.some((agent) => agent.node);
   const nodes = [...new Set(state.agents.map((agent) => agent.node).filter(Boolean))].sort();
@@ -1016,7 +1020,7 @@ function openNewSession() {
       class: "agent-choice",
       disabled: Boolean(away),
       // Only an agent on this server can lead helpers.
-      onclick: () => { dialog.close(); void create(agent.id, split && !agent.node); },
+      onclick: () => { dialog.close(); void create(agent.id, split && !agent.node, autoApprove && !agent.terminal); },
     },
       h("span", { class: `dot ${away ? "closed" : "idle"}`, "aria-hidden": "true" }),
       h("span", { class: "text" }, agent.name));
@@ -1035,6 +1039,9 @@ function openNewSession() {
       h("span", {}, onNodes
         ? L("Split into helpers when the work is large (agents on this server)", "İş büyük olduğunda yardımcılara böl (bu sunucudaki ajanlar)")
         : L("Split into helpers when the work is large", "İş büyük olduğunda yardımcılara böl"))),
+    h("label", { class: "check-row", title: L("Approves routine actions by itself. It still asks before major ones: pushing, deleting folders, rewriting git history, deploying, touching secrets or files outside this task's folder.", "Sıradan işlemleri kendisi onaylar. Büyük işlemlerde yine sorar: push, klasör silme, git geçmişini değiştirme, yayına alma, gizli bilgilere ya da bu görevin klasörü dışındaki dosyalara dokunma.") },
+      autoApproveCheckbox,
+      h("span", {}, L("Auto-approve: only ask before major changes", "Otomatik onay: yalnızca büyük değişikliklerde sor"))),
     h("div", { class: "row" }, h("span", { class: "spacer" }), h("button", { class: "quiet", onclick: () => dialog.close() }, L("Cancel", "Vazgeç"))));
   dialog.addEventListener("close", () => dialog.remove());
   document.body.append(dialog);

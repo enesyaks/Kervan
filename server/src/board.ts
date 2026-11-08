@@ -123,6 +123,8 @@ export class Board {
       Object.assign(card, { title, prompt, agent, updatedAt: now });
       if (input.split === true) card.split = true;
       else delete card.split;
+      if (input.autoApprove === true) card.autoApprove = true;
+      else delete card.autoApprove;
       this.drop((card.files ?? []).filter((f) => !files.includes(f)));
       if (files.length > 0) card.files = files;
       else delete card.files;
@@ -131,7 +133,7 @@ export class Board {
     }
     const projectId = text("projectId", 80);
     if (!this.deps.hasProject(projectId)) throw new KervanError("bad_message", `no project '${projectId}'`);
-    const card: CardInfo = { id: randomUUID(), projectId, title, prompt, agent, ...split, ...(files.length > 0 ? { files } : {}), column: "todo", createdAt: now, updatedAt: now };
+    const card: CardInfo = { id: randomUUID(), projectId, title, prompt, agent, ...split, ...(input.autoApprove === true ? { autoApprove: true } : {}), ...(files.length > 0 ? { files } : {}), column: "todo", createdAt: now, updatedAt: now };
     this.cards.set(card.id, card);
     this.changed(projectId);
     return card;
@@ -306,7 +308,7 @@ export function attachBoard(sessions: SessionManager, file: string): Board {
     hasAgent: (id) => sessions.agentKinds.includes(id),
     remoteNode: (id) => sessions.remoteNode(id),
     start: (card, files, choose) =>
-      sessions.runTask({ agent: card.agent, title: card.title, prompt: card.prompt, projectId: card.projectId, files, ...(card.split ? { split: true } : {}), choose }),
+      sessions.runTask({ agent: card.agent, title: card.title, prompt: card.prompt, projectId: card.projectId, files, ...(card.split ? { split: true } : {}), ...(card.autoApprove ? { autoApprove: true } : {}), choose }),
     session: (id) => sessions.list().find((s) => s.id === id),
     broadcast: (message) => sessions.broadcast(message),
   });

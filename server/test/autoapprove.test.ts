@@ -229,7 +229,37 @@ describe("auto-approve", () => {
     await answer(waitingHelper.helperId, "permission: yes");
   });
 
+  it("can be chosen when the session is created", async () => {
+    const session = await create({ autoApprove: true });
+    assert.equal(session.autoApprove, true);
+    prompt(session.id, "askperm: edit notes.txt");
+    await answer(session.id, "permission: yes");
+    assert.ok(sessions.history(session.id).some((e) => e.kind === "notice" && e.text.startsWith("Auto-approve is on")), "the choice is on the record");
+
+    prompt(session.id, "askperm: delete notes.txt");
+    await waiting(session.id);
+    await sessions.cancel(session.id);
+  });
+
+  it("can be chosen for a board card, and its session starts with it", async () => {
+    const projectAsk = nextId();
+    send(ws, { type: "project.save", id: projectAsk, project: { name: "Otomatik" } });
+    const { projects } = await inbox.waitFor((m) => m.type === "project.list.result" && m.id === projectAsk);
+    const project = projects.find((p: { name: string }) => p.name === "Otomatik");
+    const saveAsk = nextId();
+    send(ws, { type: "card.save", id: saveAsk, card: { projectId: project.id, title: "Kart", prompt: "askperm: edit notes.txt", agent: "fake", autoApprove: true } });
+    const { cards } = await inbox.waitFor((m) => m.type === "board.result" && m.id === saveAsk);
+    assert.equal(cards[0].autoApprove, true);
+
+    send(ws, { type: "card.move", id: nextId(), cardId: cards[0].id, column: "working" });
+    const review = await inbox.waitFor((m) => m.type === "board.updated" && m.cards.some((c: any) => c.id === cards[0].id && c.column === "review"), 15_000);
+    const { sessionId } = review.cards.find((c: any) => c.id === cards[0].id);
+    assert.equal(sessions.list().find((s) => s.id === sessionId)?.autoApprove, true);
+    assert.ok(!sessions.history(sessionId).some((e) => e.kind === "permission_request"), "never stopped to ask");
+  });
+
   it("rejects a malformed request", () => {
+    assert.equal(parseClientMessage(JSON.stringify({ type: "session.create", id: "x", agent: "fake", autoApprove: "yes" })).ok, false);
     const parsed = parseClientMessage(JSON.stringify({ type: "session.autoApprove", id: "x", sessionId: "s", enabled: "yes" }));
     assert.equal(parsed.ok, false);
   });
