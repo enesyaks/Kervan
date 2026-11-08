@@ -66,6 +66,7 @@ export async function startServer(
   const scheduler = new Scheduler(join(dataDir, "schedules.json"), {
     hasAgent: (id) => catalog.live.has(id),
     hasProject: (id) => projects.get(id) !== undefined,
+    remoteNode: (id) => sessions!.remoteNode(id),
   });
   sessions!.scheduler = scheduler;
   attachBoard(sessions!, join(dataDir, "board.json"));

@@ -119,6 +119,22 @@ describe("agents on another node", () => {
   it("keeps leads and skills on this server", async () => {
     send(ws, { type: "session.create", id: "c2", agent: "uzak", orchestrate: true });
     assert.match((await inbox.waitFor((m) => m.type === "error" && m.id === "c2")).message, /a lead must run on this server/);
+    send(ws, { type: "session.create", id: "c3", agent: "uzak", split: true });
+    assert.match((await inbox.waitFor((m) => m.type === "error" && m.id === "c3")).message, /a lead must run on this server/);
+  });
+
+  it("refuses project work for a node's agent when it's set up, not when it comes due", async () => {
+    const project = await sessions.projects!.save({ name: "Sunucuda" });
+    assert.throws(() => sessions.board!.save({ projectId: project.id, title: "Kart", prompt: "yap", agent: "uzak" }), /projects live on this server/);
+    const task = { title: "Görev", agent: "uzak", prompt: "yap", when: { kind: "interval", minutes: 60 }, timeZone: "UTC" };
+    assert.throws(() => sessions.scheduler!.save({ ...task, projectId: project.id }), /projects live on this server/);
+    const saved = sessions.scheduler!.save(task);
+    assert.equal(saved.agent, "uzak");
+    sessions.scheduler!.remove(saved.id);
+  });
+
+  it("tells a lead where each agent runs", () => {
+    assert.deepEqual(sessions.helperChoices().agents.find((a) => a.id === "uzak"), { id: "uzak", name: "Uzak", node: "kutu", online: true });
   });
 
   it("waits out a node that goes away, and resumes the conversation when it is back", async () => {
@@ -133,6 +149,11 @@ describe("agents on another node", () => {
     assert.equal(refused.code, "node_offline");
     assert.equal((await http("GET", "")).status, 503);
     assert.equal(sessions.list().find((s) => s.id === sessionId)?.status, "idle", "the session isn't broken by it");
+
+    const count = sessions.list().length;
+    send(ws, { type: "session.create", id: "off2", agent: "uzak" });
+    assert.equal((await inbox.waitFor((m) => m.type === "error" && m.id === "off2")).code, "node_offline");
+    assert.equal(sessions.list().length, count, "no session is left behind that could never start");
 
     mark = inbox.received.length;
     startNode();

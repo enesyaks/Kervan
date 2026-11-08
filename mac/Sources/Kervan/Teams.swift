@@ -230,9 +230,7 @@ private struct RoleEditor: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 TextField(L("Name", "Ad"), text: $role.name, prompt: Text(L("Code reviewer", "Kod inceleyici")))
-                Picker(L("Agent", "Ajan"), selection: $role.agent) {
-                    ForEach(model.store.agents) { Text($0.displayName).tag($0.id) }
-                }
+                AgentPicker(agent: $role.agent)
                 Toggle(isOn: $role.lead) {
                     Text(L("Lead agent", "Ana ajan"))
                     Text(L("Can start helper agents in the team and give them tasks.", "Takımda yardımcı ajan başlatıp onlara görev verebilir."))

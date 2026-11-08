@@ -513,7 +513,7 @@ dialog h2 { margin: 0 0 12px; font-size: 20px; }
 }
 
 .agent-choice .text { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; }
-.agent-choice .agent-place { font-size: 13px; font-weight: 400; color: var(--muted); }
+.agent-group { margin: 12px 0 4px; font-size: 13px; font-weight: 600; color: var(--muted); }
 .agent-choice:disabled { cursor: not-allowed; opacity: 0.65; }
 .agent-choice:disabled:hover { background: var(--well); }
 .agent-choice:hover { background: color-mix(in srgb, var(--lapis) 14%, var(--well)); }

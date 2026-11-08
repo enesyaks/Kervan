@@ -16,6 +16,8 @@ const bad = (message: string): never => {
 export interface ScheduleChecks {
   hasAgent: (id: string) => boolean;
   hasProject: (id: string) => boolean;
+  /** The node the agent runs on, when it isn't this server. */
+  remoteNode?: (id: string) => string | undefined;
 }
 
 /** Starts the task's session and gives it the prompt; resolves with the session id. */
@@ -121,6 +123,9 @@ export class Scheduler {
     if (projectId !== undefined && projectId !== null && (typeof projectId !== "string" || !this.checks.hasProject(projectId))) {
       bad(`no project '${String(projectId)}'`);
     }
+    // Refused here rather than failing every time the task comes due.
+    const node = typeof projectId === "string" ? this.checks.remoteNode?.(agent as string) : undefined;
+    if (node) bad(`projects live on this server; '${String(agent)}' runs on node '${node}'`);
     const schedule: ScheduleInfo = {
       id: existing?.id ?? randomUUID(),
       title: (title as string).trim(),

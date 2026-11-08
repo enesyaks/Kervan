@@ -266,6 +266,17 @@ export class SessionManager {
     return node === LOCAL_NODE ? { path: session.cwd } : { node, key: session.cwd };
   }
 
+  /** The node an agent runs on when it isn't this server; for work that can only happen here. */
+  remoteNode(agent: string): string | undefined {
+    const node = nodeOf(this.agents.get(agent));
+    return node === LOCAL_NODE ? undefined : node;
+  }
+
+  /** New work is refused while its node is away, so it doesn't leave a session that can never start. */
+  private requireOnline(node: string): void {
+    if (node !== LOCAL_NODE && !this.nodes?.isConnected(node)) throw new KervanError("node_offline", `node '${node}' is asleep or offline`);
+  }
+
   private nodeFor(info: SessionInfo): string {
     return nodeOf(this.agents.get(info.agent));
   }
@@ -307,9 +318,10 @@ export class SessionManager {
     if (options.orchestrate && !this.orchestra) throw new KervanError("bad_message", "this server can't start helpers");
     const node = nodeOf(this.agents.get(agent));
     if (node !== LOCAL_NODE) {
-      if (options.orchestrate) throw new KervanError("bad_message", `a lead must run on this server; '${agent}' runs on node '${node}'`);
+      if (options.orchestrate || options.split) throw new KervanError("bad_message", `a lead must run on this server; '${agent}' runs on node '${node}'`);
       if (skills.length > 0) throw new KervanError("bad_message", `skills aren't available on node '${node}' yet`);
       if (!this.nodes) throw new KervanError("node_offline", `this server doesn't accept nodes, so '${agent}' can't run`);
+      this.requireOnline(node);
     }
     if (options.orchestrate && this.agents.get(agent)?.protocol === "pty") {
       throw new KervanError("bad_message", "terminal agents can't use Kervan's tools, so they can't start helpers");
@@ -455,6 +467,8 @@ export class SessionManager {
   /** Starts one session per role, all sharing the team's folder. */
   async createTeam(title: string, roleIds: string[]): Promise<TeamInfo> {
     const roles = roleIds.map((id) => this.roles?.get(id) ?? fail(`no role named '${id}'`));
+    // Checked first, so a node that's away doesn't leave half a team.
+    for (const role of roles) this.requireOnline(nodeOf(this.agents.get(role.agent)));
     const team: StoredTeam = { id: randomUUID(), title: title.trim(), createdAt: new Date().toISOString() };
     this.teams.set(team.id, team);
     this.store.saveTeam(team);

@@ -39,11 +39,11 @@ struct BoardSection: View {
                 Text(L("Board", "Pano")).font(.headline)
                 Spacer()
                 Button {
-                    editing = CardDraft(projectID: projectID, agent: model.store.agents.first?.id ?? "")
+                    editing = CardDraft(projectID: projectID, agent: model.store.agents.first { $0.node == nil }?.id ?? "")
                 } label: {
                     Label(L("New card", "Yeni kart"), systemImage: "plus")
                 }
-                .disabled(!model.connection.state.isConnected || model.store.agents.isEmpty)
+                .disabled(!model.connection.state.isConnected || !model.store.agents.contains { $0.node == nil })
             }
             ScrollView(.horizontal) {
                 HStack(alignment: .top, spacing: 12) {
@@ -220,9 +220,7 @@ private struct CardSheet: View {
             Text(draft.cardID == nil ? L("New card", "Yeni kart") : L("Edit card", "Kartı düzenle")).font(.title2.weight(.semibold))
             Form {
                 TextField(L("Title", "Başlık"), text: $draft.title, prompt: Text(L("e.g. Add a dark theme", "ör. Koyu tema ekle")))
-                Picker(L("Agent", "Ajan"), selection: $draft.agent) {
-                    ForEach(model.store.agents) { Text($0.displayName).tag($0.id) }
-                }
+                AgentPicker(agent: $draft.agent, serverOnly: true)
                 Toggle(L("Split into helpers when the work is large", "İş büyük olduğunda yardımcılara böl"), isOn: $draft.split)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(L("Prompt", "İstem"))

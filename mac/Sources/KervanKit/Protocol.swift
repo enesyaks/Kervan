@@ -22,18 +22,24 @@ public struct AgentInfo: Codable, Equatable, Sendable, Identifiable {
     public let terminal: Bool
     /// The node it runs on, when that isn't the server itself.
     public let node: String?
+    /// Whether that node is connected now; older servers don't say.
+    public let online: Bool?
 
-    public init(id: String, name: String, terminal: Bool = false, node: String? = nil) {
+    public init(id: String, name: String, terminal: Bool = false, node: String? = nil, online: Bool? = nil) {
         self.id = id
         self.name = name
         self.terminal = terminal
         self.node = node
+        self.online = online
     }
+
+    /// New work can't start on it right now. Unknown counts as reachable.
+    public var isAway: Bool { node != nil && online == false }
 
     /// The name as menus show it, with the node when the agent runs on another machine.
     public var displayName: String { node.map { "\(name) (\($0))" } ?? name }
 
-    private enum CodingKeys: String, CodingKey { case id, name, terminal, node }
+    private enum CodingKeys: String, CodingKey { case id, name, terminal, node, online }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -41,6 +47,38 @@ public struct AgentInfo: Codable, Equatable, Sendable, Identifiable {
         name = try c.decode(String.self, forKey: .name)
         terminal = try c.decodeIfPresent(Bool.self, forKey: .terminal) ?? false
         node = try c.decodeIfPresent(String.self, forKey: .node)
+        online = try c.decodeIfPresent(Bool.self, forKey: .online)
+    }
+}
+
+/// A machine work can run on and the agents it has. `node` is nil for the server itself.
+public struct AgentPlace: Equatable, Sendable, Identifiable {
+    public let node: String?
+    public let online: Bool
+    public let agents: [AgentInfo]
+
+    public init(node: String?, online: Bool, agents: [AgentInfo]) {
+        self.node = node
+        self.online = online
+        self.agents = agents
+    }
+
+    /// Can't clash with a node's name: those are lowercase letters, digits and dashes.
+    public static let serverID = "@server"
+    public var id: String { node ?? Self.serverID }
+
+    public var label: String {
+        guard let node else { return L("This server", "Bu sunucu") }
+        return online ? node : L("\(node) (asleep or offline)", "\(node) (uykuda ya da çevrimdışı)")
+    }
+
+    /// The server first, then every node by name, including those with no agents yet.
+    public static func all(agents: [AgentInfo], nodes: [NodeInfo]) -> [AgentPlace] {
+        let names = Set(nodes.map(\.name)).union(agents.compactMap(\.node)).sorted()
+        return [AgentPlace(node: nil, online: true, agents: agents.filter { $0.node == nil })] + names.map { name in
+            let here = agents.filter { $0.node == name }
+            return AgentPlace(node: name, online: nodes.first { $0.name == name }?.connected ?? !here.contains(where: \.isAway), agents: here)
+        }
     }
 }
 

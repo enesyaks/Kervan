@@ -21,6 +21,8 @@ const ORPHAN_MS = 24 * 60 * 60_000;
 export interface BoardDeps {
   hasProject: (id: string) => boolean;
   hasAgent: (id: string) => boolean;
+  /** The node the agent runs on, when it isn't this server. */
+  remoteNode?: (id: string) => string | undefined;
   /** Starts a session in the project with the card's prompt and files; resolves with its id once the prompt is sent. */
   start: (card: CardInfo, files: { source: string; name: string }[]) => Promise<string>;
   /** The session as it is now, to catch up after starting. */
@@ -91,6 +93,9 @@ export class Board {
     const prompt = text("prompt", MAX_PROMPT);
     const agent = text("agent", 80);
     if (!this.deps.hasAgent(agent)) throw new KervanError("unknown_agent", `no agent named '${agent}'`);
+    // Every card belongs to a project, and projects live on this server: found now, not when the card is started.
+    const node = this.deps.remoteNode?.(agent);
+    if (node) throw new KervanError("bad_message", `projects live on this server; '${agent}' runs on node '${node}'`);
     const split = input.split === true ? { split: true } : {};
     const files = this.files(input.files);
     const now = new Date().toISOString();
@@ -238,6 +243,7 @@ export function attachBoard(sessions: SessionManager, file: string): Board {
   const board = new Board(file, {
     hasProject: (id) => sessions.projects?.get(id) !== undefined,
     hasAgent: (id) => sessions.agentKinds.includes(id),
+    remoteNode: (id) => sessions.remoteNode(id),
     start: (card, files) =>
       sessions.runTask({ agent: card.agent, title: card.title, prompt: card.prompt, projectId: card.projectId, files, ...(card.split ? { split: true } : {}) }),
     session: (id) => sessions.list().find((s) => s.id === id),

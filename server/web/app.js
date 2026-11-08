@@ -997,23 +997,34 @@ function openNewSession() {
     id: "split-helpers",
     onchange: (e) => { split = e.target.checked; },
   });
+  // With other machines around, the agents are listed under the machine that does the work.
+  const onNodes = state.agents.some((agent) => agent.node);
+  const nodes = [...new Set(state.agents.map((agent) => agent.node).filter(Boolean))].sort();
+  const choice = (agent) => {
+    const away = offlineNode(agent.id);
+    return h("button", {
+      class: "agent-choice",
+      disabled: Boolean(away),
+      // Only an agent on this server can lead helpers.
+      onclick: () => { dialog.close(); void create(agent.id, split && !agent.node); },
+    },
+      h("span", { class: `dot ${away ? "closed" : "idle"}`, "aria-hidden": "true" }),
+      h("span", { class: "text" }, agent.name));
+  };
+  const heading = (node) => h("h3", { class: "agent-group" }, !node
+    ? L("This server", "Bu sunucu")
+    : state.agents.some((a) => a.node === node && offlineNode(a.id)) ? L(`${node}: asleep or offline`, `${node}: uykuda ya da çevrimdışı`) : node);
   const dialog = h("dialog", { "aria-label": L("New session", "Yeni oturum") },
     h("h2", {}, L("Start a session with", "Oturum başlat:")),
-    state.agents.map((agent) => {
-      const away = offlineNode(agent.id);
-      return h("button", {
-        class: "agent-choice",
-        disabled: Boolean(away),
-        onclick: () => { dialog.close(); void create(agent.id, split); },
-      },
-        h("span", { class: `dot ${away ? "closed" : "idle"}`, "aria-hidden": "true" }),
-        h("span", { class: "text" },
-          agent.name,
-          agent.node ? h("span", { class: "agent-place" }, away ? L(`${agent.node}: asleep or offline`, `${agent.node}: uykuda ya da çevrimdışı`) : agent.node) : null));
+    [undefined, ...nodes].flatMap((node) => {
+      const agents = state.agents.filter((agent) => (agent.node || undefined) === node);
+      return agents.length === 0 ? [] : [onNodes ? heading(node) : null, ...agents.map(choice)];
     }),
     h("label", { class: "check-row" },
       splitCheckbox,
-      h("span", {}, L("Split into helpers when the work is large", "İş büyük olduğunda yardımcılara böl"))),
+      h("span", {}, onNodes
+        ? L("Split into helpers when the work is large (agents on this server)", "İş büyük olduğunda yardımcılara böl (bu sunucudaki ajanlar)")
+        : L("Split into helpers when the work is large", "İş büyük olduğunda yardımcılara böl"))),
     h("div", { class: "row" }, h("span", { class: "spacer" }), h("button", { class: "quiet", onclick: () => dialog.close() }, L("Cancel", "Vazgeç"))));
   dialog.addEventListener("close", () => dialog.remove());
   document.body.append(dialog);

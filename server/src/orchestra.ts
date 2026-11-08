@@ -28,7 +28,9 @@ const text = (description: string) => ({ type: "string", description });
 export const TOOLS: Tool[] = [
   {
     name: "list_agents",
-    description: "Agents and roles you can start helpers with.",
+    description:
+      "Agents and roles you can start helpers with. An agent with `node` runs on that machine, and `online` says whether " +
+      "it's reachable now; to do work on a particular machine, start a helper with an agent on it.",
     inputSchema: { type: "object", properties: {} },
   },
   {
@@ -41,7 +43,7 @@ export const TOOLS: Tool[] = [
       properties: {
         name: text("Short name shown to the user, e.g. 'Test writer'."),
         task: text("Everything the helper needs to know; it can't see your conversation."),
-        agent: text("Agent id from list_agents. Give this or role."),
+        agent: text("Agent id from list_agents, which also decides the machine it runs on. Give this or role."),
         role: text("Role id from list_agents; uses the role's agent and instructions."),
         isolate: {
           type: "boolean",

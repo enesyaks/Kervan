@@ -478,12 +478,17 @@ private struct ScheduleSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             Form {
                 TextField(L("Name", "Ad"), text: $input.title, prompt: Text(L("e.g. Morning test run", "ör. Sabah test turu")))
-                Picker(L("Agent", "Ajan"), selection: $input.agent) {
-                    ForEach(model.store.agents) { Text($0.displayName).tag($0.id) }
-                }
-                Picker(L("Project", "Proje"), selection: $input.projectId) {
-                    Text(L("None (its own folder)", "Yok (kendi klasörü)")).tag(String?.none)
-                    ForEach(model.store.projects) { Text($0.name).tag(Optional($0.id)) }
+                AgentPicker(agent: $input.agent)
+                // Projects are on this server, so only its agents can have one.
+                if onNode {
+                    Text(L("On another machine the agent works in a folder of its own there.", "Başka bir makinede ajan oradaki kendi klasöründe çalışır."))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Picker(L("Project", "Proje"), selection: $input.projectId) {
+                        Text(L("None (its own folder)", "Yok (kendi klasörü)")).tag(String?.none)
+                        ForEach(model.store.projects) { Text($0.name).tag(Optional($0.id)) }
+                    }
                 }
                 Section(L("When", "Ne zaman")) {
                     Picker(L("Repeat", "Tekrar"), selection: $daily) {
@@ -535,8 +540,10 @@ private struct ScheduleSheet: View {
         .onAppear(perform: load)
     }
 
+    private var onNode: Bool { model.store.agents.first { $0.id == input.agent }?.node != nil }
+
     private var canSave: Bool {
-        !saving && !input.title.trimmingCharacters(in: .whitespaces).isEmpty
+        !saving && !input.agent.isEmpty && !input.title.trimmingCharacters(in: .whitespaces).isEmpty
             && !input.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (!daily || !weekdays.isEmpty)
     }
 
@@ -556,6 +563,7 @@ private struct ScheduleSheet: View {
     private func save() async {
         saving = true
         defer { saving = false }
+        if onNode { input.projectId = nil }
         let parts = Calendar.current.dateComponents([.hour, .minute], from: time)
         input.when = daily
             ? .daily(time: String(format: "%02d:%02d", parts.hour ?? 9, parts.minute ?? 0), weekdays: weekdays.sorted())

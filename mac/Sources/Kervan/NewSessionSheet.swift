@@ -33,27 +33,33 @@ struct NewSessionSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             Form {
                 Section {
-                    Picker(L("Agent", "Ajan"), selection: $agent) {
-                        ForEach(model.store.agents) { Text($0.displayName).tag($0.id) }
+                    AgentPicker(agent: $agent)
+                    if onNode {
+                        Text(L("On another machine the agent works in a folder of its own there. Projects, skills and helpers need an agent on this server.", "Başka bir makinede ajan oradaki kendi klasöründe çalışır. Proje, skill ve yardımcılar için bu sunucudaki bir ajan gerekir."))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Picker(selection: $project) {
+                            Text(L("None (the session's own folder)", "Yok (oturumun kendi klasörü)")).tag(String?.none)
+                            ForEach(model.store.projects) { Text($0.name).tag(Optional($0.id)) }
+                        } label: {
+                            Text(L("Project", "Proje"))
+                            Text(L("The agent works on the project's files, with the project's instructions.", "Ajan projenin dosyalarında, projenin talimatlarıyla çalışır."))
+                        }
                     }
-                    Picker(selection: $project) {
-                        Text(L("None (the session's own folder)", "Yok (oturumun kendi klasörü)")).tag(String?.none)
-                        ForEach(model.store.projects) { Text($0.name).tag(Optional($0.id)) }
-                    } label: {
-                        Text(L("Project", "Proje"))
-                        Text(L("The agent works on the project's files, with the project's instructions.", "Ajan projenin dosyalarında, projenin talimatlarıyla çalışır."))
-                    }
-                    if project != nil {
+                    if project != nil && !onNode {
                         Toggle(isOn: $ownBranch) {
                             Text(L("Work on a branch of its own", "Kendi branch'inde çalışsın"))
                             Text(L("In a git repository the session gets its own copy (a worktree), so sessions in the same project never edit the same files. Turn off to work in the project folder itself.", "Git deposunda oturum kendi kopyasını (worktree) alır; böylece aynı projedeki oturumlar aynı dosyaları düzenlemez. Proje klasörünün kendisinde çalışmak için kapatın."))
                         }
                     }
-                    Toggle(isOn: $orchestrate) {
-                        Text(L("Can start helper agents", "Yardımcı ajan başlatabilsin"))
-                        Text(L("Hands subtasks to other agents; helpers show up under this session in the sidebar. In a git repository each helper works on its own branch.", "Alt görevleri başka ajanlara verir; yardımcılar kenar çubuğunda bu oturumun altında görünür. Klasör bir git deposuysa her yardımcı kendi dalında çalışır."))
+                    if !onNode {
+                        Toggle(isOn: $orchestrate) {
+                            Text(L("Can start helper agents", "Yardımcı ajan başlatabilsin"))
+                            Text(L("Hands subtasks to other agents; helpers show up under this session in the sidebar. In a git repository each helper works on its own branch.", "Alt görevleri başka ajanlara verir; yardımcılar kenar çubuğunda bu oturumun altında görünür. Klasör bir git deposuysa her yardımcı kendi dalında çalışır."))
+                        }
                     }
-                    if orchestrate {
+                    if orchestrate && !onNode {
                         Toggle(isOn: $split) {
                             Text(L("Split into helpers when the work is large", "İş büyük olduğunda yardımcılara böl"))
                             Text(L("The agent judges the size first: large work with separate parts it plans and hands out, small work it does itself. Idle helpers rest after a while and wake when needed.", "Ajan önce işin büyüklüğüne bakar: ayrı parçaları olan büyük işi planlayıp dağıtır, küçük işi kendisi yapar. Boşta kalan yardımcılar bir süre sonra dinlenmeye geçer, gerekince uyanır."))
@@ -62,20 +68,22 @@ struct NewSessionSheet: View {
                     }
                 }
 
-                Section(L("Skills", "Skill'ler")) {
-                    if let available, available.isEmpty {
-                        Text(L("No skills in the library. Add a skill folder in Settings.", "Kütüphanede skill yok. Ayarlar'dan skill klasörü ekleyebilirsiniz.")).foregroundStyle(.secondary)
-                    } else if let available {
-                        ForEach(available) { skill in
-                            Toggle(isOn: binding(for: skill.name, in: $skills)) {
-                                Text(skill.name)
-                                if !skill.description.isEmpty { Text(skill.description) }
+                if !onNode {
+                    Section(L("Skills", "Skill'ler")) {
+                        if let available, available.isEmpty {
+                            Text(L("No skills in the library. Add a skill folder in Settings.", "Kütüphanede skill yok. Ayarlar'dan skill klasörü ekleyebilirsiniz.")).foregroundStyle(.secondary)
+                        } else if let available {
+                            ForEach(available) { skill in
+                                Toggle(isOn: binding(for: skill.name, in: $skills)) {
+                                    Text(skill.name)
+                                    if !skill.description.isEmpty { Text(skill.description) }
+                                }
                             }
+                        } else if let loadError {
+                            Label(loadError, systemImage: "exclamationmark.triangle").foregroundStyle(.kervanCoral)
+                        } else {
+                            ProgressView().controlSize(.small)
                         }
-                    } else if let loadError {
-                        Label(loadError, systemImage: "exclamationmark.triangle").foregroundStyle(.kervanCoral)
-                    } else {
-                        ProgressView().controlSize(.small)
                     }
                 }
 
@@ -107,29 +115,39 @@ struct NewSessionSheet: View {
                 Button(L("Start session", "Oturumu başlat")) {
                     // Drop choices that no longer exist on the server.
                     let names = Set(available?.map(\.name) ?? [])
+                    // What a node can't do stays picked in the sheet but isn't asked for.
+                    let lead = orchestrate && !onNode
+                    let folder = onNode ? nil : project
                     model.startSession(
                         agent: agent,
-                        skills: skills.filter(names.contains).sorted(),
+                        skills: onNode ? [] : skills.filter(names.contains).sorted(),
                         mcpServers: mcpServers.filter { name in servers.contains { $0.name == name } }.sorted(),
-                        orchestrate: orchestrate,
-                        budgetUsd: orchestrate ? budget.flatMap { $0 > 0 ? $0 : nil } : nil,
-                        projectId: project,
-                        shared: project != nil && !ownBranch,
-                        split: orchestrate && split
+                        orchestrate: lead,
+                        budgetUsd: lead ? budget.flatMap { $0 > 0 ? $0 : nil } : nil,
+                        projectId: folder,
+                        shared: folder != nil && !ownBranch,
+                        split: lead && split
                     )
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
-                .disabled(!model.canCreateSession)
+                .disabled(!model.canCreateSession || selected == nil || selected?.isAway == true)
             }
             .padding(16)
         }
         .frame(width: 460, height: 480) // fits a window at its smallest; the form scrolls
         .background(Color.kervanCanvas)
         .navigationTitle(L("New session", "Yeni oturum"))
-        .task { await loadSkills() }
+        .task {
+            // Started from a project: the project's files are on this server.
+            if project != nil, onNode, let here = model.store.agents.first(where: { $0.node == nil }) { agent = here.id }
+            await loadSkills()
+        }
     }
+
+    private var selected: AgentInfo? { model.store.agents.first { $0.id == agent } }
+    private var onNode: Bool { selected?.node != nil }
 
     private func binding(for name: String, in set: Binding<Set<String>>) -> Binding<Bool> {
         Binding(

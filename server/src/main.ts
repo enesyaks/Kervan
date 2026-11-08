@@ -66,6 +66,7 @@ sessions.useOrchestra(orchestra);
 const scheduler = new Scheduler(join(config.dataDir, "schedules.json"), {
   hasAgent: (id) => catalog.live.has(id),
   hasProject: (id) => projects.get(id) !== undefined,
+  remoteNode: (id) => sessions.remoteNode(id),
 });
 scheduler.onChange = (schedules) => sessions.broadcast({ type: "schedules.updated", schedules });
 sessions.scheduler = scheduler;

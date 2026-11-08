@@ -624,6 +624,22 @@ import Testing
 }
 
 @MainActor @Suite struct NodeTests {
+    @Test func groupsAgentsByTheMachineTheyRunOn() throws {
+        let updated = try ServerMessage.decode(#"{"type":"agents.updated","agents":[],"agentDetails":[{"id":"gpu-claude","name":"Claude","node":"gpu","online":false}]}"#)
+        #expect(updated == .agentsUpdated([AgentInfo(id: "gpu-claude", name: "Claude", node: "gpu", online: false)]))
+
+        let here = AgentInfo(id: "claude", name: "Claude")
+        let away = AgentInfo(id: "gpu-claude", name: "Claude", node: "gpu", online: false)
+        let places = AgentPlace.all(agents: [away, here], nodes: [NodeInfo(name: "gpu", connected: false), NodeInfo(name: "bos", connected: true)])
+        #expect(places.map(\.id) == [AgentPlace.serverID, "bos", "gpu"])
+        #expect(places[0].agents == [here] && places[0].online)
+        #expect(places[1].agents.isEmpty && places[1].online)
+        #expect(places[2].agents == [away] && !places[2].online)
+        #expect(away.isAway && !here.isAway)
+        // An older server doesn't say, and a browser-style list has no node records.
+        #expect(AgentPlace.all(agents: [AgentInfo(id: "x", name: "X", node: "kutu")], nodes: [])[1].online)
+    }
+
     @Test func namesTheNodeAndTracksWhichNodesAreConnected() throws {
         let store = SessionStore { _ in }
         store.handle(.agentsUpdated([AgentInfo(id: "claude", name: "Claude Code"), AgentInfo(id: "gpu-claude", name: "Claude Code", node: "gpu")]))
