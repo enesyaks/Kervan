@@ -24,6 +24,7 @@ import { openPullRequest } from "./pullrequest.ts";
 import type { ProjectRegistry } from "./projects.ts";
 import type { Board } from "./board.ts";
 import type { ProjectMaps } from "./projectmap.ts";
+import { mapIndex } from "./projectmemory.ts";
 import type { Alerts } from "./alerts.ts";
 import { localParts, type Scheduler } from "./schedules.ts";
 import { TerminalHub } from "./terminals.ts";
@@ -34,7 +35,7 @@ import type { SkillLibrary } from "./skills.ts";
 import type { EventStore, IndexedMessage, SearchHit, StoredTeam } from "./store.ts";
 import type { RoleRegistry } from "./roles.ts";
 import type * as acp from "@agentclientprotocol/sdk";
-import { isOrchestraCall } from "./orchestra.ts";
+import { isMemoryCall, isOrchestraCall } from "./orchestra.ts";
 import { majorChange } from "./autoapprove.ts";
 import { LOCAL_NODE, nodeOf, type NodeHub } from "./nodes.ts";
 import {
@@ -839,8 +840,8 @@ export class SessionManager {
     await restoreWorktree(repo, session.cwd, session.info.branch!);
   }
 
-  search(query: string): SearchHit[] {
-    return this.store.search(query);
+  search(query: string, limit?: number): SearchHit[] {
+    return this.store.search(query, limit);
   }
 
   /** Answers a pending permission request with one of the options the agent offered. */
@@ -889,7 +890,7 @@ export class SessionManager {
     const project = session.info.projectId ? this.projects?.get(session.info.projectId) : undefined;
     const parts = [
       project?.instructions ? `[Kervan] Project "${project.name}" — instructions from the user:\n${project.instructions}` : undefined,
-      project ? this.mapPreface(project) : undefined,
+      this.mapPreface(session),
       lead
         ? `[Kervan] You are a helper agent named "${session.info.title}", started by the lead agent "${lead.info.title}". ` +
           "Messages come from the lead, not the user, and your final answer each turn goes back to it: " +
@@ -926,13 +927,38 @@ export class SessionManager {
     return parts.length > 0 ? parts.join("\n\n") : undefined;
   }
 
-  /** The project map, so the agent goes to the part of the repository its task is about instead of reading all of it. */
-  private mapPreface(project: ProjectInfo): string | undefined {
+  /** The project a session's memory tools read: its own or, for a helper, its lead's. */
+  memoryProject(info: SessionInfo): ProjectInfo | undefined {
+    const id = info.projectId ?? (info.parentId ? this.sessions.get(info.parentId)?.info.projectId : undefined);
+    return id ? this.projects?.get(id) : undefined;
+  }
+
+  /** The tools come over a local socket, and terminal agents have no way to be given them. */
+  hasMemory(info: SessionInfo): boolean {
+    return this.orchestra !== undefined && this.memoryProject(info) !== undefined && this.nodeFor(info) === LOCAL_NODE && this.agents.get(info.agent)?.protocol !== "pty";
+  }
+
+  /**
+   * The project map, so the agent goes to the part of the repository its task is about instead of reading all of it.
+   * With the memory tools that's only the index, since this text is paid for on every turn of the session.
+   */
+  private mapPreface(session: Session): string | undefined {
+    const tools = this.hasMemory(session.info);
+    const project = this.memoryProject(session.info);
+    if (!project || (!tools && !session.info.projectId)) return undefined;
+    const cases = "`case_read` shows what earlier sessions in this project did; check it before redoing their work.";
     const text = this.projects?.mapText(project.id);
-    if (!text) return undefined;
+    if (!text) return tools ? `[Kervan] ${cases}` : undefined;
     const since = project.map?.commit
       ? ` It was made at commit ${project.map.commit.slice(0, 12)}; \`git log --stat ${project.map.commit.slice(0, 12)}..HEAD\` shows what changed since.`
       : "";
+    const index = tools ? mapIndex(text) : "";
+    if (index) {
+      return (
+        "[Kervan] Project map index, by hex address. `map_read` with ids like \"1a,2\" gives those sections; read only the ones your " +
+        `task needs and don't scan the whole repository. Read the files themselves before you change them: the map may be out of date.${since} ${cases}\n\n${index}`
+      );
+    }
     return (
       "[Kervan] Project map, written by an agent that scanned this repository earlier. Use it to go straight to the files " +
       "your task is about; don't scan the whole repository again. Read the files themselves before you change them: " +
@@ -1196,7 +1222,7 @@ export class SessionManager {
           if (skipped.length > 0) {
             this.record(session, { kind: "notice", text: `This agent doesn't support HTTP MCP servers; skipped: ${skipped.join(", ")}` });
           }
-          if (session.info.orchestrate && this.orchestra) servers.push(this.orchestra.mcpServer(session.info.id));
+          if ((session.info.orchestrate || this.hasMemory(session.info)) && this.orchestra) servers.push(this.orchestra.mcpServer(session.info.id));
           return servers;
         },
         ...(resume ? { resumeSessionId: session.agentSessionId } : {}),
@@ -1247,7 +1273,7 @@ export class SessionManager {
 
   private askPermission(session: Session, request: PermissionRequest): Promise<PermissionDecision> {
     // Choosing "may start helpers" already said yes to Kervan's own tools; don't ask again per call.
-    if (session.info.orchestrate && isOrchestraCall(request.title, request.toolKind)) {
+    if ((session.info.orchestrate && isOrchestraCall(request.title, request.toolKind)) || (this.hasMemory(session.info) && isMemoryCall(request.title, request.toolKind))) {
       const allow = request.options.find((o) => o.kind === "allow_once") ?? request.options.find((o) => o.kind === "allow_always");
       if (allow) return Promise.resolve(allow.optionId);
     }

@@ -16,6 +16,7 @@
 //   with --legacy, models and modes come the older way (session/new `models` and `modes`, session/set_model,
 //   session/set_mode), as Gemini CLI does, instead of config options; "modecheck" → the current mode
 //   "mcptools" → names of the tools the `kervan` MCP server offers
+//   "memcall: <tool> <json>" → calls that `kervan` tool and answers with its text
 //   "write <name> <text>" → writes the file in its folder, reports a plan and the edit as a diff
 //   "imagecheck" → the MIME types of the image blocks it was given
 //   right after session/new it announces two slash commands (review, explain)
@@ -198,6 +199,13 @@ acp
       const call = await mcpClient("kervan");
       const { tools } = await call("tools/list");
       await update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: tools.map((t: any) => t.name).join(",") } });
+      return { stopReason: "end_turn" };
+    }
+    if (text.startsWith("memcall: ")) {
+      const [, name, json] = /^memcall: (\S+) (.*)$/s.exec(text)!;
+      const call = await mcpClient("kervan");
+      const result = await call("tools/call", { name, arguments: JSON.parse(json) });
+      await update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `${result.isError ? "refused: " : ""}${result.content[0].text}` } });
       return { stopReason: "end_turn" };
     }
     if (text.startsWith("delegate: ")) {

@@ -7,6 +7,7 @@ import type * as acp from "@agentclientprotocol/sdk";
 import { agentUser } from "./agentuser.ts";
 import { log } from "./log.ts";
 import { KervanError } from "./protocol.ts";
+import { readCases, readMap } from "./projectmemory.ts";
 import type { HelperSummary, SessionManager } from "./sessions.ts";
 
 /** The MCP server name lead agents see; their tools show up as e.g. `kervan.start_helper`. */
@@ -100,10 +101,35 @@ export const TOOLS: Tool[] = [
   },
 ];
 
-// merge_helper changes the lead's files, so the user is still asked about it.
-const NAMES = TOOLS.map((tool) => tool.name).filter((name) => name !== "merge_helper").join("|");
+/** Every session in a project gets these; they only read. Their definitions are in the agent's context each turn, so keep them short. */
+export const MEMORY_TOOLS: Tool[] = [
+  {
+    name: "map_read",
+    description: "Read this project's map by section. No ids: the index.",
+    inputSchema: { type: "object", properties: { ids: text("Hex section ids, e.g. '1a,2'.") } },
+  },
+  {
+    name: "case_read",
+    description: "This project's other sessions, in short. No arguments: the recent ones.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: text("Hex id of one session."),
+        q: text("Search their messages."),
+        full: { type: "boolean", description: "With id: its conversation." },
+      },
+    },
+  },
+];
+
 /** How adapters title a call to one of these tools: Claude `mcp__kervan__x`, Codex `kervan.x`, Gemini `x (kervan MCP Server)`. */
-const TOOL_TITLE = new RegExp(`^(?:(?:mcp__)?kervan(?:__|\\.|/|: ?| )(?:${NAMES})|(?:${NAMES}) \\(kervan MCP Server\\))$`);
+const toolTitle = (tools: string[]) => {
+  const names = tools.join("|");
+  return new RegExp(`^(?:(?:mcp__)?kervan(?:__|\\.|/|: ?| )(?:${names})|(?:${names}) \\(kervan MCP Server\\))$`);
+};
+// merge_helper changes the lead's files, so the user is still asked about it.
+const TOOL_TITLE = toolTitle(TOOLS.map((tool) => tool.name).filter((name) => name !== "merge_helper"));
+const MEMORY_TITLE = toolTitle(MEMORY_TOOLS.map((tool) => tool.name));
 const NEVER_AUTO = new Set(["execute", "edit", "delete", "move", "fetch"]);
 
 /**
@@ -114,6 +140,11 @@ export function isOrchestraCall(title: string, toolKind: string): boolean {
   return !NEVER_AUTO.has(toolKind) && TOOL_TITLE.test(title.trim());
 }
 
+/** The same, for the project memory tools. */
+export function isMemoryCall(title: string, toolKind: string): boolean {
+  return !NEVER_AUTO.has(toolKind) && MEMORY_TITLE.test(title.trim());
+}
+
 type Args = Record<string, unknown>;
 
 const str = (args: Args, key: string, required = true): string | undefined => {
@@ -122,6 +153,9 @@ const str = (args: Args, key: string, required = true): string | undefined => {
   if (typeof value !== "string" || value.trim() === "") throw new KervanError("bad_message", `'${key}' must be text`);
   return value;
 };
+
+/** Agents fill in optional arguments with "" as often as they leave them out. */
+const optional = (args: Args, key: string): string | undefined => (typeof args[key] === "string" && args[key].trim() !== "" ? args[key] : undefined);
 
 /**
  * Where the socket goes: in the data folder, unless that path is longer than Unix sockets allow (104 bytes on
@@ -137,6 +171,7 @@ export function orchestraSocketPath(preferred: string): string {
  * Gives lead agents tools to start and talk to helper agents. Each lead gets a small stdio MCP server
  * (orchestra-mcp.ts) that forwards tool calls here over a Unix socket only the kervan user can open.
  * A per-session token tells which lead is calling, so a lead can only reach its own helpers.
+ * Sessions in a project reach their project's memory the same way.
  */
 export class OrchestraHub {
   private readonly socketPath: string;
@@ -193,7 +228,7 @@ export class OrchestraHub {
     const leadId = this.tokens.get(token);
     if (!leadId) return reply(401, { error: "unauthorized" });
 
-    if (req.method === "GET" && req.url === "/tools") return reply(200, { tools: TOOLS });
+    if (req.method === "GET" && req.url === "/tools") return reply(200, { tools: this.toolsFor(leadId) });
     if (req.method !== "POST" || req.url !== "/call") return reply(404, { error: "not_found" });
 
     let call: { name?: unknown; arguments?: unknown };
@@ -205,7 +240,8 @@ export class OrchestraHub {
     try {
       const args = (typeof call.arguments === "object" && call.arguments !== null ? call.arguments : {}) as Args;
       const result = await this.call(leadId, String(call.name), args);
-      reply(200, { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] });
+      // The memory tools answer in plain text, because JSON's quotes and indents are tokens too.
+      reply(200, { content: [{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result, null, 2) }] });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       log("info", "orchestra call refused", { leadId, tool: call.name, error: message });
@@ -213,9 +249,22 @@ export class OrchestraHub {
     }
   }
 
+  private toolsFor(sessionId: string): Tool[] {
+    const info = this.sessions.list().find((s) => s.id === sessionId);
+    if (!info) return [];
+    return [...(info.orchestrate ? TOOLS : []), ...(this.sessions.hasMemory(info) ? MEMORY_TOOLS : [])];
+  }
+
   private async call(leadId: string, tool: string, args: Args): Promise<unknown> {
     const sessions = this.sessions;
+    if (!this.toolsFor(leadId).some((t) => t.name === tool)) throw new KervanError("bad_message", `no tool named '${tool}'`);
     switch (tool) {
+      case "map_read": {
+        const info = sessions.list().find((s) => s.id === leadId)!;
+        return readMap(sessions.projects?.mapText(sessions.memoryProject(info)!.id) ?? "", optional(args, "ids"));
+      }
+      case "case_read":
+        return readCases(sessions, leadId, { id: optional(args, "id"), q: optional(args, "q"), full: args.full === true });
       case "list_agents":
         return sessions.helperChoices();
       case "start_helper":

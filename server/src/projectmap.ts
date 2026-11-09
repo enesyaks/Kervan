@@ -6,21 +6,34 @@ import type { SessionManager } from "./sessions.ts";
 
 const run = promisify(execFile);
 
+/** The title of the sessions that build maps. */
+export const MAP_TITLE = "Project map";
+
 /** What the mapping agent is asked; its final answer becomes the map. */
 export const MAP_PROMPT = [
   "Scan this repository once and write a project map for the agents that will work here after you.",
-  "They get your map before their task, so they can go straight to the files a task touches instead of reading",
-  "the whole repository again. Only read: don't change, create or delete any files, and don't install anything.",
+  "They get only your section headings before their task and read the sections they need, so they can go straight",
+  "to the files a task touches instead of reading the whole repository again.",
+  "Only read: don't change, create or delete any files, and don't install anything.",
   "",
-  "Answer with the map alone, in Markdown, at most about 1500 words:",
+  "Answer with the map alone, in Markdown, at most about 6000 words. Split it into many small sections, one subject",
+  "each. Start every section with a heading of the form `## @1a Title — what it answers`, where 1a is its own short",
+  "hexadecimal address. The heading is all a reader sees when choosing, so make it specific.",
+  "Refer to another section by its address, like →1a, instead of repeating it. Cover:",
   "- What the project is and does, in two or three sentences.",
   "- Languages, frameworks and the commands to install, build, run and test it.",
   "- The layout: each top-level folder and the important files in it, one line each with its path and what it holds.",
-  "- Entry points, and how a request or a feature flows through the code.",
+  "- One section per service or process: what starts it, and everything it reaches: databases, files, queues, sockets,",
+  "  other services, external APIs, with the environment variables and credentials that configure each (names only,",
+  "  never values).",
+  "- Every API: HTTP routes, WebSocket messages, RPC, CLI commands and webhooks, each with its method and path or name,",
+  "  who may call it, what it takes and returns, and the file that handles it.",
+  "- How the project behaves: how a request or feature flows through the code, background jobs and schedules, state",
+  "  and its transitions, what is retried, timeouts and limits, what happens on failure or restart.",
   "- Where each kind of work lives (e.g. UI, API, data, protocol, configuration) and which files change together.",
   "- Conventions worth following: naming, style, tests, translations, commit habits.",
   "- Anything surprising a newcomer would get wrong.",
-  "Use exact paths. Skip what's obvious from a file name.",
+  "Use exact paths. Write in terse notes, not sentences. Skip what's obvious from a file name.",
 ].join("\n");
 
 /**
@@ -62,7 +75,7 @@ export class ProjectMaps {
     this.set(projectId, map);
     try {
       // In the project folder itself: a map of a worktree's branch would be a map of the wrong thing.
-      const sessionId = await this.sessions.runTask({ agent, title: "Project map", prompt: MAP_PROMPT, projectId, shared: true });
+      const sessionId = await this.sessions.runTask({ agent, title: MAP_TITLE, prompt: MAP_PROMPT, projectId, shared: true });
       this.building.set(sessionId, projectId);
       this.set(projectId, { ...map, sessionId });
       // The turn may have ended before we knew the session.

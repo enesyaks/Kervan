@@ -61,7 +61,7 @@ async function handle(message: RpcMessage): Promise<void> {
             protocolVersion: requested,
             capabilities: { tools: {} },
             serverInfo: { name: "kervan", version: VERSION },
-            instructions: "Start helper agents for subtasks, message them and collect their replies.",
+            instructions: "Helper agents for subtasks, and this project's map and earlier sessions.",
           },
         });
       }
