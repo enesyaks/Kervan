@@ -82,6 +82,8 @@ final class HubInstaller {
     }
     private var task: Task<Void, Never>?
     private var process: Process?
+    /// What `resend` needs to put the setup files back; kept from the run that is waiting for Terminal.
+    private var sent: (user: String, host: String, token: String)?
 
     /// `token`: the hub's existing token when updating it; a new one is made for a fresh hub.
     /// `connect` gets the token and the address the server answered on: its Tailscale one, once it has one.
@@ -97,9 +99,8 @@ final class HubInstaller {
                     throw SetupError(message: L("macOS isn't letting Kervan reach machines on the local network. Turn Kervan on in Local Network settings, then try again.", "macOS, Kervan'ın yerel ağdaki makinelere ulaşmasına izin vermiyor. Yerel Ağ ayarlarında Kervan'ı açın, sonra yeniden deneyin."))
                 }
                 let token = existing ?? HubSetup.makeToken()
-                let payload = try Self.payload(token: token)
-                defer { try? FileManager.default.removeItem(at: payload.deletingLastPathComponent()) }
-                try await self.ssh(HubSetup.uploadArguments(user: user, host: host), stdin: payload)
+                try await self.upload(user: user, host: host, token: token)
+                self.sent = (user, host, token)
 
                 self.step = .packages
                 do {
@@ -136,6 +137,7 @@ final class HubInstaller {
         localNetworkBlocked = false
         waitingForTerminal = false
         isRunning = false
+        sent = nil
     }
 
     func stop() {
@@ -146,6 +148,26 @@ final class HubInstaller {
     private struct SetupError: Error {
         let message: String
         var needsPassword = false
+    }
+
+    /// Puts the setup files on the server, replacing whatever a previous run left there.
+    private func upload(user: String, host: String, token: String, track: Bool = true) async throws {
+        let payload = try Self.payload(token: token)
+        defer { try? FileManager.default.removeItem(at: payload.deletingLastPathComponent()) }
+        try await ssh(HubSetup.uploadArguments(user: user, host: host), stdin: payload, track: track)
+    }
+
+    /// Sends the files again before the user starts the script in their own Terminal. The script removes the token as
+    /// it exits, whether it worked or not, so a second run would otherwise find nothing and refuse. Nil when it worked.
+    func resend() async -> String? {
+        guard let sent else { return nil }
+        do {
+            // Untracked: this runs while the main task waits for the server, whose process must stay the cancellable one.
+            try await upload(user: sent.user, host: sent.host, token: sent.token, track: false)
+            return nil
+        } catch {
+            return (error as? SetupError)?.message ?? error.localizedDescription
+        }
     }
 
     /// server.tar.gz, hub-setup.sh and kervan.service from the app bundle, plus the token, as one archive.
@@ -175,7 +197,7 @@ final class HubInstaller {
     }
 
     /// Runs ssh, showing what it prints; the setup script's "==>" lines move the step list along.
-    private func ssh(_ arguments: [String], stdin: URL? = nil) async throws {
+    private func ssh(_ arguments: [String], stdin: URL? = nil, track: Bool = true) async throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
         process.arguments = arguments
@@ -193,7 +215,7 @@ final class HubInstaller {
                 if self.tailscaleURL == nil { self.tailscaleURL = HubSetup.tailscaleLoginURL(in: self.output) }
             }
         }
-        self.process = process
+        if track { self.process = process }
         let status: Int32 = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 process.terminationHandler = { finished in continuation.resume(returning: finished.terminationStatus) }
@@ -218,6 +240,8 @@ final class HubInstaller {
         let deadline = Date().addingTimeInterval(20 * 60)
         var tailscale: String?
         var round = 0
+        // When the script in Terminal was first seen to have exited.
+        var stopped: Date?
         while Date() < deadline {
             try Task.checkCancellation()
             // Over SSH, and not every time: it stays reachable when the server's own port has closed.
@@ -232,9 +256,36 @@ final class HubInstaller {
             if await Self.runningVersion(host: host) == KervanVersion.current { return host }
             // Only when nothing answers there. An older version answering means setup hasn't finished, not that Tailscale is off.
             waitingOnTailscale = round > 10 && there == nil ? tailscale : nil
+            // The script removes the token as it exits. Once it's gone the run in Terminal is over, so a server that
+            // still isn't back means it stopped on an error no one here can see: say so instead of waiting out the
+            // twenty minutes. The grace is for the service, which the script has already waited for before exiting.
+            if waitingForTerminal, round % 4 == 0 {
+                stopped = await Self.tokenGone(user: user, host: host) ? (stopped ?? Date()) : nil
+            }
+            if let stopped, Date().timeIntervalSince(stopped) > 45 {
+                throw SetupError(message: L(
+                    "Setup stopped in the Terminal window before the server came back. What went wrong is written there; put it right and run the command again.",
+                    "Terminal penceresindeki kurulum, sunucu geri gelmeden durdu. Nerede takıldığı orada yazıyor; onu giderip komutu yeniden çalıştırın."
+                ))
+            }
             try await Task.sleep(for: .seconds(3))
         }
         throw SetupError(message: L("The server didn't come back as \(KervanVersion.current) within 20 minutes. Check the detailed output or run setup again.", "Sunucu 20 dakika içinde \(KervanVersion.current) olarak geri gelmedi. Ayrıntılı çıktıya bakın ya da kurulumu yeniden deneyin."))
+    }
+
+    /// Whether the token is gone from the server, i.e. the setup script has run and exited. Only a plain "no such
+    /// file" counts: an SSH that couldn't ask says nothing about the run.
+    private static func tokenGone(user: String, host: String) async -> Bool {
+        await withCheckedContinuation { continuation in
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+            process.arguments = HubSetup.tokenCheckArguments(user: user, host: host)
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            process.standardInput = FileHandle.nullDevice
+            process.terminationHandler = { finished in continuation.resume(returning: finished.terminationStatus == 1) }
+            do { try process.run() } catch { continuation.resume(returning: false) }
+        }
     }
 
     /// The server's MagicDNS name, asked over SSH; nil until it has one.

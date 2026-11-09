@@ -48,7 +48,20 @@ fi
 echo "==> Kervan code"
 tar -xzf "$HERE/server.tar.gz" -C /opt/kervan/server
 chown -R "$OWNER":kervan /opt/kervan/server
+# Installing the agent adapters needs about a gigabyte. Out of space, npm warns its way to a tree without
+# node_modules/.bin, where the server still starts but no agent can; say so here instead of leaving that behind.
+FREE_MB="$(df -Pm /opt/kervan/server | awk 'NR == 2 { print $4 }')"
+if [[ "${FREE_MB:-0}" -lt 1500 ]]; then
+  echo "Kervan: ${FREE_MB:-0} MB free on the server; installing the agents needs about 1500. Make room, then start again from the app." >&2
+  exit 1
+fi
 (cd /opt/kervan/server && sudo -u "$OWNER" npm ci --omit=dev --no-audit --no-fund --loglevel=error)
+# What the server starts agents with: if the install stopped short of these, nothing would run an agent.
+for adapter in claude-agent-acp codex-acp gemini; do
+  [[ -x "/opt/kervan/server/node_modules/.bin/$adapter" ]] && continue
+  echo "Kervan: the install left no $adapter, so no agent would start. Start again from the app." >&2
+  exit 1
+done
 
 if [[ "$ACCESS" != update ]]; then
 echo "==> settings"

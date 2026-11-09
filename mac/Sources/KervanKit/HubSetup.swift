@@ -40,6 +40,12 @@ public enum HubSetup {
         ssh(user, host, "sudo -n true")
     }
 
+    /// Succeeds while the token is still there. The setup script removes it as it exits, so once it is gone a run
+    /// started in the user's Terminal has finished, well or badly; the app can stop waiting blind for the one that failed.
+    public static func tokenCheckArguments(user: String, host: String) -> [String] {
+        ssh(user, host, "test -e \(remoteFolder)/token")
+    }
+
     public static func runArguments(user: String, host: String, access: Access) -> [String] {
         ssh(user, host, "sudo -n env ACCESS=\(access.rawValue) bash \(remoteFolder)/hub-setup.sh")
     }

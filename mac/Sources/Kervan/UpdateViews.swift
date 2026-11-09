@@ -168,7 +168,9 @@ struct ServerUpdateSheet: View {
                                 "Sunucuda sudo parola istiyor. Terminal'de şunu çalıştırın; parolanız orada sorulur, bitince bu pencere kendiliğinden devam eder."
                             ),
                         command: HubSetup.terminalCommand(user: user, host: host, access: access),
-                        runsHere: true
+                        runsHere: true,
+                        // The script takes the token with it when it exits, so a second run needs the files again.
+                        prepare: { await installer.resend() }
                     )
                 }
                 if let failure = installer.failure {

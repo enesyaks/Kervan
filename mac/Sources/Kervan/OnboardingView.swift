@@ -449,7 +449,9 @@ struct OnboardingView: View {
                     Guidance(
                         text: L("sudo needs a password on this machine. Run this in Terminal; it asks for your password there, and this screen connects by itself when setup is done.", "Bu makinede sudo parola istiyor. Terminal'de şunu çalıştırın; parolanız orada sorulur, kurulum bitince bu ekran kendiliğinden bağlanır."),
                         command: HubSetup.terminalCommand(user: user.trimmed, host: host.trimmed, access: .tailscale),
-                        runsHere: true
+                        runsHere: true,
+                        // The script takes the token with it when it exits, so a second run needs the files again.
+                        prepare: { await installer.resend() }
                     )
                 }
                 if let address = installer.waitingOnTailscale {

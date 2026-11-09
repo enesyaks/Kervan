@@ -781,6 +781,8 @@ import Testing
         #expect(HubSetup.uploadArguments(user: "ubuntu", host: "192.168.1.30").contains("BatchMode=yes"))
         #expect(HubSetup.runArguments(user: "ubuntu", host: "h", access: .tailscale).last == "sudo -n env ACCESS=tailscale bash /tmp/kervan-setup/hub-setup.sh")
         #expect(HubSetup.terminalCommand(user: "ubuntu", host: "h", access: .tailscale) == "ssh -t ubuntu@h \"sudo env ACCESS=tailscale bash /tmp/kervan-setup/hub-setup.sh\"")
+        // Asks about the token rather than the folder: the script leaves the folder behind and takes the token with it.
+        #expect(HubSetup.tokenCheckArguments(user: "ubuntu", host: "h").last == "test -e /tmp/kervan-setup/token")
     }
 
     @Test func followsTheSetupScript() {

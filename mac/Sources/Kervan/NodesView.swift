@@ -486,6 +486,8 @@ struct Guidance: View {
     let command: String
     /// It's meant for this Mac, so it can be started from here. The password is typed in Terminal, never in the app.
     var runsHere = false
+    /// Runs before Terminal opens, for a command whose files have to be put back first; it answers with what went wrong.
+    var prepare: (() async -> String?)?
     @State private var copied = false
     @State private var failure: String?
 
@@ -518,7 +520,10 @@ struct Guidance: View {
                     .environment(\.colorScheme, .dark)
                     if runsHere {
                         Button {
-                            failure = TerminalRun.open(command)
+                            Task {
+                                failure = await prepare?()
+                                if failure == nil { failure = TerminalRun.open(command) }
+                            }
                         } label: {
                             Label(L("Run in Terminal", "Terminal'de çalıştır"), systemImage: "play.fill")
                         }
