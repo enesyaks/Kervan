@@ -40,7 +40,7 @@ To work on the UI without spending a real agent's quota: `node server/scripts/de
 ## Pull requests
 
 1. Fork the repository and branch off `main`.
-2. Make sure `npm test` and `swift test` pass locally; CI runs the same.
+2. Make sure `npm test` and `swift test` pass locally before opening a pull request; there is no hosted CI.
 3. In the PR, say what changed, why, and how you tried it; add a screenshot if the UI changed.
 
 ## Releases

@@ -16,7 +16,6 @@ Mac uyusa da kapansa da iş sürer; döndüğünüzde kaldığı yerden görürs
 ![Swift 6](https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white)
 ![Node 24](https://img.shields.io/badge/Node-24-5FA04E?logo=node.js&logoColor=white)
 ![ACP](https://img.shields.io/badge/Agent%20Client%20Protocol-v1-C9953A)
-[![CI](https://github.com/enesyaks/Kervan/actions/workflows/ci.yml/badge.svg)](https://github.com/enesyaks/Kervan/actions/workflows/ci.yml)
 [![Lisans: MIT](https://img.shields.io/badge/lisans-MIT-5E9C7E)](LICENSE)
 [![Son sürüm](https://img.shields.io/github/v/release/enesyaks/Kervan?label=s%C3%BCr%C3%BCm&color=4A6FA5)](https://github.com/enesyaks/Kervan/releases/latest)
 
