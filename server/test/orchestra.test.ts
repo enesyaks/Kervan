@@ -203,6 +203,23 @@ describe("splitting work and resting helpers", () => {
     }
   });
 
+  it("rests the agent of a scheduled or board task once its turn is over", async () => {
+    const { sessions, stop } = await startServer({ limits: { helperIdleMinutes: 0.005 } });
+    try {
+      const id = await sessions.runTask({ agent: "fake", title: "Task", prompt: "selam" });
+      await turnEnded(sessions, id);
+      for (let i = 0; i < 80 && !sessions.list().find((s) => s.id === id)!.resting; i++) {
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      assert.equal(sessions.list().find((s) => s.id === id)!.resting, true, "the task's agent was stopped");
+      const normal = await sessions.create("fake", [], []);
+      await new Promise((r) => setTimeout(r, 300));
+      assert.equal(sessions.list().find((s) => s.id === normal.id)!.resting, undefined, "a session the user opened stays up");
+    } finally {
+      await stop();
+    }
+  });
+
   it("stops and rests a lead's helpers when the lead is archived", async () => {
     const { sessions, stop } = await startServer({ limits: { helperIdleMinutes: 0 } });
     try {

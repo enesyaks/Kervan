@@ -190,6 +190,8 @@ export class SessionManager {
   maps?: ProjectMaps;
   /** Helpers waiting to rest, by session id. */
   private readonly idleTimers = new Map<string, NodeJS.Timeout>();
+  /** Sessions started by a schedule or a board card: nobody is watching, so their agents rest like a helper's. */
+  private readonly unattended = new Set<string>();
   alerts?: Alerts;
   /** The user's shells in session folders; their output goes to every client. */
   readonly terminals = new TerminalHub((message) => this.broadcast(message));
@@ -703,7 +705,7 @@ export class SessionManager {
    */
   private rest(session: Session): void {
     this.clearIdleTimer(session.info.id);
-    if (!session.process || !session.info.parentId || this.shuttingDown) return;
+    if (!session.process || !this.restsWhenIdle(session) || this.shuttingDown) return;
     if (!["idle", "error"].includes(session.info.status) || session.pending.size > 0) return;
     session.process.close();
     session.process = undefined;
@@ -719,9 +721,13 @@ export class SessionManager {
     this.idleTimers.delete(sessionId);
   }
 
-  /** A helper that goes idle rests after a while; any other status cancels that. */
+  private restsWhenIdle(session: Session): boolean {
+    return Boolean(session.info.parentId) || this.unattended.has(session.info.id);
+  }
+
+  /** A helper or task session that goes idle rests after a while; any other status cancels that. */
   private watchIdle(session: Session): void {
-    if (!session.info.parentId) return;
+    if (!this.restsWhenIdle(session)) return;
     this.clearIdleTimer(session.info.id);
     const minutes = this.limits.helperIdleMinutes;
     if (session.info.status !== "idle" || !session.process || minutes <= 0) return;
@@ -1141,6 +1147,7 @@ export class SessionManager {
       ...(task.projectId && this.projects?.get(task.projectId) ? { projectId: task.projectId } : {}),
     });
     const session = this.require(info.id);
+    this.unattended.add(info.id);
     await session.ready;
     if (session.info.status !== "idle") throw new Error(session.info.error ?? "the agent didn't start");
     if (task.choose) {
