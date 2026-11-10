@@ -133,7 +133,7 @@ struct AgentCatalogSheet: View {
             }
             .padding(14)
         }
-        .frame(width: 580, height: 460) // fits under the Settings window; the list scrolls
+        .frame(width: 620, height: 540) // fits under the Settings window; the list scrolls
         .background(Color.kervanCanvas)
         .task {
             if connectedNodes.contains(rememberedNode) {
@@ -454,24 +454,27 @@ private struct LocalModelNote: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        // One line, with the models truncated: this sits above the agent list, which is what the sheet is for.
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
             Image(systemName: "cpu").foregroundStyle(Color.kervanOasis)
-            VStack(alignment: .leading, spacing: 4) {
             Text(status.models.isEmpty
-                ? L("\(app.name) is running \(place.english) but has no chat models yet. Download one there to use it.", "\(app.name) \(place.turkish) çalışıyor ama henüz sohbet modeli yok. Kullanmak için orada bir model indirin.")
-                : L("\(app.name) is running \(place.english) with \(status.models.count) models. Agents marked Local models can run one: your code and the model stay \(node == nil ? "on your server" : "on that machine").", "\(app.name) \(place.turkish) \(status.models.count) modelle çalışıyor. Yerel model işaretli ajanlar bunlardan birini çalıştırabilir; kodunuz da model de \(node == nil ? "sunucunuzda" : "o makinede") kalır."))
+                ? L("\(app.name) is running \(place.english) with no chat model yet.", "\(app.name) \(place.turkish) çalışıyor, henüz sohbet modeli yok.")
+                : L("\(app.name) \(place.english), \(status.models.count) models — agents marked Local models can run one.", "\(app.name) \(place.turkish), \(status.models.count) model — yerel model işaretli ajanlar birini çalıştırabilir."))
                 .font(.callout)
-                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(1)
             if !status.models.isEmpty {
                 Text(status.models.joined(separator: ", "))
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(3)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                     .textSelection(.enabled)
+                    .help(status.models.joined(separator: "\n"))
             }
-            }
+            Spacer(minLength: 0)
         }
-        .padding(12)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.kervanOasis.opacity(0.08), in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
     }

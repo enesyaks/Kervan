@@ -48,7 +48,7 @@ struct SettingsView: View {
             .tabItem { Label(L("Alerts", "Bildirimler"), systemImage: "bell.badge") }
                 .tag(SettingsTab.alerts)
         }
-        .frame(width: 620, height: 480)
+        .frame(width: 660, height: 560)
         .fontDesign(.rounded)
     }
 }
