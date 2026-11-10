@@ -15,11 +15,10 @@ public enum MacNode {
         return name?.isEmpty == false ? name : nil
     }
 
-    /// The version this Mac's node runs when it is older than the app, so the app can offer to bring it up to date.
+    /// The version this Mac's node runs when it differs from the app's, the same rule as the "Update…" button, so the
+    /// app can offer to bring it in step.
     public static func outdatedVersion(in nodes: [NodeInfo], named name: String?, current: String) -> String? {
-        guard let name, let node = nodes.first(where: { $0.name == name }), let version = node.version,
-              let theirs = SemanticVersion(version), let mine = SemanticVersion(current), theirs < mine
-        else { return nil }
+        guard let name, let version = nodes.first(where: { $0.name == name })?.version, version != current else { return nil }
         return version
     }
 

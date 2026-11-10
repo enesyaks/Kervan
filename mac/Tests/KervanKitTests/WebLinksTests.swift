@@ -91,11 +91,11 @@ import Testing
 }
 
 @Suite struct MacNodeTests {
-    @Test func flagsOnlyAnOlderNodeOfThisMac() {
+    @Test func flagsADifferentNodeVersionOfThisMac() {
         let nodes = [NodeInfo(name: "mac", connected: true, version: "0.3.10"), NodeInfo(name: "other", connected: true, version: "0.1.0")]
         #expect(MacNode.outdatedVersion(in: nodes, named: "mac", current: "0.3.18") == "0.3.10")
         #expect(MacNode.outdatedVersion(in: nodes, named: "mac", current: "0.3.10") == nil)
-        #expect(MacNode.outdatedVersion(in: nodes, named: "mac", current: "0.3.2") == nil)
+        #expect(MacNode.outdatedVersion(in: nodes, named: "mac", current: "0.3.2") == "0.3.10")
         #expect(MacNode.outdatedVersion(in: nodes, named: nil, current: "0.3.18") == nil)
         #expect(MacNode.outdatedVersion(in: nodes, named: "gone", current: "0.3.18") == nil)
         #expect(MacNode.outdatedVersion(in: [NodeInfo(name: "mac", connected: false)], named: "mac", current: "0.3.18") == nil)
