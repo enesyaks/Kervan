@@ -135,6 +135,30 @@ the network.
 </td>
 <td><img src="docs/media/terminal.png" alt="A terminal in the session folder"></td>
 </tr>
+<tr>
+<td><img src="docs/media/projectmap.png" alt="A project's map and instructions"></td>
+<td valign="top">
+
+### The project map
+Build a map of a project once and the agents stop rereading the repository. An agent scans it and writes the map
+in short addressed sections — what each service reaches, every route and message, how the work flows, where each
+kind of change lives. Later sessions are given only the headings and fetch the sections their task needs, and they
+can look up what earlier sessions in the project did, so they carry on from there instead of repeating the work.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### Agents, and models that stay home
+**Settings › Agents** lists the agents Kervan knows, says which are installed, and installs the missing ones on
+the machine you choose, checking every download against its published checksum. An agent can also run a model from
+[Ollama](https://ollama.com) or [LM Studio](https://lmstudio.ai) on the machine it lives on, so the code and the
+model never leave it.
+
+</td>
+<td><img src="docs/media/agents.png" alt="The agent catalog, with local models found on the machine"></td>
+</tr>
 </table>
 
 ### From your phone, in the browser
@@ -154,7 +178,7 @@ and its access ends at once. On a phone, **Add to Home Screen** makes it open li
 | **Teams and roles** | Split a job across several agents, each role with its own agent, instructions, skills and MCP servers. The team view shows them side by side. |
 | **Orchestration** | A lead agent hands subtasks to helper agents; in a git repository each helper works on its own branch, and the lead reviews the diff and merges it. With **Split into helpers when the work is large**, the lead judges the size first and splits only big work. Idle helpers rest after 10 minutes to free memory and wake with the next message. |
 | **Skills and MCP** | A skill library and MCP servers live on the server and are switched on per session or role, so every agent gets the same tools. |
-| **Nodes** | Run agents on other machines too (a GPU box, say); the hub brings them all into one app, and you pick the machine and agent when you start the work. |
+| **Nodes** | Run agents on other machines too (a GPU box, say); the hub brings them all into one app, and you pick the machine and agent when you start the work. This Mac can be one of them: **Settings › Nodes › Use this Mac as a node**, with an option to keep it awake while it is plugged in. |
 | **Model picker** | The agent's models, thinking level and modes sit under the composer. |
 | **Search and archive** | Full-text search across every conversation; archive old sessions. |
 | **Phone alerts** | The server tells your phone when an agent needs your approval, finishes or fails, through [ntfy](https://ntfy.sh) or a webhook, even while the Mac sleeps. Set up in **Settings › Alerts**; tapping an alert opens the session in the web version. |

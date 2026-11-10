@@ -134,6 +134,30 @@ açık olmasa da çalışır.
 </td>
 <td><img src="docs/media/tr/terminal.png" alt="Oturum klasöründe terminal"></td>
 </tr>
+<tr>
+<td><img src="docs/media/tr/projectmap.png" alt="Projenin haritası ve talimatları"></td>
+<td valign="top">
+
+### Proje haritası
+Bir projenin haritası bir kez çıkarılır, ajanlar depoyu baştan okumayı bırakır. Bir ajan depoyu tarar ve haritayı
+kısa, adresli bölümler hâlinde yazar: her servisin nereye uzandığı, bütün uç noktalar ve mesajlar, işin akışı,
+hangi değişikliğin nerede durduğu. Sonraki oturumlara yalnızca başlıklar verilir, görevlerinin gerektirdiği
+bölümleri kendileri okur; projede daha önce ne yapıldığına da bakıp aynı işi tekrarlamak yerine oradan devam eder.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### Ajanlar ve makineden çıkmayan modeller
+**Ayarlar › Ajanlar** Kervan'ın bildiği ajanları, hangisinin kurulu olduğuyla birlikte listeler ve eksikleri
+seçtiğiniz makineye kurar; her indirmeyi yayınlanan sağlama değeriyle denetler. Bir ajan, bulunduğu makinedeki
+[Ollama](https://ollama.com) ya da [LM Studio](https://lmstudio.ai) modelini de çalıştırabilir; kod da model de o
+makineden hiç çıkmaz.
+
+</td>
+<td><img src="docs/media/tr/agents.png" alt="Ajan kataloğu ve makinede bulunan yerel modeller"></td>
+</tr>
 </table>
 
 ### Telefondan, tarayıcıda
@@ -153,7 +177,7 @@ kaldırın, erişimi anında biter. Telefonda **Ana Ekrana Ekle** ile uygulama g
 | **Takımlar ve roller** | Bir işi birkaç ajana bölün: her rolün ajanı, talimatı, skill ve MCP sunucuları ayrı. Takım görünümü hepsini yan yana gösterir. |
 | **Orkestrasyon** | Ana ajan alt görevleri yardımcı ajanlara verir; git deposunda her yardımcı kendi dalında çalışır, ana ajan farkına bakıp birleştirir. **İş büyük olduğunda yardımcılara böl** açıkken ana ajan önce işin büyüklüğüne bakar, yalnızca büyük işi böler. Boşta kalan yardımcılar 10 dakika sonra bellek boşaltmak için dinlenmeye geçer, bir sonraki mesajla uyanır. |
 | **Skill ve MCP** | Skill kütüphanesi ve MCP sunucuları sunucuda tutulur, oturum ya da rol başına açılır; her ajan aynı araçları kullanır. |
-| **Node'lar** | Ajanları başka makinelerde de çalıştırın (ör. GPU'lu bir kutu); hub hepsini tek uygulamada toplar; işi başlatırken makineyi ve ajanı seçersiniz. |
+| **Node'lar** | Ajanları başka makinelerde de çalıştırın (ör. GPU'lu bir kutu); hub hepsini tek uygulamada toplar; işi başlatırken makineyi ve ajanı seçersiniz. Bu Mac de onlardan biri olabilir: **Ayarlar › Node'lar › Bu Mac'i node yap**; istenirse prizdeyken uyanık tutulur. |
 | **Model seçici** | Ajanın sunduğu model, düşünme seviyesi ve mod yazma kutusunun altında. |
 | **Arama ve arşiv** | Bütün konuşmalarda tam metin arama; eski oturumları arşivleyin. |
 | **Telefona bildirim** | Bir ajan onay beklediğinde, bitirdiğinde ya da hata verdiğinde sunucu telefonunuza [ntfy](https://ntfy.sh) ya da bir webhook ile haber verir; Mac uyurken bile. **Ayarlar › Bildirimler**'den kurulur; bildirime dokununca oturum web sürümünde açılır. |
