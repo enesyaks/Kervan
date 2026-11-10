@@ -4,6 +4,8 @@ import SwiftUI
 
 struct ChatView: View {
     let sessionID: String
+    /// The sheet that hands one task to an agent somewhere else.
+    @State private var handOff = false
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var draft = ""
@@ -138,6 +140,7 @@ struct ChatView: View {
                 .inspectorColumnWidth(min: 280, ideal: 360, max: 640)
         }
         .toolbar { tools }
+        .sheet(isPresented: $handOff) { HandOffSheet(sessionID: sessionID).environment(model) }
         .alert(
             L("Rewind the files?", "Dosyalar geri sarılsın mı?"),
             isPresented: Binding(get: { rewinding != nil }, set: { if !$0 { rewinding = nil } }),
@@ -181,6 +184,18 @@ struct ChatView: View {
                     }
                     .help(L("Show the whole team side by side (⌥⌘T)", "Takımdaki bütün ajanları yan yana göster (⌥⌘T)"))
                     .keyboardShortcut("t", modifiers: [.command, .option])
+                }
+            }
+            // Only a lead can start helpers, so only a lead can hand work to an agent on another machine.
+            if model.store.session(sessionID)?.orchestrate == true, model.store.session(sessionID)?.parentId == nil {
+                ToolbarItem {
+                    Button {
+                        handOff = true
+                    } label: {
+                        Label(L("Hand over", "Görevi ver"), systemImage: "person.badge.plus")
+                    }
+                    .help(L("Give a task to an agent here or on another machine (⌥⌘H)", "Buradaki ya da başka makinedeki bir ajana görev ver (⌥⌘H)"))
+                    .keyboardShortcut("h", modifiers: [.command, .option])
                 }
             }
             ToolbarItem {

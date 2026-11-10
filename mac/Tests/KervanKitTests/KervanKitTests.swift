@@ -773,6 +773,19 @@ import Testing
     }
 }
 
+@Suite struct HandOffTests {
+    @Test func asksTheLeadToStartTheHelperSomewhere() {
+        let here = HandOff.message(agentName: "Codex", node: nil, task: "  Write the release notes  ")
+        #expect(here.contains("`Codex`"))
+        #expect(here.contains(L("on this server", "bu sunucudaki")))
+        #expect(here.hasSuffix("Write the release notes"))   // trimmed, and last so the task reads as the task
+        let there = HandOff.message(agentName: "goose", node: "studio", task: "Run the benchmark")
+        #expect(there.contains(L("on studio", "studio üzerinde")))
+        // The lead must hand it over rather than do it, or the machine the user picked is ignored.
+        #expect(there.contains(L("don't do the task yourself", "görevi kendin yapma")))
+    }
+}
+
 @Suite struct HubSetupTests {
     @Test func makesAStrongTokenAndPasswordFreeCommands() {
         let token = HubSetup.makeToken()

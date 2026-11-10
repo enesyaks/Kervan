@@ -728,3 +728,19 @@ extension ServerMessage {
 public struct RequestFailure: Error, Equatable, Sendable {
     public let message: String
 }
+
+/// What the app says to a lead agent when the user hands a task to another agent from the chat.
+///
+/// It is a message from the user, not a protocol call: a helper the lead doesn't know about would answer
+/// into a conversation nobody reads, so the lead is asked to start it and report back.
+public enum HandOff {
+    public static func message(agentName: String, node: String?, task: String) -> String {
+        let target = node.map { L("the agent `\(agentName)` on \($0)", "`\(agentName)` ajanıyla (\($0) üzerinde)") }
+            ?? L("the agent `\(agentName)` on this server", "bu sunucudaki `\(agentName)` ajanıyla")
+        let body = task.trimmingCharacters(in: .whitespacesAndNewlines)
+        return L(
+            "Start a helper with \(target) and give it the task below. Tell me what it answers; don't do the task yourself.\n\n\(body)",
+            "\(target) bir yardımcı başlat ve aşağıdaki görevi ver. Ne cevap verdiğini bana aktar; görevi kendin yapma.\n\n\(body)"
+        )
+    }
+}

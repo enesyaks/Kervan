@@ -58,7 +58,7 @@ struct NewSessionSheet: View {
                     if !onNode {
                         Toggle(isOn: $orchestrate) {
                             Text(L("Can start helper agents", "Yardımcı ajan başlatabilsin"))
-                            Text(L("Hands subtasks to other agents; helpers show up under this session in the sidebar. In a git repository each helper works on its own branch.", "Alt görevleri başka ajanlara verir; yardımcılar kenar çubuğunda bu oturumun altında görünür. Klasör bir git deposuysa her yardımcı kendi dalında çalışır."))
+                            Text(L("Hands subtasks to other agents, on this server or on any machine with an agent; helpers show up under this session in the sidebar. In a git repository each helper works on its own branch.", "Alt görevleri başka ajanlara verir — bu sunucudaki ya da ajanı olan herhangi bir makinedeki; yardımcılar kenar çubuğunda bu oturumun altında görünür. Klasör bir git deposuysa her yardımcı kendi dalında çalışır."))
                         }
                     }
                     if orchestrate && !onNode {
