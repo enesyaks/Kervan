@@ -19,7 +19,7 @@ Mac uyusa da kapansa da iş sürer; döndüğünüzde kaldığı yerden görürs
 [![Lisans: MIT](https://img.shields.io/badge/lisans-MIT-5E9C7E)](LICENSE)
 [![Son sürüm](https://img.shields.io/github/v/release/enesyaks/Kervan?label=s%C3%BCr%C3%BCm&color=4A6FA5)](https://github.com/enesyaks/Kervan/releases/latest)
 
-<img src="docs/media/tr/demo.gif" width="860" alt="Kervan'da bir ajanın projede plan yapıp dosyaları düzenlemesi, farkın Değişiklikler panelinde görünmesi ve commit">
+<img src="docs/media/tr/demo.gif" width="860" alt="Kervan'da bir ajanın projede plan yapıp dosyaları düzenlemesi, farkın Değişiklikler panelinde görünüp commit'e hazır hâle gelmesi">
 
 <sub>Bir proje oturumu: ajan planını paylaşır, dosyaları düzenler, testleri çalıştırır; fark yan panelde, commit tek tıkta.</sub>
 

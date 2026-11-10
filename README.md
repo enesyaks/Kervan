@@ -19,7 +19,7 @@ Work goes on while your Mac sleeps; when you come back, you pick up where the ag
 [![License: MIT](https://img.shields.io/badge/license-MIT-5E9C7E)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/enesyaks/Kervan?label=release&color=4A6FA5)](https://github.com/enesyaks/Kervan/releases/latest)
 
-<img src="docs/media/demo.gif" width="860" alt="An agent in a Kervan project shares its plan, edits files and runs tests; the diff shows in the Changes panel and is committed">
+<img src="docs/media/demo.gif" width="860" alt="An agent in a Kervan project shares its plan, edits files and runs tests; the diff shows in the Changes panel, ready to commit">
 
 <sub>A project session: the agent shares its plan, edits files and runs the tests; the diff sits in the side panel, one click to commit.</sub>
 
