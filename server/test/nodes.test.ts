@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
@@ -90,6 +91,27 @@ describe("agents on another node", () => {
     assert.ok(existsSync(join(nodeDir, sessionId)), "the workspace is on the node");
   });
 
+  it("gives a lead on the node its own bridge, and carries its calls to the hub", async () => {
+    send(ws, { type: "session.create", id: "c-lead", agent: "uzak", orchestrate: true });
+    const { session } = await inbox.waitFor((m) => m.type === "session.created" && m.id === "c-lead");
+    await inbox.waitFor((m) => m.type === "session.updated" && m.session.id === session.id && m.session.status === "idle", 15_000);
+
+    // The hub's own socket is its own machine's; the node has to serve its agents here.
+    const socketPath = join(nodeDir, ".orchestra.sock");
+    assert.ok(existsSync(socketPath), "the node listens for its agents' orchestration calls");
+
+    // A token the hub never issued has to be refused by the hub, not by the node: that answer travelled
+    // node → connection → hub → back, which is the whole point.
+    const status = await new Promise<number>((resolve, reject) => {
+      const call = request({ socketPath, path: "/tools", method: "GET", headers: { authorization: "Bearer never-issued" } }, (res) =>
+        resolve(res.statusCode ?? 0),
+      );
+      call.on("error", reject);
+      call.end();
+    });
+    assert.equal(status, 401);
+  });
+
   it("brings the node agent's approvals and settings to the app", async () => {
     const seen = inbox.received.length;
     send(ws, { type: "session.prompt", id: "t1", sessionId, text: "tool" });
@@ -116,11 +138,12 @@ describe("agents on another node", () => {
     assert.equal(reply, `files: file://${join(nodeDir, sessionId, "notlar/a.txt")}`);
   });
 
-  it("keeps leads and skills on this server", async () => {
-    send(ws, { type: "session.create", id: "c2", agent: "uzak", orchestrate: true });
-    assert.match((await inbox.waitFor((m) => m.type === "error" && m.id === "c2")).message, /a lead must run on this server/);
+  it("keeps splitting and skills on this server, though a lead may live on a node", async () => {
+    // Judging how large the work is reads the lead's folder from here, which only this server can do.
     send(ws, { type: "session.create", id: "c3", agent: "uzak", split: true });
-    assert.match((await inbox.waitFor((m) => m.type === "error" && m.id === "c3")).message, /a lead must run on this server/);
+    assert.match((await inbox.waitFor((m) => m.type === "error" && m.id === "c3")).message, /splitting work needs a lead on this server/);
+    send(ws, { type: "session.create", id: "c4", agent: "uzak", skills: ["bir"] });
+    assert.match((await inbox.waitFor((m) => m.type === "error" && m.id === "c4")).message, /no skill named|skills aren't available/);
   });
 
   it("refuses project work for a node's agent when it's set up, not when it comes due", async () => {

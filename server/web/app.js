@@ -1019,7 +1019,7 @@ function openNewSession() {
     return h("button", {
       class: "agent-choice",
       disabled: Boolean(away),
-      // Only an agent on this server can lead helpers.
+      // Splitting is judged on this server; a lead itself may run anywhere with an agent.
       onclick: () => { dialog.close(); void create(agent.id, split && !agent.node, autoApprove && !agent.terminal); },
     },
       h("span", { class: `dot ${away ? "closed" : "idle"}`, "aria-hidden": "true" }),

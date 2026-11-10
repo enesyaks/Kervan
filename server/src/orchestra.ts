@@ -220,32 +220,42 @@ export class OrchestraHub {
   }
 
   private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const reply = (status: number, body: unknown) => {
-      res.writeHead(status, { "content-type": "application/json" });
-      res.end(JSON.stringify(body));
-    };
     const token = req.headers.authorization?.replace(/^Bearer /, "") ?? "";
-    const leadId = this.tokens.get(token);
-    if (!leadId) return reply(401, { error: "unauthorized" });
-
-    if (req.method === "GET" && req.url === "/tools") return reply(200, { tools: this.toolsFor(leadId) });
-    if (req.method !== "POST" || req.url !== "/call") return reply(404, { error: "not_found" });
-
-    let call: { name?: unknown; arguments?: unknown };
-    try {
-      call = JSON.parse(await readBody(req));
-    } catch {
-      return reply(400, { error: "bad_json" });
+    let body: unknown;
+    if (req.method === "POST") {
+      try {
+        body = JSON.parse(await readBody(req));
+      } catch {
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "bad_json" }));
+        return;
+      }
     }
+    const answer = await this.answer(token, `${req.method} ${req.url}`, body);
+    res.writeHead(answer.status, { "content-type": "application/json" });
+    res.end(JSON.stringify(answer.body));
+  }
+
+  /**
+   * One request, whatever brought it: the socket here, or a node forwarding its agent's call over the
+   * connection it already has to this hub. `route` is "<method> <path>", as the bridge sends it.
+   */
+  async answer(token: string, route: string, body?: unknown): Promise<{ status: number; body: unknown }> {
+    const leadId = this.tokens.get(token);
+    if (!leadId) return { status: 401, body: { error: "unauthorized" } };
+    if (route === "GET /tools") return { status: 200, body: { tools: this.toolsFor(leadId) } };
+    if (route !== "POST /call") return { status: 404, body: { error: "not_found" } };
+
+    const call = (typeof body === "object" && body !== null ? body : {}) as { name?: unknown; arguments?: unknown };
     try {
       const args = (typeof call.arguments === "object" && call.arguments !== null ? call.arguments : {}) as Args;
       const result = await this.call(leadId, String(call.name), args);
       // The memory tools answer in plain text, because JSON's quotes and indents are tokens too.
-      reply(200, { content: [{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result, null, 2) }] });
+      return { status: 200, body: { content: [{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result, null, 2) }] } };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       log("info", "orchestra call refused", { leadId, tool: call.name, error: message });
-      reply(200, { content: [{ type: "text", text: message }], isError: true });
+      return { status: 200, body: { content: [{ type: "text", text: message }], isError: true } };
     }
   }
 
@@ -300,7 +310,7 @@ export class OrchestraHub {
 
 const clip = (value: string, chars: number) => (value.length > chars ? `${value.slice(0, chars - 1)}…` : value);
 
-function readBody(req: IncomingMessage): Promise<string> {
+export function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     let size = 0;
     const chunks: Buffer[] = [];

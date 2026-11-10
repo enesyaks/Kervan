@@ -1,5 +1,6 @@
-import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { createServer, type Server } from "node:http";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -9,11 +10,14 @@ import { AcpRegistry, type InstallRequest } from "./agentregistry.ts";
 import type { AgentDefinition } from "./agents.ts";
 import { isSafeRelativePath, listTree, resolveInside } from "./files.ts";
 import { log } from "./log.ts";
+import { ORCHESTRA_MCP_NAME, orchestraSocketPath, readBody } from "./orchestra.ts";
 import { Rpc } from "./rpc.ts";
 import type { AgentProcess, AgentRunner } from "./runner.ts";
 import { VERSION } from "./version.ts";
 
 export const NODE_PATH = "/v1/node";
+/** What this node tells the hub it can do, so the hub never asks for something this build has no code for. */
+export const NODE_FEATURES = ["orchestra"];
 /** Files moved between hub and node travel inside one WebSocket message. */
 export const MAX_NODE_FILE_BYTES = 50 * 1024 * 1024;
 export const MAX_NODE_FRAME_BYTES = Math.ceil((MAX_NODE_FILE_BYTES * 4) / 3) + 64 * 1024;
@@ -48,6 +52,8 @@ export interface NodeAgentOptions {
 export class NodeAgent {
   private readonly options: NodeAgentOptions;
   private readonly processes = new Map<string, AgentProcess>();
+  /** Serves this node's agents their orchestration tools; see orchestraSocket. */
+  private orchestra?: { path: string; server: Server };
   private ws?: WebSocket;
   private stopped = false;
   private retry?: NodeJS.Timeout;
@@ -105,7 +111,7 @@ export class NodeAgent {
       log("info", "connected to hub", { hub: hubUrl, node: name });
       this.watch(ws);
       void rpc
-        .call<{ hubs?: string[] } | null>("hello", { version: VERSION })
+        .call<{ hubs?: string[] } | null>("hello", { version: VERSION, features: NODE_FEATURES })
         .then((answer) => this.learn(hubUrl, answer?.hubs ?? []))
         .catch(() => {});
     });
@@ -175,6 +181,9 @@ export class NodeAgent {
   private closeAll(): void {
     for (const process of this.processes.values()) process.close();
     this.processes.clear();
+    // The socket forwards to a connection that is gone; the next one opens its own.
+    this.orchestra?.server.close();
+    this.orchestra = undefined;
   }
 
   private async workspace(key: string): Promise<string> {
@@ -183,6 +192,68 @@ export class NodeAgent {
     const dir = await resolveInside(this.options.workspacesDir, key);
     await mkdir(dir, { recursive: true });
     return dir;
+  }
+
+  /**
+   * Where this node's agents reach the hub's orchestration tools. The bridge they run speaks HTTP to this
+   * socket, and every request goes on to the hub over the connection the node already has, so nothing new
+   * listens on the network and the hub's own socket stays local to it.
+   */
+  private async orchestraSocket(rpc: Rpc): Promise<string> {
+    if (this.orchestra) return this.orchestra.path;
+    const path = orchestraSocketPath(join(this.options.workspacesDir, ".orchestra.sock"));
+    await mkdir(dirname(path), { recursive: true });
+    await rm(path, { force: true });
+    const server = createServer((req, res) => {
+      void (async () => {
+        const reply = (status: number, body: unknown) => {
+          res.writeHead(status, { "content-type": "application/json" });
+          res.end(JSON.stringify(body));
+        };
+        try {
+          let body: unknown;
+          if (req.method === "POST") body = JSON.parse(await readBody(req));
+          const token = req.headers.authorization?.replace(/^Bearer /, "") ?? "";
+          const answer = await rpc.call<{ status: number; body: unknown }>("orchestra", {
+            token,
+            route: `${req.method} ${req.url}`,
+            body,
+          });
+          reply(answer?.status ?? 502, answer?.body ?? { error: "no_answer" });
+        } catch (error) {
+          reply(502, { error: error instanceof Error ? error.message : String(error) });
+        }
+      })();
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(path, resolve);
+    });
+    chmodSync(path, 0o600);
+    this.orchestra = { path, server };
+    return path;
+  }
+
+  /**
+   * The hub describes the orchestration bridge with its own paths, which mean nothing here: the command,
+   * the script and the socket are all this machine's. Only the token travels.
+   */
+  private async localise(servers: acp.McpServer[], rpc: Rpc): Promise<acp.McpServer[]> {
+    if (!servers.some((s) => s.name === ORCHESTRA_MCP_NAME)) return servers;
+    const socketPath = await this.orchestraSocket(rpc);
+    return servers.map((server) => {
+      if (server.name !== ORCHESTRA_MCP_NAME || !("env" in server)) return server;
+      const token = server.env?.find((variable) => variable.name === "KERVAN_ORCHESTRA_TOKEN")?.value ?? "";
+      return {
+        name: server.name,
+        command: process.execPath,
+        args: [join(import.meta.dirname, "orchestra-mcp.ts")],
+        env: [
+          { name: "KERVAN_ORCHESTRA_SOCKET", value: socketPath },
+          { name: "KERVAN_ORCHESTRA_TOKEN", value: token },
+        ],
+      };
+    });
   }
 
   private process(processId: string): AgentProcess {
@@ -197,6 +268,7 @@ export class NodeAgent {
       .on("start", async (params: { processId: string; command: AgentDefinition; key: string; resumeSessionId?: string; mcpServers: acp.McpServer[] }) => {
         const { processId } = params;
         const cwd = await this.workspace(params.key);
+        const mcpServers = await this.localise(params.mcpServers, rpc);
         const process = await this.options.runner.start({
           command: params.command,
           cwd,
@@ -206,14 +278,14 @@ export class NodeAgent {
           onUsage: (usage) => rpc.notify("usage", { processId, usage }),
           onConfig: (options) => rpc.notify("config", { processId, options }),
           mcpServers: (supportsHttp) => {
-            const skipped = params.mcpServers.filter((s) => "type" in s && s.type === "http" && !supportsHttp);
+            const skipped = mcpServers.filter((s) => "type" in s && s.type === "http" && !supportsHttp);
             if (skipped.length > 0) {
               rpc.notify("event", {
                 processId,
                 event: { kind: "notice", text: `This agent doesn't support HTTP MCP servers; skipped: ${skipped.map((s) => s.name).join(", ")}` },
               });
             }
-            return params.mcpServers.filter((s) => !skipped.includes(s));
+            return mcpServers.filter((s) => !skipped.includes(s));
           },
         });
         this.processes.set(processId, process);

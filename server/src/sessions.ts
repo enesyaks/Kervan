@@ -327,7 +327,13 @@ export class SessionManager {
     if (options.orchestrate && !this.orchestra) throw new KervanError("bad_message", "this server can't start helpers");
     const node = nodeOf(this.agents.get(agent));
     if (node !== LOCAL_NODE) {
-      if (options.orchestrate || options.split) throw new KervanError("bad_message", `a lead must run on this server; '${agent}' runs on node '${node}'`);
+      // A lead can live on a node — its tools reach this hub over the node's own connection — but judging the
+      // size of the work reads the folder from here, which only this server can do.
+      if (options.split) throw new KervanError("bad_message", `splitting work needs a lead on this server; '${agent}' runs on node '${node}'`);
+      // An older node passes the hub's own bridge paths to its agents, where they mean nothing.
+      if (options.orchestrate && !this.nodes?.can(node, "orchestra")) {
+        throw new KervanError("bad_message", `node '${node}' can't start helpers; update it first`);
+      }
       if (skills.length > 0) throw new KervanError("bad_message", `skills aren't available on node '${node}' yet`);
       if (!this.nodes) throw new KervanError("node_offline", `this server doesn't accept nodes, so '${agent}' can't run`);
       this.requireOnline(node);
@@ -542,8 +548,13 @@ export class SessionManager {
     const role = request.role === undefined ? undefined : (this.roles?.get(request.role) ?? fail(`no role named '${request.role}'`));
     const agent = role?.agent ?? request.agent ?? fail("give an agent or a role (see list_agents)");
     const remoteNode = nodeOf(this.agents.get(agent));
-    const remote = remoteNode !== LOCAL_NODE;
-    const isolated = !remote && request.isolate !== false && (await hasCommits(lead.cwd));
+    const leadNode = this.nodeFor(lead.info);
+    // "Elsewhere" is relative to the lead: its folder is on its own machine, and a helper can only share it
+    // when both run there. A lead on a node and a helper on the hub are as far apart as two different nodes.
+    const remote = remoteNode !== leadNode;
+    // A worktree is cut from the lead's folder, which only this server can reach; `cwd` on a node is a key there.
+    const leadOnHub = leadNode === LOCAL_NODE;
+    const isolated = leadOnHub && !remote && request.isolate !== false && (await hasCommits(lead.cwd));
     const info = await this.create(agent, role?.skills ?? [], role?.mcpServers ?? [], {
       title: request.name.trim().slice(0, TITLE_CHARS),
       parentId: leadId,
@@ -555,11 +566,14 @@ export class SessionManager {
     await helper.ready;
     if (helper.info.status !== "idle") throw new KervanError("bad_message", `helper didn't start: ${helper.info.error ?? helper.info.status}`);
     this.prompt(info.id, request.task, [], leadId);
+    const where = remoteNode === LOCAL_NODE ? "on the server" : `on node '${remoteNode}'`;
     const note = remote
-      ? `This helper runs on node '${remoteNode}' in a folder of its own there; it can't see your files, so put what it needs in the task and get results from its reply.`
-      : request.isolate !== false && !isolated
-        ? "Your folder is not a git repository with a commit, so this helper works in your folder, not on a branch."
-        : undefined;
+      ? `This helper runs ${where} in a folder of its own; it can't see your files, so put what it needs in the task and get results from its reply.`
+      : !leadOnHub
+        ? "This helper works in your folder on this machine; a helper only gets a branch of its own when the lead runs on the server."
+        : request.isolate !== false && !isolated
+          ? "Your folder is not a git repository with a commit, so this helper works in your folder, not on a branch."
+          : undefined;
     return { ...this.helperSummary(helper), ...(note ? { note } : {}) };
   }
 

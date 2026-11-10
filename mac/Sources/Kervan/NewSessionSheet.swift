@@ -37,7 +37,7 @@ struct NewSessionSheet: View {
                 Section {
                     AgentPicker(agent: $agent)
                     if onNode {
-                        Text(L("On another machine the agent works in a folder of its own there. Projects, skills and helpers need an agent on this server.", "Başka bir makinede ajan oradaki kendi klasöründe çalışır. Proje, skill ve yardımcılar için bu sunucudaki bir ajan gerekir."))
+                        Text(L("On another machine the agent works in a folder of its own there. Projects and skills need an agent on this server.", "Başka bir makinede ajan oradaki kendi klasöründe çalışır. Proje ve skill'ler için bu sunucudaki bir ajan gerekir."))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     } else {
@@ -55,13 +55,15 @@ struct NewSessionSheet: View {
                             Text(L("In a git repository the session gets its own copy (a worktree), so sessions in the same project never edit the same files. Turn off to work in the project folder itself.", "Git deposunda oturum kendi kopyasını (worktree) alır; böylece aynı projedeki oturumlar aynı dosyaları düzenlemez. Proje klasörünün kendisinde çalışmak için kapatın."))
                         }
                     }
-                    if !onNode {
+                    // A terminal agent has no MCP servers, so it has nothing to start helpers with.
+                    if selected?.terminal != true {
                         Toggle(isOn: $orchestrate) {
                             Text(L("Can start helper agents", "Yardımcı ajan başlatabilsin"))
-                            Text(L("Hands subtasks to other agents, on this server or on any machine with an agent; helpers show up under this session in the sidebar. In a git repository each helper works on its own branch.", "Alt görevleri başka ajanlara verir — bu sunucudaki ya da ajanı olan herhangi bir makinedeki; yardımcılar kenar çubuğunda bu oturumun altında görünür. Klasör bir git deposuysa her yardımcı kendi dalında çalışır."))
+                            Text(L("Hands subtasks to other agents, on this server or on any machine with an agent; helpers show up under this session in the sidebar. A helper on this server's own files works on a branch of its own.", "Alt görevleri başka ajanlara verir — bu sunucudaki ya da ajanı olan herhangi bir makinedeki; yardımcılar kenar çubuğunda bu oturumun altında görünür. Bu sunucunun dosyalarında çalışan yardımcı kendi dalını alır."))
                         }
                     }
                     if orchestrate && !onNode {
+                        // The lead judges size against its own folder, which only this server can look into.
                         Toggle(isOn: $split) {
                             Text(L("Split into helpers when the work is large", "İş büyük olduğunda yardımcılara böl"))
                             Text(L("The agent judges the size first: large work with separate parts it plans and hands out, small work it does itself. Idle helpers rest after a while and wake when needed.", "Ajan önce işin büyüklüğüne bakar: ayrı parçaları olan büyük işi planlayıp dağıtır, küçük işi kendisi yapar. Boşta kalan yardımcılar bir süre sonra dinlenmeye geçer, gerekince uyanır."))
@@ -124,7 +126,7 @@ struct NewSessionSheet: View {
                     // Drop choices that no longer exist on the server.
                     let names = Set(available?.map(\.name) ?? [])
                     // What a node can't do stays picked in the sheet but isn't asked for.
-                    let lead = orchestrate && !onNode
+                    let lead = orchestrate && selected?.terminal != true
                     let folder = onNode ? nil : project
                     model.startSession(
                         agent: agent,

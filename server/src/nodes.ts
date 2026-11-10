@@ -102,6 +102,8 @@ interface Connection {
   rpc: Rpc;
   ws: WebSocket;
   processes: Map<string, RemoteProcess>;
+  /** What this node says it can do, from its hello; a version number wouldn't say which build it is. */
+  features: Set<string>;
 }
 
 /**
@@ -118,6 +120,13 @@ export class NodeHub {
   private readonly onChange: () => void;
   /** The port this hub listens on, for the addresses it suggests to new nodes. */
   port = 7420;
+  /** Whether a connected node told us in its hello that it can do this. */
+  can(node: string, feature: string): boolean {
+    return this.connections.get(node)?.features.has(feature) ?? false;
+  }
+
+  /** Set by main.ts: what answers a node's agents when they call the orchestration tools. */
+  orchestra?: { answer(token: string, route: string, body?: unknown): Promise<{ status: number; body: unknown }> };
   private lastAddresses = "";
   private addressTimer?: ReturnType<typeof setInterval>;
 
@@ -219,12 +228,13 @@ export class NodeHub {
   accept(name: string, ws: WebSocket, via?: string): void {
     this.connections.get(name)?.ws.terminate();
     const rpc = new Rpc(ws);
-    const connection: Connection = { rpc, ws, processes: new Map() };
+    const connection: Connection = { rpc, ws, processes: new Map(), features: new Set() };
     this.connections.set(name, connection);
 
     const find = (processId: string) => connection.processes.get(processId);
     rpc
-      .on("hello", (params: { version?: string }) => {
+      .on("hello", (params: { version?: string; features?: string[] }) => {
+        connection.features = new Set(Array.isArray(params.features) ? params.features : []);
         this.remember({
           ...this.known.get(name),
           name,
@@ -247,7 +257,13 @@ export class NodeHub {
       })
       .on("permission", (params: { processId: string; request: PermissionRequest }): Promise<PermissionDecision> | null =>
         find(params.processId)?.options.onPermission(params.request) ?? null,
-      );
+      )
+      // A lead on a node reaches the orchestration tools through the connection it already has, so the
+      // hub keeps answering on a Unix socket only its own user can open.
+      .on("orchestra", async (params: { token?: string; route?: string; body?: unknown }) => {
+        if (!this.orchestra) return { status: 503, body: { error: "orchestra_off" } };
+        return this.orchestra.answer(String(params.token ?? ""), String(params.route ?? ""), params.body);
+      });
 
     ws.on("close", () => {
       if (this.connections.get(name) !== connection) return;

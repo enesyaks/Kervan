@@ -63,6 +63,7 @@ export async function startServer(
   const orchestra = new OrchestraHub(join(dataDir, "orchestra.sock"), sessions!);
   await orchestra.listen();
   sessions!.useOrchestra(orchestra);
+  nodes.orchestra = orchestra;
   const scheduler = new Scheduler(join(dataDir, "schedules.json"), {
     hasAgent: (id) => catalog.live.has(id),
     hasProject: (id) => projects.get(id) !== undefined,

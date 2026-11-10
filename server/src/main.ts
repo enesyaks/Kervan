@@ -63,6 +63,8 @@ sessions = new SessionManager(runner, catalog.live, config.workspacesDir, store,
 const orchestra = new OrchestraHub(orchestraSocketPath(resolve(process.env.KERVAN_RUN_DIR || config.dataDir, "orchestra.sock")), sessions);
 await orchestra.listen();
 sessions.useOrchestra(orchestra);
+// A lead on a node reaches the same tools through that node's connection.
+nodes.orchestra = orchestra;
 const scheduler = new Scheduler(join(config.dataDir, "schedules.json"), {
   hasAgent: (id) => catalog.live.has(id),
   hasProject: (id) => projects.get(id) !== undefined,
