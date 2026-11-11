@@ -773,6 +773,16 @@ import Testing
     }
 }
 
+@Suite struct ServerFactsTests {
+    @Test func readsWhetherTheServerCanBuild() throws {
+        let says = try JSONDecoder().decode(PeerInfo.self, from: Data(#"{"name":"kervan","version":"0.3.27","containers":false}"#.utf8))
+        #expect(says.containers == false)
+        // A server from before this says nothing, which is not the same as "no": the app offers nothing then.
+        let older = try JSONDecoder().decode(PeerInfo.self, from: Data(#"{"name":"kervan","version":"0.3.24"}"#.utf8))
+        #expect(older.containers == nil)
+    }
+}
+
 @Suite struct HandOffTests {
     @Test func asksTheLeadToStartTheHelperSomewhere() {
         let here = HandOff.message(agentName: "Codex", node: nil, task: "  Write the release notes  ")
@@ -794,6 +804,8 @@ import Testing
         #expect(HubSetup.uploadArguments(user: "ubuntu", host: "192.168.1.30").contains("BatchMode=yes"))
         #expect(HubSetup.runArguments(user: "ubuntu", host: "h", access: .tailscale).last == "sudo -n env ACCESS=tailscale bash /tmp/kervan-setup/hub-setup.sh")
         #expect(HubSetup.terminalCommand(user: "ubuntu", host: "h", access: .tailscale) == "ssh -t ubuntu@h \"sudo env ACCESS=tailscale bash /tmp/kervan-setup/hub-setup.sh\"")
+        // Setting up Podman is its own mode, so an ordinary update never installs it unasked.
+        #expect(HubSetup.runArguments(user: "ubuntu", host: "h", access: .podman).last == "sudo -n env ACCESS=podman bash /tmp/kervan-setup/hub-setup.sh")
         // Asks about the token rather than the folder: the script leaves the folder behind and takes the token with it.
         #expect(HubSetup.tokenCheckArguments(user: "ubuntu", host: "h").last == "test -e /tmp/kervan-setup/token")
     }

@@ -88,8 +88,9 @@ describe("building in containers from a session", () => {
   let inbox: Inbox;
   const engineDir = mkdtempSync(join(tmpdir(), "kervan-engine-"));
 
+  let port = 0;
+
   before(async () => {
-    let port = 0;
     ({ port, sessions, stop } = await startServer());
     ws = openSocket(port);
     inbox = new Inbox(ws);
@@ -133,6 +134,21 @@ describe("building in containers from a session", () => {
     assert.ok(readFileSync(join(engineDir, "args"), "utf8").split("\n").includes("golang:1.25"));
     const bare = await create("b3", {});
     await assert.rejects(sessions.runInContainer(bare.id, { command: "make" }), /name an image/);
+  });
+
+  it("tells the app whether it can build, so the app can offer to set it up", async () => {
+    sessions.containers = new Containers(undefined);
+    const health = async () => (await (await fetch(`http://127.0.0.1:${port}/health`)).json()) as { containers?: boolean };
+    assert.equal((await health()).containers, false);
+    const quiet = openSocket(port);
+    const heard = new Inbox(quiet);
+    await opened(quiet);
+    send(quiet, HELLO);
+    assert.equal((await heard.waitFor((m) => m.type === "welcome")).server.containers, false);
+    quiet.terminate();
+
+    sessions.containers = new Containers(fakeEngine(engineDir, "exit 0"));
+    assert.equal((await health()).containers, true, "what the Install button waits for after the restart");
   });
 
   it("keeps a project's image valid, and lets it be cleared", async () => {

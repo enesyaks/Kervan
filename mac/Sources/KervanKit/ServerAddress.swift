@@ -187,7 +187,23 @@ public enum HubFallback {
         return health.version
     }
 
-    private struct Health: Decodable { let version: String }
+    /// Whether the server at `address` can build in containers; nil when it doesn't answer.
+    public static func buildsInContainers(at address: ServerAddress) async -> Bool? {
+        var components = URLComponents(url: address.url, resolvingAgainstBaseURL: false)
+        components?.scheme = address.url.scheme == "wss" ? "https" : "http"
+        components?.path = "/health"
+        guard let url = components?.url else { return nil }
+        var request = URLRequest(url: url, timeoutInterval: 4)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        guard let (data, _) = try? await URLSession.shared.data(for: request),
+              let health = try? JSONDecoder().decode(Health.self, from: data) else { return nil }
+        return health.containers ?? false
+    }
+
+    private struct Health: Decodable {
+        let version: String
+        let containers: Bool?
+    }
 }
 
 public enum Backoff {

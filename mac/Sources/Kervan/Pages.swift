@@ -243,6 +243,7 @@ struct ProjectSheet: View {
     @State private var name = ""
     @State private var instructions = ""
     @State private var buildImage = ""
+    @State private var settingUpPodman = false
     @State private var source = Source.clone
     @State private var location = ""
     @State private var mapAfterAdding = true
@@ -289,6 +290,20 @@ struct ProjectSheet: View {
                 Section {
                     TextField(L("Build image", "Derleme imajı"), text: $buildImage, prompt: Text(verbatim: "mcr.microsoft.com/dotnet/sdk:9.0"))
                         .font(.body.monospaced())
+                    // Only where the server says it can't; one too old to say gets the server update first anyway.
+                    if model.serverBuildsInContainers == false {
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            Label(
+                                L("Building and packaging on the server needs Podman, which isn't installed there yet.", "Sunucuda derlemek ve paketlemek için Podman gerekiyor; sunucuda henüz kurulu değil."),
+                                systemImage: "shippingbox"
+                            )
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 8)
+                            Button(L("Set up", "Kur")) { settingUpPodman = true }
+                        }
+                    }
                 } footer: {
                     Text(L(
                         "Agents build and test in a throwaway container made from this image, removed when each command ends; they can name another for one command, a Windows cross-compiler say. Empty uses the project's devcontainer.json, if it has one. Needs podman or docker on the server.",
@@ -317,6 +332,7 @@ struct ProjectSheet: View {
             .padding(16)
         }
         .frame(width: 500, height: 540) // fits a window at its smallest; the form scrolls
+        .sheet(isPresented: $settingUpPodman) { ServerUpdateSheet(access: .podman).environment(model) }
         .background(Color.kervanCanvas)
         .onAppear {
             name = project?.name ?? ""

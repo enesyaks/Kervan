@@ -116,8 +116,10 @@ struct ServerUpdateSheet: View {
     @State private var host = ""
 
     private var tailscale: Bool { access == .tailscale }
+    private var podman: Bool { access == .podman }
     private var steps: [HubSetupStep] {
-        tailscale ? [.uploading, .packages, .files, .firewall, .service, .tailscaleLogin, .ready] : [.uploading, .packages, .files, .service, .ready]
+        if podman { return [.uploading, .packages, .service, .ready] }
+        return tailscale ? [.uploading, .packages, .files, .firewall, .service, .tailscaleLogin, .ready] : [.uploading, .packages, .files, .service, .ready]
     }
 
     var body: some View {
@@ -128,8 +130,13 @@ struct ServerUpdateSheet: View {
 
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 6) {
-                Text(tailscale ? L("Set up Tailscale on the server", "Sunucuya Tailscale kur") : L("Update the server", "Sunucuyu güncelle")).font(.title2.weight(.semibold))
-                Text(tailscale
+                Text(podman ? L("Set up builds in containers", "Konteynerde derlemeyi kur") : tailscale ? L("Set up Tailscale on the server", "Sunucuya Tailscale kur") : L("Update the server", "Sunucuyu güncelle")).font(.title2.weight(.semibold))
+                Text(podman
+                    ? L(
+                        "Installs Podman on the server over SSH so agents can build and package in throwaway containers: one is made from an image for each command, sees only the session's folder, and is removed when the command ends. It runs rootless, as Kervan's own user, so a container can't reach the server's keys. Kervan restarts; sessions and keys stay, running turns are cut off.",
+                        "Podman'ı sunucuya SSH ile kurar; ajanlar böylece geçici konteynerlerde derleyip paketleyebilir: her komut için bir imajdan konteyner açılır, yalnızca oturumun klasörünü görür, komut bitince kaldırılır. Root olmadan, Kervan'ın kendi kullanıcısıyla çalışır; bir konteyner sunucunun anahtarlarına ulaşamaz. Kervan yeniden başlar; oturumlar ve anahtarlar kalır, süren turlar kesilir."
+                    )
+                    : tailscale
                     ? L(
                         "Installs Tailscale on the server over SSH and signs it in with your account. Kervan then answers only over Tailscale, encrypted and from anywhere, and no longer on the home network, so this Mac needs Tailscale on too. Kervan restarts with the code this app carries; sessions and keys stay, running turns are cut off.",
                         "Tailscale'i sunucuya SSH ile kurar ve hesabınızla giriş yapar. Kervan bundan sonra yalnızca Tailscale üzerinden, şifreli ve her yerden yanıt verir, ev ağından vermez; bu yüzden bu Mac'te de Tailscale açık olmalı. Kervan bu uygulamanın taşıdığı kodla yeniden başlar; oturumlar ve anahtarlar kalır, süren turlar kesilir."
@@ -207,7 +214,7 @@ struct ServerUpdateSheet: View {
                     }
                     .keyboardShortcut(.cancelAction)
                     if !done {
-                        Button(failed ? L("Try again", "Yeniden dene") : (tailscale ? L("Set up", "Kur") : L("Update", "Güncelle"))) { start() }
+                        Button(failed ? L("Try again", "Yeniden dene") : (tailscale || podman ? L("Set up", "Kur") : L("Update", "Güncelle"))) { start() }
                             .buttonStyle(.kervanPrimary)
                             .tint(.kervanLapis)
                             .keyboardShortcut(.defaultAction)

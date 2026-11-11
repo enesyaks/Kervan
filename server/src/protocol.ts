@@ -9,6 +9,8 @@ const MAX_ATTACHMENTS = 20;
 export interface PeerInfo {
   name: string;
   version: string;
+  /** The server only: whether it can build in containers (podman or docker is there). */
+  containers?: boolean;
 }
 
 /** `waiting`: the agent is blocked on a permission request the user hasn't answered yet. */

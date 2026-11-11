@@ -6,10 +6,11 @@
 # Kervan answers only over Tailscale, which encrypts the traffic. SSH stays open on the home network, for setup itself.
 # ACCESS=update replaces the code and the service, keeps the settings, and closes the home network if Tailscale is up
 # here; if it isn't, that stays open, so an update never locks anyone out.
+# ACCESS=podman only installs rootless Podman for builds in containers, and restarts the service.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-ACCESS="${ACCESS:-tailscale}"    # tailscale; update
+ACCESS="${ACCESS:-tailscale}"    # tailscale; update; podman
 PORT=7420
 NODE_MAJOR=24
 OWNER="${SUDO_USER:-root}"
@@ -20,6 +21,37 @@ if [[ ! -s "$HERE/server.tar.gz" || ! -s "$HERE/token" ]]; then echo "Kervan: se
 # The token must not stay in /tmp, whether the setup works or not.
 TOKEN="$(tr -d '[:space:]' < "$HERE/token")"
 trap 'rm -f "$HERE/token"' EXIT
+
+# ACCESS=podman sets up builds in throwaway containers (container_run) and nothing else: rootless Podman as the
+# server's own user, so a container sees the folder it is given and none of this machine's keys. The app asks
+# for it with its Install button; an ordinary update leaves Podman as it finds it.
+if [[ "$ACCESS" == podman ]]; then
+  echo "==> packages (podman)"
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -qq
+  apt-get install -y -qq podman uidmap >/dev/null
+  id kervan >/dev/null 2>&1 || { echo "Kervan: there's no kervan user here; set the server up first." >&2; exit 1; }
+  # Rootless containers need a range of ids of their own; useradd usually gave the user one already.
+  grep -q '^kervan:' /etc/subuid || usermod --add-subuids 524288-589823 kervan
+  grep -q '^kervan:' /etc/subgid || usermod --add-subgids 524288-589823 kervan
+  # Keeps /run/user/<uid> there without a login, which is where Podman keeps its runtime state.
+  loginctl enable-linger kervan
+
+  echo "==> service"
+  # The unit that lets the service write Podman's runtime folder; an older one keeps it read-only.
+  install -m 644 "$HERE/kervan.service" /etc/systemd/system/kervan.service
+  systemctl daemon-reload
+  systemctl restart kervan
+  for _ in $(seq 1 30); do
+    curl -fsS "http://127.0.0.1:$PORT/health" 2>/dev/null | grep -q '"containers":true' && break
+    sleep 1
+  done
+  curl -fsS "http://127.0.0.1:$PORT/health" | grep -q '"containers":true' \
+    || { echo "Kervan: podman is installed but the server doesn't see it; see journalctl -u kervan." >&2; exit 1; }
+  echo "==> ready"
+  echo "Kervan: builds in containers are on (podman)."
+  exit 0
+fi
 
 echo "==> packages"
 export DEBIAN_FRONTEND=noninteractive
@@ -124,18 +156,6 @@ usermod -aG "$WORK" "$AGENT"
 chmod 750 /home/kervan "/home/$AGENT"
 apt-get install -y -qq util-linux sudo >/dev/null
 
-# Builds in throwaway containers (container_run): rootless Podman as the server's own user, so a container
-# sees the folder it was given and nothing of this machine's keys. Never fatal — without it, that one tool is off.
-if apt-get install -y -qq podman uidmap >/dev/null 2>&1; then
-  # Rootless containers need a range of ids of their own; useradd usually gave one already.
-  grep -q '^kervan:' /etc/subuid || usermod --add-subuids 524288-589823 kervan
-  grep -q '^kervan:' /etc/subgid || usermod --add-subgids 524288-589823 kervan
-  # Keeps /run/user/<uid> there without a login, which is where Podman keeps its runtime state.
-  loginctl enable-linger kervan || true
-  echo "Kervan: builds in containers are on (podman)."
-else
-  echo "Kervan: podman couldn't be installed, so builds in containers stay off; everything else works."
-fi
 
 # Their sign-ins move with them; gh's stays with the server, which is what pushes.
 for item in .claude .claude.json .codex .gemini; do

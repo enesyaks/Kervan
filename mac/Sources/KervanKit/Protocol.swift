@@ -7,10 +7,13 @@ public let kervanProtocolVersion = 1
 public struct PeerInfo: Codable, Equatable, Sendable {
     public var name: String
     public var version: String
+    /// The server only: whether it can build in containers. Nil from a server too old to say.
+    public var containers: Bool?
 
-    public init(name: String, version: String) {
+    public init(name: String, version: String, containers: Bool? = nil) {
         self.name = name
         self.version = version
+        self.containers = containers
     }
 }
 

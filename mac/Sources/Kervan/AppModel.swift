@@ -95,6 +95,12 @@ final class AppModel {
 
     var address: ServerAddress? { ServerAddress(serverInput) }
 
+    /// Whether the connected server can build in containers; nil when not connected or too old to say.
+    var serverBuildsInContainers: Bool? {
+        guard case .connected(let server) = connection.state else { return nil }
+        return server.containers
+    }
+
     /// The connected server's version when it is older than the server this app carries.
     var outdatedServer: String? {
         guard case .connected(let server) = connection.state,

@@ -110,7 +110,7 @@ final class HubInstaller {
                     // sudo wants a password: the user runs the setup in their own Terminal; we wait for the server.
                     self.waitingForTerminal = true
                 }
-                let reached = try await self.waitUntilAnswering(user: user, host: host)
+                let reached = try await self.waitUntilAnswering(user: user, host: host, access: access)
                 self.step = .ready
                 self.isRunning = false
                 self.waitingForTerminal = false
@@ -236,7 +236,7 @@ final class HubInstaller {
     /// Waits for the server to answer as the version this app carries. Answering alone isn't enough: during an
     /// update the old server answers until the setup has run, and when sudo wants a password that is only once the
     /// user has run it in Terminal.
-    private func waitUntilAnswering(user: String, host: String) async throws -> String {
+    private func waitUntilAnswering(user: String, host: String, access: HubSetup.Access) async throws -> String {
         let deadline = Date().addingTimeInterval(20 * 60)
         var tailscale: String?
         var round = 0
@@ -249,11 +249,21 @@ final class HubInstaller {
             round += 1
             var there: String?
             if let tailscale { there = await Self.runningVersion(host: tailscale) }
-            if let tailscale, there == KervanVersion.current {
-                waitingOnTailscale = nil
-                return tailscale
+            // Setting up Podman leaves the version as it was, so the version can't say it's done; the server can.
+            if access == .podman {
+                for candidate in [tailscale, host].compactMap({ $0 }) {
+                    if let address = ServerAddress(candidate), await HubFallback.buildsInContainers(at: address) == true {
+                        waitingOnTailscale = nil
+                        return candidate
+                    }
+                }
+            } else {
+                if let tailscale, there == KervanVersion.current {
+                    waitingOnTailscale = nil
+                    return tailscale
+                }
+                if await Self.runningVersion(host: host) == KervanVersion.current { return host }
             }
-            if await Self.runningVersion(host: host) == KervanVersion.current { return host }
             // Only when nothing answers there. An older version answering means setup hasn't finished, not that Tailscale is off.
             waitingOnTailscale = round > 10 && there == nil ? tailscale : nil
             // The script removes the token as it exits. Once it's gone the run in Terminal is over, so a server that

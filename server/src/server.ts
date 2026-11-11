@@ -92,6 +92,8 @@ export function createKervanServer({
         status: "ok",
         version: VERSION,
         uptimeSec: Math.floor((Date.now() - startedAt) / 1000),
+        // Setting up Podman from the app waits for this to turn true after the service restarts.
+        containers: sessions.containers?.available === true,
       });
       return;
     }

@@ -44,7 +44,7 @@ describe("websocket", () => {
     assert.deepEqual(await nextMessage(ws), {
       type: "welcome",
       protocol: 1,
-      server: { name: "kervan", version: VERSION },
+      server: { name: "kervan", version: VERSION, containers: false },
       agents: ["fake"],
       agentDetails: [{ id: "fake", name: "Fake" }],
     });

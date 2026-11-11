@@ -9,6 +9,8 @@ public enum HubSetup {
         /// An existing hub: its code and service are replaced and its settings stay. The home network closes if
         /// Tailscale is up there; if not it stays open, so an update never locks anyone out.
         case update
+        /// Installs rootless Podman so agents can build in containers, and restarts the service; nothing else.
+        case podman
     }
 
     public static let remoteFolder = "/tmp/kervan-setup"

@@ -512,7 +512,8 @@ function handleConnection(
       send(ws, {
         type: "welcome",
         protocol: PROTOCOL_VERSION,
-        server: { name: "kervan", version: VERSION },
+        // Whether builds in containers work here, so the app can offer to set them up when they don't.
+        server: { name: "kervan", version: VERSION, containers: sessions.containers?.available === true },
         agents: sessions.agentKinds,
         agentDetails: sessions.agentDetails,
       });
