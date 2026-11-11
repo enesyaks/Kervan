@@ -12,3 +12,6 @@ mac/**/.build/
 
 # Mac app bundle
 mac/build/
+
+# Session state an AI coding tool keeps beside the code it works on
+.omc/
