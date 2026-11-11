@@ -87,6 +87,7 @@ private struct SidebarView: View {
     @State private var typing = false
     @State private var showArchive = false
     @State private var renaming: SessionInfo?
+    @State private var movingToServer: SessionInfo?
     @State private var newTitle = ""
     @State private var newProject = false
 
@@ -175,6 +176,7 @@ private struct SidebarView: View {
             typing = false
         }
         .sheet(isPresented: $newProject) { ProjectSheet().environment(model) }
+        .sheet(item: $movingToServer) { TakeoverSheet(sessionID: $0.id).environment(model) }
         .alert(L("Rename session", "Oturumu yeniden adlandır"), isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField(L("Title", "Başlık"), text: $newTitle)
             Button(L("Save", "Kaydet")) {
@@ -210,6 +212,9 @@ private struct SidebarView: View {
         Button(L("Rename…", "Yeniden adlandır…")) {
             newTitle = session.title
             renaming = session
+        }
+        if model.store.canContinueOnServer(session) {
+            Button(L("Continue on the Server…", "Sunucuda Devam Et…")) { movingToServer = session }
         }
         Button(session.archived ? L("Unarchive", "Arşivden çıkar") : L("Archive", "Arşivle")) {
             Task { await model.store.setArchived(session.id, !session.archived) }

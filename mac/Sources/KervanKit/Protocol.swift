@@ -772,6 +772,8 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
     case sessionAutoApprove(id: String, sessionId: String, enabled: Bool)
     /// `removeWorktree` (when archiving) also takes away a project session's worktree; its work stays on its branch.
     case sessionArchive(id: String, sessionId: String, archived: Bool, removeWorktree: Bool = false)
+    /// A project session on a node continues on the server, with `agent` (nil: the server picks its first agent).
+    case sessionTakeover(id: String, sessionId: String, agent: String?)
     case sessionSearch(id: String, query: String)
     case mcpList(id: String)
     case mcpSave(id: String, server: McpServerInput)
@@ -1039,6 +1041,11 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
             try c.encode(sessionId, forKey: .sessionId)
             try c.encode(archived, forKey: .archived)
             if removeWorktree { try c.encode(true, forKey: .removeWorktree) }
+        case .sessionTakeover(let id, let sessionId, let agent):
+            try c.encode("session.takeover", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(sessionId, forKey: .sessionId)
+            try c.encodeIfPresent(agent, forKey: .agent)
         case .sessionSearch(let id, let query):
             try c.encode("session.search", forKey: .type)
             try c.encode(id, forKey: .id)

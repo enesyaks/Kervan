@@ -135,6 +135,9 @@ export class NodeHub {
     return connection ? connection.features.has(feature) : (this.known.get(node)?.features?.includes(feature) ?? false);
   }
 
+  /** Set by the session manager: told when a node has said hello, i.e. is here again. */
+  onConnected?: (node: string) => void;
+
   /** Set by main.ts: what answers a node's agents when they call the orchestration tools. */
   orchestra?: { answer(token: string, route: string, body?: unknown): Promise<{ status: number; body: unknown }> };
   private lastAddresses = "";
@@ -255,6 +258,8 @@ export class NodeHub {
           lastSeen: new Date().toISOString(),
         });
         log("info", "node connected", { node: name, version: params.version, via });
+        // After this answer has gone: what it starts may call the node back.
+        setImmediate(() => this.onConnected?.(name));
         return { hubs: this.hubUrls(via) };
       })
       .on("event", (params: { processId: string; event: SessionEventBody }) => find(params.processId)?.options.onEvent(params.event))

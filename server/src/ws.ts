@@ -404,6 +404,9 @@ async function handleRequest(
     case "session.archive":
       await sessions.archive(message.sessionId, message.archived, message.removeWorktree ?? false);
       return send(ws, { type: "ok", id: message.id });
+    case "session.takeover":
+      await sessions.takeover(message.sessionId, message.agent);
+      return send(ws, { type: "ok", id: message.id });
     case "agent.list":
       return send(ws, agentList(message.id, sessions));
     case "agent.save":

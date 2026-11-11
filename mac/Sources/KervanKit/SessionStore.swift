@@ -600,6 +600,21 @@ public final class SessionStore {
         await call(.sessionArchive(id: Self.newID(), sessionId: sessionID, archived: archived, removeWorktree: removeWorktree))
     }
 
+    /// A project session whose agent runs on a node: its work comes to the server as a branch, so it can continue here.
+    public func canContinueOnServer(_ session: SessionInfo) -> Bool {
+        session.projectId != nil && session.branch != nil && session.parentId == nil
+            && agents.first { $0.id == session.agent }?.node != nil
+    }
+
+    /// The agents a session can continue with on the server: its own, and not terminal ones (they can't be told the conversation).
+    public var takeoverAgents: [AgentInfo] { agents.filter { $0.node == nil && !$0.terminal } }
+
+    /// Moves a node's project session to the server; returns the server's refusal, if any.
+    @discardableResult
+    public func continueOnServer(_ sessionID: String, agent: String?) async -> String? {
+        await call(.sessionTakeover(id: Self.newID(), sessionId: sessionID, agent: agent))
+    }
+
     public func search(_ query: String) async {
         guard !query.trimmingCharacters(in: .whitespaces).isEmpty else {
             latestSearch = nil

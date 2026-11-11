@@ -44,6 +44,11 @@ export interface SessionInfo {
   budgetUsd?: number;
   /** Helpers in a git repository: the branch of their own worktree. */
   branch?: string;
+  /**
+   * A project session that started on a node and continues on this server (`session.takeover`): the node, and where
+   * its branch was when it moved. `collected` once the node came back and anything it hadn't sent was saved.
+   */
+  movedFrom?: { node: string; head: string; collected?: boolean };
   /** Last reported by the agent; cost only from agents that report it (Claude). */
   usage?: SessionUsage;
   /** Choices the agent offers for this session (model, reasoning effort, mode), with the current value. */
@@ -430,6 +435,7 @@ export type ClientMessage =
   | { type: "session.autoApprove"; id: string; sessionId: string; enabled: boolean }
   /** `removeWorktree` (when archiving) also takes away a project session's worktree; its work stays on its branch. */
   | { type: "session.archive"; id: string; sessionId: string; archived: boolean; removeWorktree?: boolean }
+  | { type: "session.takeover"; id: string; sessionId: string; agent?: string }
   | { type: "session.search"; id: string; query: string }
   | { type: "mcp.list"; id: string }
   | { type: "mcp.save"; id: string; server: Record<string, unknown> }
@@ -553,6 +559,7 @@ const STRING_FIELDS: Record<string, readonly string[]> = {
   "session.rename": ["id", "sessionId", "title"],
   "session.autoApprove": ["id", "sessionId"],
   "session.archive": ["id", "sessionId"],
+  "session.takeover": ["id", "sessionId"],
   "session.search": ["id", "query"],
   "mcp.list": ["id"],
   "mcp.save": ["id"],
@@ -649,6 +656,10 @@ export function parseClientMessage(raw: string): ParseResult {
   if ((data.type === "agent.registry" || data.type === "agent.install") && data.node !== undefined) {
     if (typeof data.node !== "string") return fail("bad_message", `${data.type} needs a string 'node'`);
     message.node = data.node;
+  }
+  if (data.type === "session.takeover" && data.agent !== undefined) {
+    if (typeof data.agent !== "string") return fail("bad_message", "session.takeover needs a string 'agent'");
+    message.agent = data.agent;
   }
   if (data.type === "agent.install" && data.ollamaModel !== undefined) {
     if (typeof data.ollamaModel !== "string") return fail("bad_message", "agent.install needs a string 'ollamaModel'");

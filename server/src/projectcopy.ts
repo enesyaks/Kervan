@@ -74,11 +74,13 @@ export type Applied = { moved: false } | { moved: true; head: string };
  * fetched under a ref of their own first; the branch then moves in one compare-and-swap, and only forward. A bundle
  * that fails to arrive, doesn't apply, or finds the branch moved meanwhile leaves the branch exactly as it was.
  */
-export async function applyBundle(repo: string, branch: string, file: string, base: string | undefined): Promise<Applied> {
+export async function applyBundle(repo: string, branch: string, file: string, base: string | undefined, from = branch): Promise<Applied> {
   assertBranch(branch);
+  assertBranch(from);
   const incoming = `refs/kervan-incoming/${randomUUID()}`;
   try {
-    await hubGit(repo, "fetch", "-q", "--no-tags", "--no-write-fetch-head", file, `+refs/heads/${branch}:${incoming}`);
+    // `from` is the branch as the node calls it; work saved under another name (see takeover) differs.
+    await hubGit(repo, "fetch", "-q", "--no-tags", "--no-write-fetch-head", file, `+refs/heads/${from}:${incoming}`);
     const head = await hubGit(repo, "rev-parse", "--verify", `${incoming}^{commit}`);
     if (head === base) return { moved: false };
     if (base) {

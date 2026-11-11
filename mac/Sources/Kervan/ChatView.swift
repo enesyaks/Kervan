@@ -6,6 +6,8 @@ struct ChatView: View {
     let sessionID: String
     /// The sheet that hands one task to an agent somewhere else.
     @State private var handOff = false
+    /// Continuing a node's project session on the server.
+    @State private var takeover = false
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var draft = ""
@@ -26,6 +28,18 @@ struct ChatView: View {
         VStack(spacing: 0) {
             if !model.connection.state.isConnected {
                 Banner(text: L("The connection dropped for a moment; reconnecting in the background. Your work keeps going on the server.", "Bağlantı bir anlığına koptu; arka planda yeniden bağlanıyoruz. İşleriniz sunucuda sürüyor."), systemImage: "wifi.exclamationmark", tint: .kervanSaffron)
+            }
+            if let session, model.store.canContinueOnServer(session),
+               let node = model.store.agents.first(where: { $0.id == session.agent }), node.isAway {
+                HStack(spacing: 0) {
+                    Banner(text: L(
+                        "\(node.node ?? "") is asleep or offline. Its work up to the last finished turn is on the server; you can wait for it or continue here.",
+                        "\(node.node ?? "") uykuda ya da çevrimdışı. Son biten tura kadarki işi sunucuda; bekleyebilir ya da burada devam edebilirsiniz."
+                    ), systemImage: "moon.zzz", tint: .kervanSaffron)
+                    Button(L("Continue on the Server…", "Sunucuda Devam Et…")) { takeover = true }
+                        .buttonStyle(.kervanQuiet)
+                        .padding(.trailing, 16)
+                }
             }
 
             ScrollViewReader { proxy in
@@ -141,6 +155,7 @@ struct ChatView: View {
         }
         .toolbar { tools }
         .sheet(isPresented: $handOff) { HandOffSheet(sessionID: sessionID).environment(model) }
+        .sheet(isPresented: $takeover) { TakeoverSheet(sessionID: sessionID).environment(model) }
         .alert(
             L("Rewind the files?", "Dosyalar geri sarılsın mı?"),
             isPresented: Binding(get: { rewinding != nil }, set: { if !$0 { rewinding = nil } }),

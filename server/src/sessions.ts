@@ -217,6 +217,7 @@ export class SessionManager {
     this.projects = extras.projects;
     this.checkpoints = extras.checkpoints;
     this.nodes = extras.nodes;
+    if (this.nodes) this.nodes.onConnected = (node) => void this.collectLeftovers(node);
     this.limits = { maxHelpers: MAX_HELPERS, helperTurnMinutes: HELPER_TURN_MINUTES, helperIdleMinutes: HELPER_IDLE_MINUTES, ...extras.limits };
     this.roles = extras.roles;
     this.skills = extras.skills;
@@ -1118,34 +1119,141 @@ export class SessionManager {
    * which move the session's branch in the project's repository here. Never throws: work that can't come now stays
    * committed on the node and comes with the next turn, since each sync sends everything this server doesn't have.
    */
-  private async syncFromNode(session: Session, messageSeq?: number): Promise<void> {
+  private async syncFromNode(session: Session, messageSeq?: number): Promise<boolean> {
     const copy = this.nodeCopyOf(session);
-    if (!copy || !this.nodes) return;
+    if (!copy || !this.nodes) return true;
     if (!this.nodes.isConnected(copy.node)) {
       this.record(session, {
         kind: "notice",
-        text: `Node '${copy.node}' is away, so this turn's work couldn't come to the server yet; it stays there and comes when the node is back.`,
+        text: `Node '${copy.node}' is away, so this turn's work couldn't come to the server yet; it stays there and comes when the node is back. You can also continue this session on the server.`,
       });
-      return;
+      return false;
     }
     const file = await this.transfer();
     try {
       const base = await branchTip(copy.repo, copy.branch);
       const label = messageSeq === undefined ? "work left from before" : `after message ${messageSeq}`;
       const head = await this.nodes.collectTurn(copy.node, session.cwd, copy.branch, base, `Kervan: ${session.info.title} (${label})`, file);
-      if (!head) return;
+      if (!head) return true;
       const applied = await applyBundle(copy.repo, copy.branch, file, base);
       if (applied.moved) {
         this.record(session, { kind: "notice", text: `Work sent to the server: branch ${copy.branch} is at ${applied.head.slice(0, 7)}.` });
       }
+      return true;
     } catch (error) {
       log("warn", "couldn't bring a node's work to the server", { id: session.info.id, node: copy.node, error: errorText(error) });
       this.record(session, {
         kind: "notice",
         text: `This turn's work couldn't come to the server (${errorText(error)}); it stays committed on node '${copy.node}' and comes with the next turn.`,
       });
+      return false;
     } finally {
       await rm(file, { force: true });
+    }
+  }
+
+  /**
+   * Continues a project session from a node on this server, with `agent` (or the first agent here): the node may be
+   * gone for good, or simply not wanted any more. The session's branch already holds the work up to the last turn that
+   * finished on the node; it is checked out in a worktree here, the way project sessions on this server work, and a new
+   * agent starts there. The node's agent conversation can't be resumed from here (it lives on the node), so the new
+   * agent is given the conversation as Kervan kept it with the next message. A node that is still here sends what it
+   * has first and its agent is stopped. If anything fails before the new agent is up, the session stays as it was.
+   */
+  async takeover(sessionId: string, agent?: string): Promise<SessionInfo> {
+    const session = this.require(sessionId);
+    const copy = this.nodeCopyOf(session);
+    if (!copy) throw new KervanError("bad_message", "only a project session on a node can continue on the server");
+    if (session.info.status === "running" || session.info.status === "waiting" || session.info.status === "starting") {
+      throw new KervanError(
+        "session_busy",
+        `the agent is still working on node '${copy.node}'; stop it first, or wait until Kervan notices the node is gone (about a minute)`,
+      );
+    }
+    const target = agent ?? [...this.agents].find(([, a]) => nodeOf(a) === LOCAL_NODE && a.protocol !== "pty")?.[0];
+    if (!target || !this.agents.has(target)) throw new KervanError("unknown_agent", target ? `no agent named '${target}'` : "this server has no agent to continue with");
+    if (nodeOf(this.agents.get(target)) !== LOCAL_NODE) throw new KervanError("bad_message", `'${target}' doesn't run on this server`);
+    if (this.agents.get(target)!.protocol === "pty") throw new KervanError("bad_message", "a terminal agent can't be given the conversation so far; pick another agent");
+
+    // What the node has that this server doesn't comes first, while it can.
+    if (this.nodes?.isConnected(copy.node) && !(await this.syncFromNode(session))) {
+      throw new KervanError("bad_message", `couldn't bring node '${copy.node}''s latest work to the server first; try again`);
+    }
+    session.process?.close();
+    session.process = undefined;
+    const head = await ensureBranch(copy.repo, copy.branch).catch((error) => gitError(`couldn't find branch ${copy.branch}`, error));
+    const before = { agent: session.info.agent, agentSessionId: session.agentSessionId, cwd: session.cwd, config: session.info.config };
+    const cwd = join(this.workspacesDir, `worktree-${session.info.id}`);
+    await restoreWorktree(copy.repo, cwd, copy.branch).catch((error) => gitError(`couldn't check out branch ${copy.branch} on the server`, error));
+
+    session.info.agent = target;
+    session.info.movedFrom = { node: copy.node, head };
+    delete session.info.config;
+    delete session.info.resting;
+    session.agentSessionId = undefined;
+    session.cwd = this.cwdFor(this.workspacesDir, session.info);
+    this.setStatus(session, "starting");
+    try {
+      await this.startAgent(session);
+    } catch (error) {
+      // Back as it was: on the node, with its own agent conversation, and no worktree here.
+      await removeWorktreeAt(copy.repo, cwd, session.info.title).catch(() => {});
+      Object.assign(session, { agentSessionId: before.agentSessionId, cwd: before.cwd });
+      session.info.agent = before.agent;
+      delete session.info.movedFrom;
+      if (before.config) session.info.config = before.config;
+      this.setStatus(session, "idle");
+      throw new KervanError("bad_message", `couldn't continue on the server: ${errorText(error)}`);
+    }
+    const name = this.agents.get(target)!.name;
+    this.record(session, {
+      kind: "notice",
+      text:
+        `Continued on the server with ${name}, in a worktree on branch ${copy.branch} (at ${head.slice(0, 7)}). The agent starts afresh ` +
+        `and gets the conversation so far with your next message; anything from a turn node '${copy.node}' didn't finish is missing.`,
+    });
+    session.note = [await this.preface(session), takeoverNote(copy.node, copy.branch, session.events)].filter(Boolean).join("\n\n");
+    this.setStatus(session, "idle");
+    return { ...session.info };
+  }
+
+  /**
+   * A node is back. Sessions that moved from it to this server may have left work there it never sent (the turn it
+   * was in when it went away): that is saved as a branch of its own, next to the session's, which is left alone.
+   */
+  private async collectLeftovers(node: string): Promise<void> {
+    if (!this.nodes?.supports(node, PROJECTS_FEATURE)) return;
+    for (const session of this.sessions.values()) {
+      const moved = session.info.movedFrom;
+      const project = session.info.projectId ? this.projects?.get(session.info.projectId) : undefined;
+      if (!moved || moved.node !== node || moved.collected || !session.info.branch || !project) continue;
+      const branch = session.info.branch;
+      const saved = `${branch}-from-${node}`;
+      const file = await this.transfer();
+      try {
+        // The workspace key the session had on the node.
+        const key = session.info.id;
+        if (await this.nodes.copyHead(node, key)) {
+          const head = await this.nodes.collectTurn(node, key, branch, moved.head, `Kervan: ${session.info.title} (left on node ${node})`, file);
+          if (head) {
+            const applied = await applyBundle(project.path, saved, file, await branchTip(project.path, saved), branch);
+            this.record(session, {
+              kind: "notice",
+              text:
+                `Node '${node}' came back with work it hadn't sent before this session moved to the server. It's saved as branch ${saved}` +
+                `${applied.moved ? ` (at ${applied.head.slice(0, 7)})` : ""}; branch ${branch} is unchanged.`,
+            });
+          }
+        }
+        session.info.movedFrom = { ...moved, collected: true };
+        this.save(session);
+        this.broadcast({ type: "session.updated", session: { ...session.info } });
+      } catch (error) {
+        // Tried again the next time the node connects.
+        log("warn", "couldn't collect a node's leftover work", { id: session.info.id, node, error: errorText(error) });
+      } finally {
+        await rm(file, { force: true });
+      }
     }
   }
 
@@ -1569,6 +1677,37 @@ export class SessionManager {
   broadcast(message: ServerMessage): void {
     for (const listener of this.listeners) listener(message);
   }
+}
+
+/** How much of the conversation a session continued elsewhere is given; the most recent part is kept. */
+const TAKEOVER_CHARS = 60_000;
+const TAKEOVER_REPLY_CHARS = 6_000;
+
+/** What an agent continuing a session from a node is told with its first message: where it is, and what was said. */
+function takeoverNote(node: string, branch: string, events: SessionEvent[]): string {
+  const blocks: string[] = [];
+  let reply = "";
+  const flush = () => {
+    const text = reply.trim();
+    if (text) blocks.push(`Agent: ${text.length > TAKEOVER_REPLY_CHARS ? `${text.slice(0, TAKEOVER_REPLY_CHARS)} […]` : text}`);
+    reply = "";
+  };
+  for (const event of events) {
+    if (event.kind === "agent_message_chunk") reply += event.text;
+    else if (event.kind === "user_message") {
+      flush();
+      blocks.push(`${event.from ? "Lead agent" : "User"}: ${event.text.trim()}`);
+    }
+  }
+  flush();
+  let transcript = blocks.join("\n\n");
+  if (transcript.length > TAKEOVER_CHARS) transcript = `[… earlier messages left out]\n\n${transcript.slice(-TAKEOVER_CHARS)}`;
+  return (
+    `[Kervan] This conversation started with another agent on node '${node}', which is no longer available. You're continuing ` +
+    `it on the Kervan server, in a git worktree on branch ${branch}: it holds the work up to the last turn that finished there. ` +
+    "Anything from a turn that was cut off may be missing, so check the files before relying on what was said. " +
+    (transcript ? `The conversation so far:\n\n${transcript}` : "Nothing was said yet.")
+  );
 }
 
 /** A git failure's own words when it has them. */

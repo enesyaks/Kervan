@@ -236,3 +236,123 @@ describe("bringing a node's work into the hub's repository", () => {
     assert.ok(!existsSync(file));
   });
 });
+
+describe("continuing a node's project session on the server", () => {
+  let port = 0;
+  let sessions: SessionManager;
+  let stop: () => Promise<void>;
+  let ws: WebSocket;
+  let inbox: Inbox;
+  let node: NodeAgent;
+  const nodeDir = mkdtempSync(join(tmpdir(), "kervan-node-"));
+  let n = 0;
+  let projectPath = "";
+  let mainHead = "";
+  let sessionId = "";
+  let branch = "";
+
+  const startNode = () => {
+    node = new NodeAgent({ hubUrls: [`ws://127.0.0.1:${port}`], token: NODE_TOKEN, name: "kutu", workspacesDir: nodeDir, runner: new LocalAcpRunner() });
+    node.start();
+  };
+  const connected = (value: boolean, from: number) =>
+    inbox.waitFor((m) => inbox.received.indexOf(m) >= from && m.type === "nodes.updated" && m.nodes.some((x: any) => x.name === "kutu" && x.connected === value));
+  const call = async (message: object): Promise<any> => {
+    const id = `m${++n}`;
+    send(ws, { ...message, id });
+    return inbox.waitFor((m) => m.id === id && m.type !== "session.event", 15_000);
+  };
+  const turn = async (text: string) => {
+    const seen = inbox.received.length;
+    send(ws, { type: "session.prompt", id: `p${++n}`, sessionId, text });
+    await inbox.waitFor((m) => inbox.received.indexOf(m) >= seen && m.type === "session.event" && m.sessionId === sessionId && m.event.kind === "turn_end", 15_000);
+    await inbox.waitFor((m) => inbox.received.indexOf(m) >= seen && m.type === "session.updated" && m.session.id === sessionId && m.session.status === "idle", 15_000);
+    const events = inbox.received.slice(seen).filter((m) => m.type === "session.event" && m.sessionId === sessionId).map((m) => m.event);
+    return events.filter((e) => e.kind === "agent_message_chunk").map((e) => e.text).join("");
+  };
+
+  before(async () => {
+    ({ port, sessions, stop } = await startServer({ nodeToken: NODE_TOKEN }));
+    ws = openSocket(port);
+    inbox = new Inbox(ws);
+    await opened(ws);
+    send(ws, HELLO);
+    await inbox.waitFor((m) => m.type === "welcome");
+    const mark = inbox.received.length;
+    startNode();
+    await connected(true, mark);
+    await call({ type: "agent.save", agent: { id: "uzak", name: "Uzak", command: fakeAgent.command, args: fakeAgent.args, node: "kutu" } });
+
+    const project = await sessions.projects!.save({ name: "Devralınan" });
+    projectPath = project.path;
+    mainHead = repository(projectPath);
+    const created = await call({ type: "session.create", agent: "uzak", projectId: project.id });
+    sessionId = created.session.id;
+    branch = created.session.branch;
+    await inbox.waitFor((m) => m.type === "session.updated" && m.session.id === sessionId && m.session.status === "idle", 15_000);
+    await turn("write bir.txt ilk tur");
+  });
+
+  after(async () => {
+    node?.stop();
+    ws.terminate();
+    await stop();
+  });
+
+  it("refuses what can't continue on the server", async () => {
+    const plain = await call({ type: "session.create", agent: "uzak" });
+    await inbox.waitFor((m) => m.type === "session.updated" && m.session.id === plain.session.id && m.session.status === "idle", 15_000);
+    assert.match((await call({ type: "session.takeover", sessionId: plain.session.id })).message, /only a project session on a node/);
+    assert.match((await call({ type: "session.takeover", sessionId, agent: "uzak" })).message, /doesn't run on this server/);
+    assert.equal((await call({ type: "session.takeover", sessionId, agent: "yok" })).code, "unknown_agent");
+    assert.equal(sessions.list().find((s) => s.id === sessionId)?.agent, "uzak", "nothing changed");
+  });
+
+  it("continues on the server from the branch, with the conversation so far, when the node is gone", async () => {
+    let mark = inbox.received.length;
+    node.stop();
+    await connected(false, mark);
+    // The turn the node was in when it went away: written, never sent.
+    writeFileSync(join(nodeDir, sessionId, "iki.txt"), "gönderilmedi");
+
+    const answer = await call({ type: "session.takeover", sessionId });
+    assert.equal(answer.type, "ok", answer.message);
+    const info = sessions.list().find((s) => s.id === sessionId)!;
+    assert.equal(info.agent, "fake", "the first agent on this server");
+    assert.equal(info.status, "idle");
+    assert.equal(info.branch, branch);
+    assert.equal(info.movedFrom?.node, "kutu");
+
+    const worktree = sessions.workspace(sessionId);
+    assert.match(worktree, new RegExp(`worktree-${sessionId}$`), "a worktree on this server, as project sessions here have");
+    assert.equal(git(worktree, "branch", "--show-current"), branch);
+    assert.equal(readFileSync(join(worktree, "bir.txt"), "utf8"), "ilk tur");
+    assert.ok(!existsSync(join(worktree, "iki.txt")), "what the node never sent isn't here");
+    assert.equal(git(projectPath, "branch", "--show-current"), "main");
+    assert.equal(git(projectPath, "rev-parse", "HEAD"), mainHead);
+
+    // The new agent is told where it is and what was said, with the next message.
+    const preface = await turn("prefacecheck");
+    assert.match(preface, /started with another agent on node 'kutu'/);
+    assert.match(preface, new RegExp(`branch ${branch}`));
+    assert.match(preface, /User: write bir.txt ilk tur/);
+    assert.match(preface, /Agent: wrote bir.txt/);
+    // And it works there: changes stay in the worktree on this server.
+    await turn("write uc.txt sunucuda");
+    assert.equal(readFileSync(join(worktree, "uc.txt"), "utf8"), "sunucuda");
+
+    // The node comes back: what it never sent is kept, on a branch of its own.
+    mark = inbox.received.length;
+    const tip = git(projectPath, "rev-parse", branch);
+    startNode();
+    await connected(true, mark);
+    const notice = await inbox.waitFor(
+      (m) => inbox.received.indexOf(m) >= mark && m.type === "session.event" && m.sessionId === sessionId && m.event.kind === "notice" && /came back with work/.test(m.event.text),
+      15_000,
+    );
+    assert.match(notice.event.text, new RegExp(`${branch}-from-kutu`));
+    assert.equal(git(projectPath, "show", `${branch}-from-kutu:iki.txt`), "gönderilmedi");
+    assert.equal(git(projectPath, "rev-parse", branch), tip, "the session's own branch is left alone");
+    await inbox.waitFor((m) => m.type === "session.updated" && m.session.id === sessionId && m.session.movedFrom?.collected === true, 15_000);
+  });
+});

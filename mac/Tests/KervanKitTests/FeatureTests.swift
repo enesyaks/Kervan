@@ -297,6 +297,32 @@ import Testing
     }
 }
 
+@MainActor @Suite struct TakeoverTests {
+    @Test func sendsTheAgentOnlyWhenOneIsChosen() throws {
+        let chosen = try ClientMessage.sessionTakeover(id: "t", sessionId: "s", agent: "claude").jsonString()
+        #expect(chosen.contains(#""type":"session.takeover""#) && chosen.contains(#""agent":"claude""#))
+        #expect(try !ClientMessage.sessionTakeover(id: "t", sessionId: "s", agent: nil).jsonString().contains("agent"))
+    }
+
+    @Test func offersToContinueOnTheServerOnlyForANodesProjectSession() {
+        let store = SessionStore { _ in }
+        store.handle(.agentsUpdated([
+            AgentInfo(id: "claude", name: "Claude"),
+            AgentInfo(id: "shell", name: "Shell", terminal: true),
+            AgentInfo(id: "mac-claude", name: "Claude", node: "mac", online: false),
+        ]))
+        var session = SessionInfo(id: "s", agent: "mac-claude", title: "T", status: .idle, createdAt: "2026")
+        #expect(!store.canContinueOnServer(session), "no project: there is nothing on the server to continue from")
+        session.projectId = "p"
+        session.branch = "kervan/t-12345678"
+        #expect(store.canContinueOnServer(session))
+        session.agent = "claude"
+        #expect(!store.canContinueOnServer(session), "already on the server")
+        // A terminal agent can't be told the conversation, so it isn't offered.
+        #expect(store.takeoverAgents.map(\.id) == ["claude"])
+    }
+}
+
 @Suite struct BoardTests {
     @Test func cardsDecodeAndMovesEncode() throws {
         let board = try ServerMessage.decode(#"{"type":"board.updated","projectId":"p","cards":[{"id":"c","projectId":"p","title":"T","prompt":"Do it","agent":"claude","column":"needs","sessionId":"s","prompted":true,"createdAt":"a","updatedAt":"b"}]}"#)
