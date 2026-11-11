@@ -348,9 +348,10 @@ private struct MacNodeSheet: View {
                 if runner.succeeded {
                     Button(connected ? L("Done", "Bitti") : L("Close", "Kapat")) { dismiss() }
                         .keyboardShortcut(.defaultAction)
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.kervanPrimary)
                 } else {
                     Button(L("Cancel", "Vazgeç"), role: .cancel) { dismiss() }
+                        .buttonStyle(.kervanQuiet)
                         .keyboardShortcut(.cancelAction)
                         .disabled(runner.isRunning)
                     Button(runner.failure == nil ? L("Set up this Mac", "Bu Mac'i kur") : L("Try again", "Yeniden dene")) {
@@ -358,7 +359,7 @@ private struct MacNodeSheet: View {
                         Task { await model.store.inviteNode(name) }
                     }
                     .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.kervanPrimary)
                     .disabled(!MacNode.isValidName(name) || runner.isRunning || waitingForInvite || nameTaken)
                 }
             }

@@ -87,9 +87,10 @@ struct HandOffSheet: View {
             HStack {
                 Spacer()
                 Button(L("Cancel", "Vazgeç")) { dismiss() }
+                    .buttonStyle(.kervanQuiet)
                     .keyboardShortcut(.cancelAction)
                 Button(L("Hand it over", "Görevi ver")) { handOver() }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.kervanPrimary)
                     .tint(.kervanLapis)
                     .keyboardShortcut(.defaultAction)
                     .disabled(agent.isEmpty || task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !canSend)

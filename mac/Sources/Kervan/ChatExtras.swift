@@ -85,9 +85,15 @@ struct PlanCard: View {
                 withAnimation(Motion.pick(Motion.fast, reduce: reduceMotion)) { open.toggle() }
             } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: "checklist").foregroundStyle(Color.kervanSaffron)
                     Text("Plan").font(.callout.weight(.semibold))
                     Text("\(done)/\(entries.count)").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+                    // How far along, as a short stretch of the same road.
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color.secondary.opacity(0.2)).frame(width: 44, height: 3)
+                        Capsule().fill(Color.kervanLapis)
+                            .frame(width: 44 * (entries.isEmpty ? 0 : CGFloat(done) / CGFloat(entries.count)), height: 3)
+                    }
+                    .accessibilityHidden(true)
                     if !open, let current {
                         Text(current.content).font(.callout).foregroundStyle(.secondary).lineLimit(1)
                     }
@@ -104,43 +110,53 @@ struct PlanCard: View {
             .accessibilityHint(open ? L("Collapses", "Daraltır") : L("Expands", "Açar"))
 
             if open {
-                VStack(alignment: .leading, spacing: 5) {
-                    ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Image(systemName: Self.symbol(entry.status))
-                                .foregroundStyle(Self.tint(entry.status))
-                                .frame(width: 14)
+                // The plan is a route: stops behind you in lapis on a solid line, the caravan's saffron dot
+                // on the step being done, the road ahead dotted.
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(entries.enumerated()), id: \.offset) { index, entry in
+                        let done = entry.status == "completed"
+                        let current = entry.status == "in_progress"
+                        HStack(alignment: .top, spacing: 10) {
+                            ZStack {
+                                if current {
+                                    Circle().fill(Color.kervanSaffron.opacity(0.25)).frame(width: 17, height: 17)
+                                    Circle().fill(Color.kervanSaffron).frame(width: 9, height: 9)
+                                } else if done {
+                                    Circle().fill(Color.kervanLapis).frame(width: 13, height: 13)
+                                    Image(systemName: "checkmark").font(.system(size: 7, weight: .black)).foregroundStyle(Color.kervanOnAccent)
+                                } else {
+                                    Circle().fill(Color.kervanSurface).frame(width: 11, height: 11)
+                                    Circle().strokeBorder(Color.secondary.opacity(0.5), lineWidth: 1.5).frame(width: 9, height: 9)
+                                }
+                            }
+                            .frame(width: 18, height: 18)
                             Text(entry.content)
                                 .font(.callout)
-                                .strikethrough(entry.status == "completed", color: .secondary)
-                                .foregroundStyle(entry.status == "completed" ? .secondary : .primary)
-                                .fontWeight(entry.status == "in_progress" ? .medium : .regular)
+                                .foregroundStyle(done ? .secondary : .primary)
+                                .fontWeight(current ? .semibold : .regular)
+                                // No fixedSize here: a rigid plan card pushes the composer off the bottom of the window.
+                                .padding(.top, 1)
                         }
-                        .accessibilityElement(children: .combine)
+                        .padding(.bottom, index == entries.count - 1 ? 0 : 9)
+                        .background(alignment: .leading) {
+                            if index < entries.count - 1 {
+                                RouteSegment(travelled: done)
+                                    .frame(width: 18)
+                                    .padding(.top, 16)
+                                    .padding(.bottom, -2)
+                            }
+                        }
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("\(entry.content), \(done ? L("done", "tamam") : current ? L("in progress", "sürüyor") : L("to do", "sırada"))")
                     }
                 }
+                .padding(.top, 2)
                 .transition(.opacity)
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .softSurface(radius: Radius.card)
-    }
-
-    private static func symbol(_ status: String) -> String {
-        switch status {
-        case "completed": "checkmark.circle.fill"
-        case "in_progress": "circle.dotted.circle"
-        default: "circle"
-        }
-    }
-
-    private static func tint(_ status: String) -> Color {
-        switch status {
-        case "completed": .kervanOasis
-        case "in_progress": .kervanSaffron
-        default: .secondary
-        }
     }
 }
 

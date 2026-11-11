@@ -455,6 +455,8 @@ const ICONS = {
   send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
   stop: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
   search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+  chevron: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>',
   paperclip: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>',
 };
 
@@ -485,6 +487,37 @@ function statusText(session) {
   }
 }
 
+/** When a session last did something: its newest event when the history is here, else when it began. */
+function lastActivity(session) {
+  const events = state.events.get(session.id);
+  let latest = session.createdAt;
+  if (events) for (const event of events.values()) if (event.at && event.at > latest) latest = event.at;
+  return latest;
+}
+
+/** Short enough for a list row: "now", "5m", "3h", "2d", then the day itself. */
+function relativeTime(iso) {
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return "";
+  const seconds = Math.max(0, (Date.now() - then) / 1000);
+  if (seconds < 60) return L("now", "şimdi");
+  if (seconds < 3600) return L(`${Math.floor(seconds / 60)}m`, `${Math.floor(seconds / 60)} dk`);
+  if (seconds < 86400) return L(`${Math.floor(seconds / 3600)}h`, `${Math.floor(seconds / 3600)} sa`);
+  if (seconds < 86400 * 7) return L(`${Math.floor(seconds / 86400)}d`, `${Math.floor(seconds / 86400)} g`);
+  return new Date(then).toLocaleDateString(lang, { day: "numeric", month: "short" });
+}
+
+/** The status light; a session at work gets the caravan's three walking dots instead. */
+function statusMark(session) {
+  if (offlineNode(session.agent)) return h("span", { class: "dot closed", "aria-hidden": "true" });
+  if (session.status === "running" || session.status === "starting") {
+    return h("span", { class: "caravan", "aria-hidden": "true" }, h("span"), h("span"), h("span"));
+  }
+  return h("span", { class: `dot ${session.status}`, "aria-hidden": "true" });
+}
+
+const metaClass = (session) => `meta${session.status === "waiting" ? " needs" : session.status === "error" ? " stopped" : ""}`;
+
 /** Sessions worth listing: not archived, not a lead's helper. Waiting first, then the newest. */
 function listedSessions() {
   return [...state.sessions.values()]
@@ -507,11 +540,12 @@ function inline(escaped) {
 function markdown(text) {
   const parts = [];
   // A fence still open at the end (the agent is mid-answer) is shown as code too.
-  const fence = /```[^\n]*\n?([\s\S]*?)(```|$)/g;
+  const fence = /```([^\n]*)\n?([\s\S]*?)(```|$)/g;
   let last = 0;
   for (let match; (match = fence.exec(text)); ) {
     if (match.index > last) parts.push(prose(text.slice(last, match.index)));
-    parts.push(`<pre><code>${escapeHTML(match[1].replace(/\n$/, ""))}</code></pre>`);
+    const language = escapeHTML(match[1].trim().slice(0, 24)) || L("Code", "Kod");
+    parts.push(`<div class="code"><div class="code-head"><span>${language}</span><button type="button" class="copy-code">${L("Copy", "Kopyala")}</button></div><pre><code>${escapeHTML(match[2].replace(/\n$/, ""))}</code></pre></div>`);
     last = fence.lastIndex;
     if (match[0] === "") fence.lastIndex++;
   }
@@ -535,7 +569,7 @@ function prose(text) {
     const line = raw.trimEnd();
     const bullet = /^\s*[-*•]\s+(.*)$/.exec(line);
     const numbered = /^\s*\d+[.)]\s+(.*)$/.exec(line);
-    const heading = /^#{1,6}\s+(.*)$/.exec(line);
+    const heading = /^(#{1,6})\s+(.*)$/.exec(line);
     if (bullet || numbered) {
       flush();
       const kind = bullet ? "ul" : "ol";
@@ -548,7 +582,8 @@ function prose(text) {
     } else if (heading) {
       flush();
       close();
-      out.push(`<h4>${inline(escapeHTML(heading[1]))}</h4>`);
+      // The page's own headings stop at h2; an answer's start below them.
+      out.push(`<h${Math.min(heading[1].length + 2, 5)}>${inline(escapeHTML(heading[2]))}</h${Math.min(heading[1].length + 2, 5)}>`);
     } else if (line.trim() === "") {
       flush();
       close();
@@ -670,13 +705,17 @@ function renderBlock(block, sessionId) {
     case "tool":
       return h("div", { class: "tool" },
         h("span", { class: "name" }, block.title),
-        h("span", { class: `state ${block.status}` }, toolState(block.status)));
+        block.status === "completed"
+          ? h("span", { class: "state completed", role: "img", "aria-label": toolState(block.status) }, icon("check"))
+          : h("span", { class: `state ${block.status}` },
+              block.status === "in_progress" ? h("span", { class: "caravan", "aria-hidden": "true" }, h("span"), h("span"), h("span")) : null,
+              toolState(block.status)));
     case "plan":
       return h("div", { class: "plan" },
-        h("h5", {}, L("Plan", "Plan")),
+        h("h5", {}, L("Plan", "Plan"), h("span", { class: "plan-count" }, `${block.entries.filter((entry) => entry.status === "completed").length}/${block.entries.length}`)),
         h("ul", {}, block.entries.map((entry) =>
           h("li", { class: entry.status },
-            h("span", { class: "mark", "aria-hidden": "true" }, entry.status === "completed" ? "✓" : entry.status === "in_progress" ? "●" : "○"),
+            h("span", { class: "mark", "aria-hidden": "true" }, entry.status === "completed" ? icon("check") : null),
             h("span", { class: entry.status === "completed" ? "done" : "" }, entry.content)))));
     case "permission":
       return h("div", { class: `permission${block.resolved ? " resolved" : ""}` },
@@ -810,7 +849,8 @@ function signInScreen() {
         if (code) void signIn(code);
       },
     },
-      h("img", { src: "icon.svg", alt: "" }),
+      h("div", { class: "pair-route", "aria-hidden": "true" },
+        h("img", { src: "icon.svg", alt: "" }), h("span", { class: "road" }), h("span", { class: "stop" })),
       h("h1", {}, L("Kervan on the web", "Web'de Kervan")),
       h("p", {}, L(
         "In the Kervan app on your Mac, open Settings › Web access and choose Add a device. Enter the code it shows; it works once, for ten minutes.",
@@ -840,20 +880,21 @@ function listPane() {
     class: `session-row${session.id === state.open ? " selected" : ""}`,
     onclick: () => { location.hash = `#/s/${encodeURIComponent(session.id)}`; },
   },
-    h("span", { class: `dot ${offlineNode(session.agent) ? "closed" : session.status}`, "aria-hidden": "true" }),
+    statusMark(session),
     h("span", { class: "text" },
       h("div", { class: "title" }, session.title || agentName(session.agent)),
-      h("div", { class: `meta${session.status === "waiting" ? " needs" : ""}` },
-        session.role ? `${session.role} · ${statusText(session)}` : `${agentLabel(session.agent)} · ${statusText(session)}`)));
+      h("div", { class: metaClass(session) },
+        session.role ? `${session.role} · ${statusText(session)}` : `${agentLabel(session.agent)} · ${statusText(session)}`)),
+    session.status === "waiting" ? null : h("span", { class: "when", "aria-hidden": "true" }, relativeTime(lastActivity(session))));
 
   const helperRow = (helper) => h("button", {
     class: `session-row helper${helper.id === state.open ? " selected" : ""}`,
     onclick: () => { location.hash = `#/s/${encodeURIComponent(helper.id)}`; },
   },
-    h("span", { class: `dot ${offlineNode(helper.agent) ? "closed" : helper.status}`, "aria-hidden": "true" }),
+    statusMark(helper),
     h("span", { class: "text" },
       h("div", { class: "title" }, helper.role || helper.title || agentName(helper.agent)),
-      h("div", { class: `meta${helper.status === "waiting" ? " needs" : ""}` },
+      h("div", { class: metaClass(helper) },
         `${agentName(helper.agent)} · ${statusText(helper)}`)));
 
   const leadAndHelpers = (session) => [
@@ -1062,9 +1103,16 @@ function renderSessionPane() {
   if (!session) {
     paneFor = null;
     paneParts = null;
-    shell.pane.replaceChildren(h("p", { class: "empty" },
-      state.open && state.connection === "connected" && state.sessions.size ? L("This session isn't on the server any more.", "Bu oturum artık sunucuda yok.")
-        : L("Pick a session, or start a new one with +.", "Bir oturum seçin ya da + ile yenisini başlatın.")));
+    if (state.open && state.connection === "connected" && state.sessions.size) {
+      shell.pane.replaceChildren(h("p", { class: "empty" }, L("This session isn't on the server any more.", "Bu oturum artık sunucuda yok.")));
+      return;
+    }
+    // Rebuilt only when what it says changes, so a row keeps the keyboard's focus between the server's pings.
+    const home = homePane();
+    const current = shell.pane.firstElementChild;
+    if (!current?.classList.contains("home") || current.textContent !== home.textContent || current.querySelector(".primary")?.disabled !== home.querySelector(".primary")?.disabled) {
+      shell.pane.replaceChildren(home);
+    }
     return;
   }
   if (paneFor !== session.id) {
@@ -1133,11 +1181,109 @@ function renderSessionPane() {
   } else {
     if (transcript.firstChild?.classList?.contains("empty")) transcript.replaceChildren();
     const list = blocks(session, [...events.values()].sort((a, b) => a.seq - b.seq));
-    if (list.length === 0) transcript.replaceChildren(h("p", { class: "empty" }, L("Write the first message below.", "İlk mesajı aşağıya yazın.")));
+    if (list.length === 0) {
+      // Built once: a button redrawn under the pointer would lose its click.
+      if (!transcript.firstElementChild?.classList.contains("starters")) transcript.replaceChildren(starters(session, paneParts.textarea));
+    }
     else reconcile(transcript, list, session.id);
   }
   if (scrollToEnd || nearEnd) transcript.scrollTop = transcript.scrollHeight;
   scrollToEnd = false;
+}
+
+/** A new session's first screen: who is ready, and three ways to begin. Picking one fills the message box. */
+function starters(session, textarea) {
+  const ideas = [
+    L("Walk me through this folder: what it does and how it is laid out.", "Bu klasörü anlat: ne işe yarıyor, nasıl düzenlenmiş?"),
+    L("Run the tests and fix whatever fails.", "Testleri çalıştır, kırılanları düzelt."),
+    L("Review the latest changes and point out anything risky.", "Son değişiklikleri incele, riskli gördüğün yerleri söyle."),
+  ];
+  return h("div", { class: "starters empty-start" },
+    h("h3", {}, L(`${agentName(session.agent)} is ready`, `${agentName(session.agent)} hazır`)),
+    h("p", {}, L("Write what you have in mind, or start from one of these.", "Aklınızdakini yazın ya da bunlardan biriyle başlayın.")),
+    ideas.map((idea) => h("button", {
+      type: "button",
+      class: "starter",
+      onclick: () => {
+        textarea.value = idea;
+        textarea.dispatchEvent(new Event("input"));
+        textarea.focus();
+      },
+    }, idea)));
+}
+
+function greeting() {
+  const hour = new Date().getHours();
+  if (hour >= 5 && hour < 12) return L("Good morning", "Günaydın");
+  if (hour >= 12 && hour < 18) return L("Good afternoon", "İyi günler");
+  if (hour >= 18 && hour < 23) return L("Good evening", "İyi akşamlar");
+  return L("Good night", "İyi geceler");
+}
+
+/** What the agent is asking to do, when the session's history is already here. */
+function pendingAsk(session) {
+  const events = state.events.get(session.id);
+  if (!events) return null;
+  const open = new Map();
+  for (const event of [...events.values()].sort((a, b) => a.seq - b.seq)) {
+    if (event.kind === "permission_request") open.set(event.requestId, event.title);
+    else if (event.kind === "permission_resolved") open.delete(event.requestId);
+  }
+  return [...open.values()].pop() ?? null;
+}
+
+/** Home, on a wide screen with no session open: what needs you first, then what is at work, then where you left off. */
+function homePane() {
+  const live = [...state.sessions.values()].filter((s) => !s.archived)
+    .sort((a, b) => lastActivity(b).localeCompare(lastActivity(a)));
+  const waiting = live.filter((s) => s.status === "waiting");
+  const stopped = live.filter((s) => s.status === "error");
+  const working = live.filter((s) => s.status === "running" || s.status === "starting");
+  const recent = live.filter((s) => s.status === "idle" && !s.parentId).slice(0, 5);
+  const connected = state.connection === "connected";
+
+  const summary = !connected ? (state.connection === "connecting" ? L("Connecting to the server…", "Sunucuya bağlanıyoruz…") : L("Not connected to the server.", "Sunucuya bağlı değilsiniz."))
+    : waiting.length === 0 && working.length === 0 ? L("All quiet. Nothing needs you.", "Her şey sakin. Sizi bekleyen bir şey yok.")
+    : waiting.length === 0 ? L(`${working.length} at work. Nothing needs you.`, `${working.length} ajan çalışıyor. Sizi bekleyen bir şey yok.`)
+    : waiting.length === 1 ? L("One agent is waiting for your approval.", "Bir ajan onayınızı bekliyor.")
+    : L(`${waiting.length} agents are waiting for your approval.`, `${waiting.length} ajan onayınızı bekliyor.`);
+
+  const row = (session, asks) => {
+    const ask = asks ? pendingAsk(session) : null;
+    return h("button", {
+      class: `home-row${asks ? " asks" : ""}`,
+      onclick: () => { location.hash = `#/s/${encodeURIComponent(session.id)}`; },
+    },
+      statusMark(session),
+      h("span", { class: "text" },
+        h("div", { class: "title" }, session.title || agentName(session.agent)),
+        h("div", { class: "meta" }, `${agentLabel(session.agent)}, ${statusText(session).toLocaleLowerCase(lang)}`),
+        ask ? h("div", { class: "asking" }, ask) : null),
+      asks
+        ? h("span", { class: "review" }, L("Review", "İncele"))
+        : [h("span", { class: "when" }, relativeTime(lastActivity(session))), h("span", { class: "go" }, icon("chevron"))]);
+  };
+  const section = (title, sessions, tone, asks = false) => sessions.length === 0 ? null : h("section", { class: "home-section" },
+    h("h3", {}, title, tone ? h("span", { class: `count ${tone}`, "aria-hidden": "true" }, String(sessions.length)) : null),
+    sessions.map((session) => row(session, asks)));
+
+  return h("div", { class: "home" },
+    h("div", { class: "home-inner" },
+      h("header", { class: "home-head" },
+        h("div", {}, h("h2", {}, greeting()), h("p", {}, summary)),
+        h("button", { class: "primary", disabled: !connected, onclick: openNewSession }, L("Start a new session", "Yeni oturum başlat"))),
+      live.length === 0
+        ? h("div", { class: "home-first" },
+            h("img", { src: "icon.svg", alt: "" }),
+            h("div", {},
+              h("h3", {}, L("Start your first session", "İlk oturumunuzu başlatın")),
+              h("p", {}, L("A session is one conversation with an agent in a folder on the server. Start one and it shows up here and in the list on the left.", "Oturum, sunucudaki bir klasörde bir ajanla yaptığınız konuşmadır. Başlattığınızda burada ve soldaki listede görünür."))))
+        : [
+            section(L("Waiting for you", "Sıra sizde"), waiting, "saffron", true),
+            section(L("Stopped", "Duranlar"), stopped, "coral"),
+            section(L("At work", "Yolda"), working, "lapis"),
+            section(L("Pick up where you left off", "Kaldığınız yerden devam edin"), recent, null),
+          ]));
 }
 
 /** The open session's menu: its changes, rename, archive. */
@@ -1418,6 +1564,20 @@ document.addEventListener("keydown", (event) => {
     menuIndex = (moves[event.key] + items.length) % items.length;
     items[menuIndex].focus();
   }
+});
+
+document.addEventListener("click", (event) => {
+  const button = event.target.closest?.(".copy-code");
+  if (!button) return;
+  const code = button.closest(".code")?.querySelector("code")?.textContent ?? "";
+  navigator.clipboard?.writeText(code).then(() => {
+    button.textContent = L("Copied", "Kopyalandı");
+    button.classList.add("copied");
+    setTimeout(() => {
+      button.textContent = L("Copy", "Kopyala");
+      button.classList.remove("copied");
+    }, 1600);
+  }).catch(() => {});
 });
 
 route();

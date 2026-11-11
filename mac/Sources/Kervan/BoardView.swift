@@ -43,6 +43,7 @@ struct BoardSection: View {
                 } label: {
                     Label(L("New card", "Yeni kart"), systemImage: "plus")
                 }
+                .buttonStyle(.kervanQuiet)
                 .disabled(!model.connection.state.isConnected || !model.store.agents.contains { $0.node == nil })
             }
             ScrollView(.horizontal) {
@@ -90,9 +91,31 @@ struct BoardSection: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 StatusDot(color: column.tint, size: 7)
-                Text(column.title).font(.subheadline.weight(.semibold))
+                Text(column.title).font(.subheadline.weight(.semibold)).fixedSize()
                 Text("\(cards.count)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                Spacer()
+                // A card travels left to right; the dotted road to the next lane says so.
+                if column != CardColumn.allCases.last {
+                    Rectangle()
+                        .fill(Color.clear)
+                        .frame(height: 2)
+                        .frame(maxWidth: .infinity)
+                        .overlay(alignment: .center) {
+                            GeometryReader { geometry in
+                                Path { path in
+                                    path.move(to: CGPoint(x: 0, y: 1))
+                                    path.addLine(to: CGPoint(x: geometry.size.width, y: 1))
+                                }
+                                .stroke(Color.secondary.opacity(0.45), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [1.5, 5]))
+                            }
+                        }
+                        .accessibilityHidden(true)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.tertiary)
+                        .accessibilityHidden(true)
+                } else {
+                    Spacer()
+                }
             }
             .padding(.horizontal, 4)
             ForEach(cards) { card in
@@ -228,7 +251,7 @@ private struct ModelChoiceSheet: View {
                 Button(L("Use default model", "Varsayılan modelle devam et")) { answer(useDefault: true) }
                     .disabled(sending)
                 Button(L("Continue", "Devam et")) { answer(useDefault: false) }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.kervanPrimary)
                     .tint(.kervanLapis)
                     .keyboardShortcut(.defaultAction)
                     .disabled(sending)
@@ -340,7 +363,7 @@ private struct CardSheet: View {
                 Spacer()
                 Button(L("Cancel", "Vazgeç")) { dismiss() }.keyboardShortcut(.cancelAction)
                 Button(draft.cardID == nil ? L("Add card", "Kartı ekle") : L("Save", "Kaydet")) { Task { await save() } }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.kervanPrimary)
                     .tint(.kervanLapis)
                     .keyboardShortcut(.defaultAction)
                     .disabled(saving || !draft.files.allSatisfy(\.isReady) || draft.title.trimmingCharacters(in: .whitespaces).isEmpty || draft.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)

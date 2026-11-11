@@ -18,7 +18,7 @@ struct ConnectView: View {
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text(L("Connect to your server", "Sunucunuza bağlanalım"))
-                        .font(.system(size: 28, weight: .semibold, design: .rounded))
+                        .font(.system(size: 32, weight: .bold, design: .rounded))
                     Text(L("The saved server can't be reached right now, or details are missing. Check the address and key, then connect again.", "Kayıtlı sunucuya şu an ulaşılamıyor ya da bilgiler eksik. Adresi ve anahtarı kontrol edip yeniden bağlanın."))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -55,6 +55,7 @@ struct ConnectView: View {
                     HStack {
                         if state.isBusy {
                             Button(L("Cancel", "Vazgeç")) { model.disconnect() }
+                                .buttonStyle(.kervanQuiet)
                                 .keyboardShortcut(.cancelAction)
                         } else {
                             Button(L("Set up a new server…", "Yeni sunucu kur…")) {
@@ -63,7 +64,7 @@ struct ConnectView: View {
                             .buttonStyle(.link)
                             Spacer()
                             Button(L("Connect", "Bağlan")) { model.connect() }
-                                .buttonStyle(.borderedProminent)
+                                .buttonStyle(.kervanPrimary)
                                 .tint(.kervanLapis)
                                 .controlSize(.large)
                                 .keyboardShortcut(.defaultAction)

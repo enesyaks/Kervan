@@ -135,7 +135,7 @@ struct NewTeamSheet: View {
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.kervanPrimary)
                 .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty || picked.isEmpty || !model.canCreateSession)
             }
             .padding(16)
@@ -185,7 +185,7 @@ struct RolesSettings: View {
                 Button(L("Add role…", "Rol ekle…")) {
                     editing = Role(id: "", name: "", agent: model.store.agents.first?.id ?? "")
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.kervanPrimary)
                 .disabled(!model.connection.state.isConnected)
             }
         }
@@ -283,7 +283,7 @@ private struct RoleEditor: View {
                     }
                 }
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.kervanPrimary)
                 .disabled(saving || !Role.isValidID(role.id) || role.name.trimmingCharacters(in: .whitespaces).isEmpty || role.agent.isEmpty)
             }
             .padding(16)

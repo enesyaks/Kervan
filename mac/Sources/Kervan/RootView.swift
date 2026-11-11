@@ -181,6 +181,8 @@ private struct SidebarView: View {
                 if let session = renaming { Task { await store.rename(session.id, title: newTitle) } }
             }
             Button(L("Cancel", "Vazgeç"), role: .cancel) {}
+
+                .buttonStyle(.kervanQuiet)
         }
         .toolbar {
             ToolbarItem {
@@ -280,17 +282,26 @@ private struct HitRow: View {
     }
 }
 
-private struct SessionRow: View {
+struct SessionRow: View {
     let session: SessionInfo
     @Environment(AppModel.self) private var model
     private var agentName: String { model.store.agentName(session.agent) }
 
     var body: some View {
+        // A session that needs you is the one row that should stand out in a long list.
+        let asks = session.status == .waiting
+        let stopped = session.status == .error
+        let state = session.resting == true ? L("resting", "dinleniyor") : session.status.label.lowercased()
         HStack(alignment: .center, spacing: 10) {
-            StatusDot(color: session.status.tint)
+            if session.status == .running || session.status == .starting {
+                CaravanDots().frame(width: 14)
+            } else {
+                StatusDot(color: session.status.tint)
+            }
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
                     Text(session.title)
+                        .fontWeight(asks ? .semibold : .regular)
                         .lineLimit(1)
                     if session.orchestrate {
                         Image(systemName: "flag.fill")
@@ -300,10 +311,20 @@ private struct SessionRow: View {
                             .accessibilityLabel(L("lead", "ana ajan"))
                     }
                 }
-                Text("\(agentName), \(session.resting == true ? L("resting", "dinleniyor") : session.status.label.lowercased())")
+                (Text("\(agentName), ").foregroundStyle(.secondary)
+                    + Text(state)
+                        .fontWeight(asks || stopped ? .semibold : .regular)
+                        .foregroundStyle(asks ? Color.kervanSaffron : stopped ? Color.kervanCoral : Color.secondary))
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
                     .help(session.resting == true ? L("Stopped while idle to free memory; the next message starts it again", "Boşta durduğu için bellek boşaltmak üzere durduruldu; bir sonraki mesaj yeniden başlatır") : "")
+            }
+            Spacer(minLength: 4)
+            if !asks, let when = RelativeTime.short(model.store.lastActivity(session.id)) {
+                Text(when)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
             }
         }
         .padding(.vertical, 2)
@@ -317,9 +338,7 @@ private struct SidebarStatus: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Circle()
-                .fill(state.tint)
-                .frame(width: 8, height: 8)
+            StatusDot(color: state.tint)
             Text(state.shortLabel)
             Spacer()
             Text(host)
@@ -340,25 +359,31 @@ struct NewSessionButton: View {
     var body: some View {
         let agents = model.store.agents
         let label = L("Start a new session", "Yeni oturum başlat")
-        Group {
+        HStack(spacing: 6) {
+            Button {
+                model.newSession()
+            } label: {
+                Label(label, systemImage: "square.and.pencil")
+            }
+            .buttonStyle(.kervanPrimary)
+            .help(L("Start a new session with \(model.defaultAgent?.name ?? "agent") (⌘N)", "\(model.defaultAgent?.name ?? "Ajan") ile yeni oturum başlat (⌘N)"))
             if agents.count > 1 {
                 Menu {
                     ForEach(agents) { agent in
                         Button(agent.displayName) { model.newSession(agent: agent.id) }
                     }
                 } label: {
-                    Label(label, systemImage: "square.and.pencil")
-                } primaryAction: {
-                    model.newSession()
+                    Image(systemName: "chevron.down")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(Color.kervanLapis)
                 }
-                .help(L("New session with \(model.defaultAgent?.name ?? "agent") (⌘N); use the arrow for another agent", "\(model.defaultAgent?.name ?? "Ajan") ile yeni oturum (⌘N); okla başka bir ajan seçin"))
-            } else {
-                Button {
-                    model.newSession()
-                } label: {
-                    Label(label, systemImage: "square.and.pencil")
-                }
-                .help(L("Start a new session (⌘N)", "Yeni oturum başlat (⌘N)"))
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .frame(width: 34, height: 34)
+                .background(Color.kervanLapis.opacity(0.14), in: Circle())
+                .help(L("Start with another agent", "Başka bir ajanla başlat"))
+                .accessibilityLabel(L("Start with another agent", "Başka bir ajanla başlat"))
             }
         }
         .disabled(!model.canCreateSession)

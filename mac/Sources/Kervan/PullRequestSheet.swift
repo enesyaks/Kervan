@@ -66,9 +66,10 @@ struct PullRequestSheet: View {
                 }
                 Spacer()
                 Button(L("Cancel", "Vazgeç")) { dismiss() }
+                    .buttonStyle(.kervanQuiet)
                     .keyboardShortcut(.cancelAction)
                 Button(L("Open pull request", "Pull request aç")) { Task { await open() } }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.kervanPrimary)
                     .tint(.kervanLapis)
                     .keyboardShortcut(.defaultAction)
                     .disabled(working || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)

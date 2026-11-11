@@ -37,7 +37,7 @@ struct ChatView: View {
                             }
                         }
                         if items.isEmpty {
-                            EmptySession(status: status, agentName: agentName)
+                            EmptySession(status: status, agentName: agentName) { draft = $0 }
                         }
                         let resumable = Transcript.resumable(items)
                         ForEach(items) { item in
@@ -148,6 +148,8 @@ struct ChatView: View {
         ) { pending in
             Button(pending.thenEdit ? L("Rewind and edit", "Geri sar ve düzenle") : L("Rewind", "Geri sar"), role: .destructive) { rewind(pending) }
             Button(L("Cancel", "Vazgeç"), role: .cancel) {}
+
+                .buttonStyle(.kervanQuiet)
         } message: { _ in
             Text(L("The folder goes back to how it was before this message; files the agent created since are deleted. The conversation stays, and the agent is told with your next message.", "Klasördeki dosyalar bu mesajdan önceki hâline döner; ajanın sonradan oluşturduğu dosyalar silinir. Konuşma silinmez; ajana bir sonraki mesajınızda söylenir."))
         }
@@ -363,6 +365,16 @@ struct ChatView: View {
 private struct EmptySession: View {
     let status: SessionStatus
     let agentName: String
+    /// Puts a starter in the composer; the user still reads it and sends it.
+    let start: (String) -> Void
+
+    private static var starters: [String] {
+        [
+            L("Walk me through this folder: what it does and how it is laid out.", "Bu klasörü anlat: ne işe yarıyor, nasıl düzenlenmiş?"),
+            L("Run the tests and fix whatever fails.", "Testleri çalıştır, kırılanları düzelt."),
+            L("Review the latest changes and point out anything risky.", "Son değişiklikleri incele, riskli gördüğün yerleri söyle."),
+        ]
+    }
 
     var body: some View {
         switch status {
@@ -372,8 +384,40 @@ private struct EmptySession: View {
                 Text(L("Starting \(agentName)…", "\(agentName) hazırlanıyor…")).foregroundStyle(.secondary)
             }
         case .idle:
-            Text(L("\(agentName) is ready. Tell it what you have in mind.", "\(agentName) hazır. Aklınızdakini yazın; birlikte başlayalım."))
-                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(L("\(agentName) is ready", "\(agentName) hazır"))
+                        .font(.system(size: 22, weight: .semibold, design: .rounded))
+                    Text(L("Write what you have in mind, or start from one of these.", "Aklınızdakini yazın ya da bunlardan biriyle başlayın."))
+                        .foregroundStyle(.secondary)
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(Self.starters, id: \.self) { starter in
+                        Button {
+                            start(starter)
+                        } label: {
+                            HStack(spacing: 10) {
+                                Text(starter)
+                                    .font(.system(size: 14, design: .rounded))
+                                    .multilineTextAlignment(.leading)
+                                Spacer(minLength: 8)
+                                Image(systemName: "arrow.up.left")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
+                                    .accessibilityHidden(true)
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .frame(maxWidth: 460, alignment: .leading)
+                            .softSurface(lift: false)
+                            .contentShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                        }
+                        .buttonStyle(SoftPressStyle())
+                        .help(L("Puts this in the message box; nothing is sent until you press Return", "Bunu mesaj kutusuna yazar; Return'e basana kadar gönderilmez"))
+                    }
+                }
+            }
+            .padding(.top, 24)
         default:
             EmptyView()
         }
@@ -521,7 +565,10 @@ struct TranscriptRow: View {
             }
             .padding(.vertical, 10)
             .padding(.horizontal, 14)
-            .background(accent.opacity(0.16), in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+            // The corner nearest you is tighter, so the bubble points at who said it.
+            .background(accent.opacity(0.16), in: UnevenRoundedRectangle(
+                topLeadingRadius: Radius.panel, bottomLeadingRadius: Radius.panel, bottomTrailingRadius: 5, topTrailingRadius: Radius.panel, style: .continuous
+            ))
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(from.map { L("Lead \(senderName($0)): \(text)", "Ana ajan \(senderName($0)): \(text)") } ?? L("You: \(text)", "Siz: \(text)"))
@@ -552,11 +599,7 @@ struct TranscriptRow: View {
                 .background(Color.kervanWell, in: RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
 
         case .agent(_, let text):
-            Text(Self.markdown(text))
-                .font(.system(size: 14, design: .rounded))
-                .textSelection(.enabled)
-                .lineSpacing(5)
-                .fixedSize(horizontal: false, vertical: true)
+            AgentMarkdown(text: text)
 
         case .thought(_, let text):
             DisclosureGroup(L("Thinking", "Düşünme")) {
@@ -596,11 +639,6 @@ struct TranscriptRow: View {
                 .font(.callout)
                 .foregroundStyle(.kervanCoral)
         }
-    }
-
-    private static func markdown(_ text: String) -> AttributedString {
-        let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        return (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
     }
 
     private static func stopText(_ reason: String) -> String {
@@ -648,9 +686,7 @@ private struct ToolRow: View {
                             .foregroundStyle(.secondary)
                             .rotationEffect(.degrees(open ? 0 : -90))
                     }
-                    Text(Self.statusLabel(status))
-                        .font(.caption)
-                        .foregroundStyle(Self.statusTint(status))
+                    ToolStatusMark(status: status, label: Self.statusLabel(status), tint: Self.statusTint(status))
                 }
                 .contentShape(Rectangle())
             }
@@ -702,6 +738,33 @@ private struct ToolRow: View {
         case "failed": .kervanCoral
         default: .secondary
         }
+    }
+}
+
+/// Finished calls get a quiet check; only the ones still running or failed say so in words.
+private struct ToolStatusMark: View {
+    let status: String
+    let label: String
+    let tint: Color
+
+    var body: some View {
+        Group {
+            switch status {
+            case "completed":
+                Image(systemName: "checkmark").font(.caption.weight(.bold)).foregroundStyle(tint)
+            case "in_progress":
+                HStack(spacing: 6) {
+                    CaravanDots()
+                    Text(label).font(.caption.weight(.medium)).foregroundStyle(tint)
+                }
+            case "failed":
+                Label(label, systemImage: "xmark.circle.fill").font(.caption.weight(.semibold)).foregroundStyle(tint)
+            default:
+                Text(label).font(.caption).foregroundStyle(tint)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label)
     }
 }
 
@@ -757,9 +820,9 @@ private struct PermissionCard: View {
             HStack(spacing: 8) {
                 ForEach(Self.ordered(prompt.options)) { option in
                     if option.kind == "allow_once" {
-                        Button(Self.label(option)) { choose(option) }.buttonStyle(.borderedProminent).tint(.kervanLapis)
+                        Button(Self.label(option)) { choose(option) }.buttonStyle(.kervanPrimary)
                     } else {
-                        Button(Self.label(option)) { choose(option) }
+                        Button(Self.label(option)) { choose(option) }.buttonStyle(.kervanQuiet)
                     }
                 }
             }
@@ -958,7 +1021,7 @@ private struct Composer: View {
     }
 
     private func optionsRow(compact: Bool, hint: Bool) -> some View {
-        HStack(spacing: compact ? 8 : 14) {
+        HStack(spacing: compact ? 6 : 8) {
             ForEach(options) { option in
                 SettingMenu(option: option, compact: compact) { choose(option, $0) }
             }
@@ -970,6 +1033,9 @@ private struct Composer: View {
                 }
                 .toggleStyle(.checkbox)
                 .fixedSize()
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background((autoApprove ? Color.kervanOasis.opacity(0.18) : Color.kervanWell.opacity(0.75)), in: Capsule())
                 .help(L(
                     "Approves routine actions by itself. It still asks before major ones: pushing, deleting folders, rewriting git history, deploying, touching secrets or files outside this task's folder.",
                     "Sıradan işlemleri kendisi onaylar. Büyük işlemlerde yine sorar: push, klasör silme, git geçmişini değiştirme, yayına alma, gizli bilgilere ya da bu görevin klasörü dışındaki dosyalara dokunma."
@@ -1042,6 +1108,9 @@ private struct SettingMenu: View {
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(Color.kervanWell.opacity(0.75), in: Capsule())
         .help("\(option.name): \(option.current?.name ?? option.value)")
         .accessibilityLabel("\(option.name): \(option.current?.name ?? option.value)")
     }
