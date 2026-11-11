@@ -107,7 +107,7 @@ struct AlertsSection: View {
                     .disabled(working || (topic.isEmpty && webhook.isEmpty && settings?.webhookSet != true))
                 Spacer()
                 Button(L("Save", "Kaydet")) { Task { await save() } }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.kervanPrimary)
                     .tint(.kervanLapis)
                     .disabled(working || !model.connection.state.isConnected)
             }

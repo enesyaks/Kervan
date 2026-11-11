@@ -26,7 +26,7 @@ struct UpdatesCard: View {
                     Button(L("Install Kervan \(release.version) and relaunch", "Kervan \(release.version) sürümünü kur ve yeniden aç")) {
                         updater.install(release)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.kervanPrimary)
                     .tint(.kervanLapis)
                     Link(L("What's new", "Yenilikler"), destination: release.page)
                 case .downloading, .installing:
@@ -160,7 +160,7 @@ struct ServerUpdateSheet: View {
                 )
                 if let url = installer.tailscaleURL {
                     Button(L("Sign in to Tailscale", "Tailscale'e giriş yap")) { NSWorkspace.shared.open(url) }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.kervanPrimary)
                         .tint(.kervanLapis)
                 }
                 if let address = installer.waitingOnTailscale {
@@ -208,7 +208,7 @@ struct ServerUpdateSheet: View {
                     .keyboardShortcut(.cancelAction)
                     if !done {
                         Button(failed ? L("Try again", "Yeniden dene") : (tailscale ? L("Set up", "Kur") : L("Update", "Güncelle"))) { start() }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(.kervanPrimary)
                             .tint(.kervanLapis)
                             .keyboardShortcut(.defaultAction)
                             .disabled(host.trimmingCharacters(in: .whitespaces).isEmpty || user.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -293,13 +293,14 @@ struct ReportProblemSheet: View {
                 .disabled(report == nil)
                 Spacer()
                 Button(L("Cancel", "Vazgeç")) { dismiss() }
+                    .buttonStyle(.kervanQuiet)
                     .keyboardShortcut(.cancelAction)
                 Button(L("Open GitHub issue", "GitHub issue'su aç")) {
                     guard let report else { return }
                     NSWorkspace.shared.open(report.issueURL)
                     dismiss()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.kervanPrimary)
                 .tint(.kervanLapis)
                 .keyboardShortcut(.defaultAction)
                 .disabled(report == nil || report?.title.trimmingCharacters(in: .whitespaces).isEmpty == true)

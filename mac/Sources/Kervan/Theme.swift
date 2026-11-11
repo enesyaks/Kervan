@@ -143,6 +143,13 @@ extension Color {
     static let kervanSurface = Color(light: 0xFFFFFF, dark: 0x1A2433)
     /// Recessed inside a surface: code, tool rows, chips.
     static let kervanWell = Color(light: 0xEAEFF6, dark: 0x22304A)
+    /// The edge of a raised surface: invisible by day, a faint line at night.
+    /// Words on a lapis or coral fill: white by day, night-blue on the lighter night variants.
+    static let kervanOnAccent = Color(light: 0xFFFFFF, dark: 0x0F1620)
+    static let kervanHairline = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? NSColor.white.withAlphaComponent(0.07) : NSColor.black.withAlphaComponent(0.04)
+    })
 }
 
 /// Corner radii. Nested shapes follow outer = inner + padding, so a chip inside a card stays concentric.
@@ -186,6 +193,8 @@ private struct SoftSurface: ViewModifier {
                 .fill(fill)
                 .shadow(color: .black.opacity(lift ? 0.06 : 0), radius: 1, y: 1)
                 .shadow(color: .black.opacity(lift ? 0.10 : 0), radius: 14, y: 6)
+                // Shadows vanish on the night canvas; a hairline keeps the card's edge there.
+                .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(Color.kervanHairline, lineWidth: 1))
         }
     }
 }
@@ -265,4 +274,106 @@ extension View {
 extension ShapeStyle where Self == Color {
     /// Lets `.foregroundStyle(.kervanCoral)` read like the system colors it replaced.
     static var kervanCoral: Color { Color.kervanCoral }
+}
+
+/// A status said in words on its own color: "Waiting for you" in saffron, "Stopped" in coral.
+struct StatusPill: View {
+    let text: String
+    let tint: Color
+
+    var body: some View {
+        Text(text)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(tint.opacity(0.14), in: Capsule())
+            .lineLimit(1)
+            .fixedSize()
+    }
+}
+
+/// "5 min ago" for the server's ISO timestamps; nil when the text isn't a date.
+enum RelativeTime {
+    /// Short enough for a sidebar row: "now", "5m", "3h", "2d", then the day itself.
+    static func short(_ iso: String, now: Date = Date()) -> String? {
+        guard let date = SessionGroups.parse(iso) else { return nil }
+        let seconds = max(0, now.timeIntervalSince(date))
+        switch seconds {
+        case ..<60: return L("now", "şimdi")
+        case ..<3600: return L("\(Int(seconds / 60))m", "\(Int(seconds / 60)) dk")
+        case ..<86400: return L("\(Int(seconds / 3600))h", "\(Int(seconds / 3600)) sa")
+        case ..<(86400 * 7): return L("\(Int(seconds / 86400))d", "\(Int(seconds / 86400)) g")
+        default: return date.formatted(.dateTime.day().month(.abbreviated).locale(Language.shared.locale))
+        }
+    }
+}
+
+/// The app's own buttons, in the pill shape the first run introduced: lapis for the one thing a screen
+/// is for, a quiet well for everything beside it, coral when the action removes something.
+struct KervanButtonStyle: ButtonStyle {
+    enum Kind { case primary, quiet }
+    let kind: Kind
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.controlSize) private var controlSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        let destructive = configuration.role == .destructive
+        let fill: Color = switch kind {
+        case .primary: destructive ? .kervanCoral : .kervanLapis
+        case .quiet: .kervanWell
+        }
+        let (horizontal, vertical, font): (CGFloat, CGFloat, Font) = switch controlSize {
+        case .mini, .small: (10, 4, .callout)
+        case .large, .extraLarge: (20, 10, .body)
+        default: (14, 6.5, .body)
+        }
+        return configuration.label
+            .font(font.weight(kind == .primary ? .semibold : .medium))
+            .foregroundStyle(kind == .primary ? Color.kervanOnAccent : destructive ? Color.kervanCoral : Color.primary)
+            .lineLimit(1)
+            .padding(.horizontal, horizontal)
+            .padding(.vertical, vertical)
+            .background(fill.opacity(configuration.isPressed ? 0.8 : 1), in: Capsule())
+            .opacity(isEnabled ? 1 : 0.45)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
+            .animation(Motion.fast, value: configuration.isPressed)
+            .contentShape(Capsule())
+    }
+}
+
+extension ButtonStyle where Self == KervanButtonStyle {
+    static var kervanPrimary: KervanButtonStyle { KervanButtonStyle(kind: .primary) }
+    static var kervanQuiet: KervanButtonStyle { KervanButtonStyle(kind: .quiet) }
+}
+
+/// A dotted stretch of road ending at a stop nobody has reached yet: how every empty place in the app looks.
+struct EmptyRoute: View {
+    let symbol: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Circle().fill(Color.kervanLapis.opacity(0.55)).frame(width: 7, height: 7)
+            Line()
+                .stroke(Color.secondary.opacity(0.5), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [1.5, 6]))
+                .frame(width: 64, height: 2)
+            Image(systemName: symbol)
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(Color.kervanLapis)
+                .frame(width: 42, height: 42)
+                .background(Color.kervanLapis.opacity(0.12), in: Circle())
+                .overlay(Circle().strokeBorder(Color.kervanLapis.opacity(0.35), style: StrokeStyle(lineWidth: 1.5, dash: [3, 4])))
+        }
+        .accessibilityHidden(true)
+    }
+
+    private struct Line: Shape {
+        func path(in rect: CGRect) -> Path {
+            Path { path in
+                path.move(to: CGPoint(x: rect.minX, y: rect.midY))
+                path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+            }
+        }
+    }
 }

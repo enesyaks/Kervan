@@ -9,47 +9,302 @@ enum SettingsTab {
     static let general = "general", skills = "skills", mcp = "mcp", agents = "agents", roles = "roles", nodes = "nodes", web = "web", alerts = "alerts"
 }
 
+/// Settings as a route: the sections are stops on one line down the left, and the caravan's saffron dot
+/// travels to the stop you pick. The line is solid as far as you have come and dotted beyond, the same
+/// vocabulary as the connection line on the home page.
 struct SettingsView: View {
     @AppStorage(SettingsTab.key) private var tab = SettingsTab.general
+    @Environment(AppModel.self) private var model
 
     var body: some View {
-        TabView(selection: $tab) {
-            GeneralSettings()
-                .tabItem { Label(L("General", "Genel"), systemImage: "gearshape") }
-                .tag(SettingsTab.general)
-            SkillsSettings()
-                .tabItem { Label(L("Skills", "Skill'ler"), systemImage: "book.closed") }
-                .tag(SettingsTab.skills)
-            McpSettings()
-                .tabItem { Label(L("MCP servers", "MCP sunucuları"), systemImage: "point.3.connected.trianglepath.dotted") }
-                .tag(SettingsTab.mcp)
-            AgentsSettings()
-                .tabItem { Label(L("Agents", "Ajanlar"), systemImage: "person.2") }
-                .tag(SettingsTab.agents)
-            RolesSettings()
-                .tabItem { Label(L("Roles", "Roller"), systemImage: "theatermasks") }
-                .tag(SettingsTab.roles)
-            ScrollView {
-                NodesSection().padding(20)
+        HStack(spacing: 0) {
+            SettingsRoute(selection: $tab, state: model.connection.state, host: model.activeAddress?.host ?? model.serverInput)
+                .frame(width: 212)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(SettingsStop.named(tab).title)
+                    .font(.system(size: 26, weight: .bold, design: .rounded))
+                    .padding(.horizontal, 20)
+                    .padding(.top, 22)
+                    .padding(.bottom, 2)
+                    .accessibilityAddTraits(.isHeader)
+                page
+                    .id(tab)
             }
-            .settingsPage()
-            .tabItem { Label(L("Nodes", "Node'lar"), systemImage: "server.rack") }
-                .tag(SettingsTab.nodes)
-            ScrollView {
-                WebAccessSection().padding(20)
-            }
-            .settingsPage()
-            .tabItem { Label(L("Web access", "Web erişimi"), systemImage: "globe") }
-                .tag(SettingsTab.web)
-            ScrollView {
-                AlertsSection().padding(20)
-            }
-            .settingsPage()
-            .tabItem { Label(L("Alerts", "Bildirimler"), systemImage: "bell.badge") }
-                .tag(SettingsTab.alerts)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(Color.kervanCanvas)
         }
-        .frame(width: 660, height: 560)
+        .frame(width: 860, height: 600)
         .fontDesign(.rounded)
+    }
+
+    @ViewBuilder
+    private var page: some View {
+        switch tab {
+        case SettingsTab.skills: SkillsSettings()
+        case SettingsTab.mcp: McpSettings()
+        case SettingsTab.agents: AgentsSettings()
+        case SettingsTab.roles: RolesSettings()
+        case SettingsTab.nodes: ScrollView { NodesSection().padding(20) }.settingsPage()
+        case SettingsTab.web: ScrollView { WebAccessSection().padding(20) }.settingsPage()
+        case SettingsTab.alerts: ScrollView { AlertsSection().padding(20) }.settingsPage()
+        default: GeneralSettings()
+        }
+    }
+}
+
+/// One stop on the settings route. A new `leg` starts a little further down the line: this Mac,
+/// what agents carry with them, and how the caravan reaches other machines and you.
+struct SettingsStop: Identifiable {
+    let id: String
+    let title: String
+    let symbol: String
+    let leg: Int
+
+    static var all: [SettingsStop] {
+        [
+            SettingsStop(id: SettingsTab.general, title: L("General", "Genel"), symbol: "gearshape", leg: 0),
+            SettingsStop(id: SettingsTab.skills, title: L("Skills", "Skill'ler"), symbol: "book.closed", leg: 1),
+            SettingsStop(id: SettingsTab.mcp, title: L("MCP servers", "MCP sunucuları"), symbol: "point.3.connected.trianglepath.dotted", leg: 1),
+            SettingsStop(id: SettingsTab.agents, title: L("Agents", "Ajanlar"), symbol: "person.2", leg: 1),
+            SettingsStop(id: SettingsTab.roles, title: L("Roles", "Roller"), symbol: "theatermasks", leg: 1),
+            SettingsStop(id: SettingsTab.nodes, title: L("Nodes", "Node'lar"), symbol: "server.rack", leg: 2),
+            SettingsStop(id: SettingsTab.web, title: L("Web access", "Web erişimi"), symbol: "globe", leg: 2),
+            SettingsStop(id: SettingsTab.alerts, title: L("Alerts", "Bildirimler"), symbol: "bell.badge", leg: 2),
+        ]
+    }
+
+    static func named(_ id: String) -> SettingsStop { all.first { $0.id == id } ?? all[0] }
+}
+
+struct SettingsRoute: View {
+    @Binding var selection: String
+    let state: ConnectionState
+    let host: String
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Namespace private var caravan
+
+    private static let rowHeight: CGFloat = 38
+    private static let legGap: CGFloat = 18
+    private static let track: CGFloat = 28
+
+    var body: some View {
+        let stops = SettingsStop.all
+        let at = stops.firstIndex { $0.id == selection } ?? 0
+        VStack(alignment: .leading, spacing: 0) {
+            Text(L("Settings", "Ayarlar"))
+                .font(.headline)
+                .foregroundStyle(.secondary)
+                .padding(.leading, 20)
+                .padding(.top, 24)
+                .padding(.bottom, 14)
+
+            ForEach(Array(stops.enumerated()), id: \.element.id) { index, stop in
+                if index > 0, stops[index - 1].leg != stop.leg {
+                    // Between legs the road just carries on.
+                    RouteSegment(travelled: index <= at)
+                        .frame(width: Self.track, height: Self.legGap)
+                        .padding(.leading, 10)
+                }
+                row(stop, index: index, at: at, last: index == stops.count - 1)
+            }
+
+            Spacer(minLength: 12)
+
+            HStack(spacing: 8) {
+                StatusDot(color: state.tint, size: 7)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(state.shortLabel).font(.callout)
+                    if !host.isEmpty {
+                        Text(host).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 16)
+            .accessibilityElement(children: .combine)
+        }
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(Color.kervanSidebar)
+    }
+
+    private func row(_ stop: SettingsStop, index: Int, at: Int, last: Bool) -> some View {
+        let selected = index == at
+        return Button {
+            withAnimation(Motion.pick(Motion.gentle, reduce: reduceMotion)) { selection = stop.id }
+        } label: {
+            HStack(spacing: 6) {
+                ZStack {
+                    VStack(spacing: 0) {
+                        RouteSegment(travelled: index <= at).opacity(index == 0 ? 0 : 1)
+                        RouteSegment(travelled: index < at).opacity(last ? 0 : 1)
+                    }
+                    Circle()
+                        .fill(Color.kervanSidebar)
+                        .frame(width: 11, height: 11)
+                    Circle()
+                        .strokeBorder(index < at ? Color.kervanLapis : Color.secondary.opacity(0.45), lineWidth: 1.5)
+                        .frame(width: 9, height: 9)
+                    if selected {
+                        // The caravan itself: one dot that walks to whichever stop is open.
+                        Circle()
+                            .fill(Color.kervanSaffron)
+                            .frame(width: 11, height: 11)
+                            .background(Circle().fill(Color.kervanSaffron.opacity(0.25)).frame(width: 21, height: 21))
+                            .matchedGeometryEffect(id: "caravan", in: caravan)
+                    }
+                }
+                .frame(width: Self.track, height: Self.rowHeight)
+
+                HStack(spacing: 8) {
+                    Image(systemName: stop.symbol)
+                        .font(.system(size: 12.5, weight: .medium))
+                        .foregroundStyle(selected ? Color.kervanLapis : Color.secondary)
+                        .frame(width: 18)
+                    Text(stop.title)
+                        .fontWeight(selected ? .semibold : .regular)
+                        .foregroundStyle(selected ? Color.primary : Color.primary.opacity(0.78))
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 10)
+                .frame(height: Self.rowHeight - 6)
+                .background {
+                    if selected {
+                        RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
+                            .fill(Color.kervanSurface)
+                            .shadow(color: .black.opacity(0.07), radius: 5, y: 2)
+                            .overlay(RoundedRectangle(cornerRadius: Radius.chip, style: .continuous).strokeBorder(Color.kervanHairline, lineWidth: 1))
+                            .matchedGeometryEffect(id: "plate", in: caravan)
+                    }
+                }
+            }
+            .padding(.leading, 10)
+            .padding(.trailing, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
+        .help("⌘\(index + 1)")
+        .accessibilityLabel(stop.title)
+        .accessibilityAddTraits(selected ? [.isSelected, .isButton] : .isButton)
+    }
+}
+
+/// A stretch of the route: solid lapis where the caravan has been, dotted where it hasn't.
+struct RouteSegment: View {
+    let travelled: Bool
+
+    var body: some View {
+        Line()
+            .stroke(
+                travelled ? Color.kervanLapis : Color.secondary.opacity(0.45),
+                style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: travelled ? [] : [1.5, 5])
+            )
+            .accessibilityHidden(true)
+    }
+
+    private struct Line: Shape {
+        func path(in rect: CGRect) -> Path {
+            Path { path in
+                path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+                path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
+            }
+        }
+    }
+}
+
+/// Light, dark or system as three small windows you can see, rather than three words.
+private struct AppearanceSwatches: View {
+    @Binding var selection: String
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ForEach(Appearance.allCases) { appearance in
+                let selected = selection == appearance.rawValue
+                Button {
+                    selection = appearance.rawValue
+                } label: {
+                    VStack(spacing: 7) {
+                        preview(appearance)
+                            .frame(height: 64)
+                            .clipShape(RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
+                                    .strokeBorder(selected ? Color.kervanLapis : Color.secondary.opacity(0.25), lineWidth: selected ? 2 : 1)
+                            )
+                        HStack(spacing: 5) {
+                            if selected {
+                                Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.kervanLapis).font(.caption)
+                            }
+                            Text(appearance.label)
+                                .font(.callout.weight(selected ? .semibold : .regular))
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(SoftPressStyle())
+                .accessibilityLabel(appearance.label)
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func preview(_ appearance: Appearance) -> some View {
+        switch appearance {
+        case .light: MiniWindow(dark: false)
+        case .dark: MiniWindow(dark: true)
+        case .system:
+            // Half and half: it follows whichever macOS is showing.
+            MiniWindow(dark: false)
+                .overlay {
+                    MiniWindow(dark: true).mask(alignment: .trailing) {
+                        GeometryReader { geometry in
+                            Path { path in
+                                path.move(to: CGPoint(x: geometry.size.width * 0.62, y: 0))
+                                path.addLine(to: CGPoint(x: geometry.size.width, y: 0))
+                                path.addLine(to: CGPoint(x: geometry.size.width, y: geometry.size.height))
+                                path.addLine(to: CGPoint(x: geometry.size.width * 0.38, y: geometry.size.height))
+                                path.closeSubpath()
+                            }
+                        }
+                    }
+                }
+        }
+    }
+}
+
+/// Kervan's own window in a thumbnail: sidebar, a message, the composer and a saffron status light.
+private struct MiniWindow: View {
+    let dark: Bool
+
+    private func tone(_ light: UInt32, _ night: UInt32) -> Color { Color(light: dark ? night : light, dark: dark ? night : light) }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 5) {
+                Circle().fill(tone(0xC9953A, 0xE6BE6E)).frame(width: 5, height: 5)
+                ForEach(0..<3, id: \.self) { _ in
+                    Capsule().fill(tone(0x1B2433, 0xE7ECF3).opacity(0.22)).frame(height: 4)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(7)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(tone(0xECF0F5, 0x0F1620))
+            .frame(width: 44)
+
+            VStack(alignment: .trailing, spacing: 5) {
+                Capsule().fill(tone(0x4A6FA5, 0x8AAEDB).opacity(0.35)).frame(width: 44, height: 8)
+                Capsule().fill(tone(0x1B2433, 0xE7ECF3).opacity(0.22)).frame(height: 4).frame(maxWidth: .infinity, alignment: .leading).padding(.trailing, 18)
+                Spacer(minLength: 0)
+                RoundedRectangle(cornerRadius: 5, style: .continuous).fill(tone(0xFFFFFF, 0x1A2433)).frame(height: 12)
+            }
+            .padding(7)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(tone(0xF4F6F9, 0x131B27))
+        }
+        .accessibilityHidden(true)
     }
 }
 
@@ -80,11 +335,7 @@ private struct GeneralSettings: View {
                 }
 
                 SettingsCard(title: L("Appearance", "Görünüm"), footer: L("Light is the default. System follows macOS.", "Açık görünüm varsayılandır. Sistem, macOS'un ayarını izler.")) {
-                    Picker(L("Appearance", "Görünüm"), selection: $appearance) {
-                        ForEach(Appearance.allCases) { Text($0.label).tag($0.rawValue) }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
+                    AppearanceSwatches(selection: $appearance)
                 }
 
                 SettingsCard(title: L("Launch", "Açılış"), footer: L("The short animation of the caravan walking to the oasis when the app opens. A click skips it.", "Uygulama açılırken kervanın vahaya yürüdüğü kısa animasyon. Tıklayınca geçilir.")) {
@@ -203,7 +454,7 @@ private struct SkillsSettings: View {
                 Spacer()
                 if busy { ProgressView().controlSize(.small) }
                 Button(L("Add skill folder…", "Skill klasörü ekle…"), action: addSkill)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.kervanPrimary)
                     .disabled(busy || model.fileClient == nil)
             }
         }
@@ -301,7 +552,7 @@ private struct McpSettings: View {
             HStack {
                 Spacer()
                 Button(L("Add MCP server…", "MCP sunucusu ekle…")) { editing = McpDraft() }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.kervanPrimary)
                     .disabled(!model.connection.state.isConnected)
             }
         }
@@ -433,13 +684,14 @@ private struct McpEditor: View {
             HStack {
                 Spacer()
                 Button(L("Cancel", "Vazgeç"), role: .cancel) { dismiss() }
+                    .buttonStyle(.kervanQuiet)
                     .keyboardShortcut(.cancelAction)
                 Button(draft.isNew ? L("Add", "Ekle") : L("Save", "Kaydet")) {
                     save(draft.input)
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.kervanPrimary)
                 .disabled(!draft.isValid)
             }
             .padding(16)
@@ -505,7 +757,7 @@ private struct AgentsSettings: View {
                 Button(L("Add by command…", "Komutla ekle…")) { editing = AgentDraft() }
                     .disabled(!model.connection.state.isConnected)
                 Button(L("Browse agents…", "Ajanlara göz at…")) { browsing = true }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.kervanPrimary)
                     .disabled(!model.connection.state.isConnected)
             }
         }
@@ -689,6 +941,7 @@ private struct AgentEditor: View {
                 }
                 Spacer()
                 Button(L("Cancel", "Vazgeç"), role: .cancel) { dismiss() }
+                    .buttonStyle(.kervanQuiet)
                     .keyboardShortcut(.cancelAction)
                 Button(draft.isNew ? L("Try and add", "Dene ve ekle") : L("Try and save", "Dene ve kaydet")) {
                     Task {
@@ -699,7 +952,7 @@ private struct AgentEditor: View {
                     }
                 }
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.kervanPrimary)
                 .disabled(!draft.isValid || saving)
             }
             .padding(16)
@@ -717,9 +970,8 @@ struct EmptyCard: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            Image(systemName: symbol)
-                .font(.system(size: 28, weight: .regular))
-                .foregroundStyle(Color.kervanLapis.opacity(0.6))
+            EmptyRoute(symbol: symbol)
+                .padding(.bottom, 4)
             Text(title).font(.headline)
             Text(text)
                 .font(.callout)

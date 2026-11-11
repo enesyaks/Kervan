@@ -108,7 +108,7 @@ struct AgentAccountSignIn: View {
                     .background(Color.kervanWell, in: RoundedRectangle(cornerRadius: Radius.chip, style: .continuous))
                     .onSubmit { Task { await finish() } }
                 Button(L("Finish", "Bitir")) { Task { await finish() } }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.kervanPrimary)
                     .disabled(code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || working)
             }
             footer(prompt, waiting: working ? L("Signing in…", "Giriş yapılıyor…") : nil)

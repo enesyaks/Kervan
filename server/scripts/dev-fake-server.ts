@@ -1,5 +1,6 @@
 // Local server whose only agent is the test fake, for UI work without spending a real agent's quota.
 // Usage: node scripts/dev-fake-server.ts   (token: local-dev-token-not-secret, port 7420)
+// The web client is on too: open http://127.0.0.1:7420/ and enter the pairing code it logs.
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,6 +15,7 @@ import { McpRegistry } from "../src/mcp.ts";
 import { SkillLibrary } from "../src/skills.ts";
 import { OrchestraHub } from "../src/orchestra.ts";
 import { NodeHub } from "../src/nodes.ts";
+import { WebAccess } from "../src/webaccess.ts";
 
 const dataDir = mkdtempSync(join(tmpdir(), "kervan-dev-data-"));
 const skills = new SkillLibrary(join(dataDir, "skills"));
@@ -49,5 +51,11 @@ sessions = new SessionManager(runner, catalog.live, mkdtempSync(join(tmpdir(), "
 const orchestra = new OrchestraHub(join(dataDir, "orchestra.sock"), sessions);
 await orchestra.listen();
 sessions.useOrchestra(orchestra);
-const server = createKervanServer({ token: "local-dev-token-not-secret", sessions, skills });
-server.listen(7420, "127.0.0.1", () => log("info", "fake-agent dev server on 127.0.0.1:7420"));
+// The web client too, with a pairing code ready, so the browser UI can be worked on without the Mac app.
+const web = new WebAccess(join(dataDir, "web.json"));
+web.setEnabled(true);
+const server = createKervanServer({ token: "local-dev-token-not-secret", sessions, skills, web });
+server.listen(7420, "127.0.0.1", () => {
+  log("info", "fake-agent dev server on 127.0.0.1:7420");
+  log("info", "web client at http://127.0.0.1:7420/", { pairingCode: web.startPairing().code });
+});

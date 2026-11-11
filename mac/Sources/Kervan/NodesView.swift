@@ -195,7 +195,7 @@ private struct AddNodeSheet: View {
                                 Button(installer.failure == nil ? L("Install", "Kur") : L("Try again", "Yeniden dene")) {
                                     installer.run(NodeSetup.sshArguments(user: user, host: host, hub: hub, code: invite.code))
                                 }
-                                .buttonStyle(.borderedProminent)
+                                .buttonStyle(.kervanPrimary)
                                 .disabled(host.isEmpty || user.isEmpty || installer.isRunning)
                                 Spacer()
                             }
@@ -281,12 +281,12 @@ private struct AddNodeSheet: View {
                     Button(L("Cancel", "Vazgeç"), role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
                     Button(L("Continue", "Devam")) { Task { await model.store.inviteNode(name) } }
                         .keyboardShortcut(.defaultAction)
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.kervanPrimary)
                         .disabled(!Self.isValid(name) || model.store.nodeInfos.contains { $0.name == name && $0.connected })
                 } else {
                     Button(connected ? L("Done", "Bitti") : L("Close", "Kapat")) { dismiss() }
                         .keyboardShortcut(.defaultAction)
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.kervanPrimary)
                 }
             }
             .padding(16)
@@ -527,7 +527,7 @@ struct Guidance: View {
                         } label: {
                             Label(L("Run in Terminal", "Terminal'de çalıştır"), systemImage: "play.fill")
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.kervanPrimary)
                         .tint(.kervanOasis)
                     }
                 }

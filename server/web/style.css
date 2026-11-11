@@ -133,6 +133,10 @@ button:disabled { opacity: 0.45; cursor: default; }
 }
 
 .sign-in img { width: 56px; height: 56px; border-radius: 14px; }
+/* The app's icon, a dotted road, and the stop this browser becomes once it is paired. */
+.pair-route { display: flex; align-items: center; gap: 10px; }
+.pair-route .road { flex: 1; border-top: 2px dotted color-mix(in srgb, var(--muted) 55%, transparent); }
+.pair-route .stop { width: 44px; height: 44px; border-radius: 999px; border: 1.5px dashed color-mix(in srgb, var(--lapis) 55%, transparent); background: color-mix(in srgb, var(--lapis) 10%, transparent); flex: none; }
 .sign-in h1 { font-size: 24px; margin: 16px 0 6px; text-wrap: balance; }
 .sign-in p { color: var(--muted); margin: 0 0 18px; text-wrap: pretty; }
 .sign-in code { font-family: var(--mono); font-size: 13px; background: var(--well); padding: 1px 6px; border-radius: 6px; }
@@ -234,6 +238,16 @@ header.bar h1 { flex: none; overflow: visible; }
 .session-row .title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .session-row .meta { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .session-row .meta.needs { color: var(--saffron-text); font-weight: 600; }
+.session-row .meta.stopped { color: var(--coral-text); font-weight: 600; }
+.session-row .dot, .session-row .caravan { margin: 0 3px; }
+.when { flex: none; font-size: 12px; color: var(--muted); opacity: 0.8; font-variant-numeric: tabular-nums; }
+
+/* The caravan in miniature: three saffron dots in single file, for anything at work. */
+.caravan { display: inline-flex; gap: 3px; flex: none; align-items: center; }
+.caravan span { width: 5px; height: 5px; border-radius: 999px; background: var(--saffron); animation: walk 1.2s ease-in-out infinite; }
+.caravan span:nth-child(2) { animation-delay: 0.15s; }
+.caravan span:nth-child(3) { animation-delay: 0.3s; }
+.session-row .caravan { margin: 0 -2px; }
 
 .empty { color: var(--muted); text-align: center; padding: 40px 24px; text-wrap: pretty; }
 
@@ -268,7 +282,19 @@ header.bar h1 { flex: none; overflow: visible; }
 .message.agent p { margin: 0 0 10px; }
 .message.agent p:last-child { margin-bottom: 0; }
 .message.agent ul, .message.agent ol { padding-left: 22px; margin: 0 0 10px; }
-.message.agent h4 { margin: 14px 0 6px; font-size: 16px; }
+.message.agent h3 { margin: 18px 0 6px; font-size: 20px; line-height: 1.25; }
+.message.agent h4 { margin: 16px 0 6px; font-size: 17.5px; line-height: 1.3; }
+.message.agent h5 { margin: 14px 0 6px; font-size: 16px; }
+.message.agent > :first-child { margin-top: 0; }
+.message.agent li { margin: 2px 0; }
+.message.agent li::marker { color: var(--muted); }
+
+.code { background: var(--well); border-radius: var(--r-chip); margin: 0 0 10px; overflow: hidden; }
+.code-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 6px 0 12px; font-size: 12px; color: var(--muted); }
+.code .copy-code { font-size: 12px; color: var(--muted); padding: 4px 8px; border-radius: 999px; min-height: 28px; }
+.code .copy-code:hover { background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--text); }
+.code .copy-code.copied { color: var(--oasis-text); }
+.message .code pre { margin: 0; padding-top: 4px; background: none; border-radius: 0; }
 
 .message pre {
   background: var(--well);
@@ -297,17 +323,28 @@ header.bar h1 { flex: none; overflow: visible; }
 }
 
 .tool .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 13px; }
-.tool .state { font-size: 12px; color: var(--muted); flex: none; }
-.tool .state.failed { color: var(--coral-text); }
+.tool .state { font-size: 12px; color: var(--muted); flex: none; display: inline-flex; align-items: center; gap: 6px; }
+.tool .state svg { width: 15px; height: 15px; }
+.tool .state.in_progress { color: var(--saffron-text); font-weight: 600; }
+.tool .state.failed { color: var(--coral-text); font-weight: 600; }
 .tool .state.completed { color: var(--oasis-text); }
 
 .plan { background: var(--surface); border-radius: var(--r-card); box-shadow: var(--shadow); padding: 12px 14px; margin: 12px auto; }
-.plan h5 { margin: 0 0 6px; font-size: 13px; color: var(--muted); }
-.plan li { list-style: none; display: flex; gap: 8px; align-items: baseline; padding: 2px 0; font-size: 14px; }
+.plan h5 { margin: 0 0 8px; font-size: 14px; display: flex; gap: 8px; align-items: baseline; }
+.plan-count { color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; }
+/* The plan is a route: stops behind you in lapis on a solid line, the saffron dot on the step being done, the road ahead dotted. */
 .plan ul { margin: 0; padding: 0; }
-.plan .done { color: var(--muted); text-decoration: line-through; }
-.plan .mark { width: 14px; flex: none; color: var(--muted); }
-.plan .in_progress .mark { color: var(--saffron-text); }
+.plan li { list-style: none; position: relative; display: flex; gap: 10px; align-items: flex-start; padding: 0 0 9px; font-size: 14px; }
+.plan li:last-child { padding-bottom: 0; }
+.plan li:not(:last-child)::before { content: ""; position: absolute; left: 8px; top: 17px; bottom: -2px; border-left: 1.5px dotted color-mix(in srgb, var(--muted) 60%, transparent); }
+.plan li.completed:not(:last-child)::before { border-left: 1.5px solid var(--lapis); }
+.plan .mark { width: 18px; height: 20px; flex: none; display: grid; place-items: center; position: relative; }
+.plan .mark::before { content: ""; width: 9px; height: 9px; border-radius: 999px; border: 1.5px solid color-mix(in srgb, var(--muted) 60%, transparent); background: var(--surface); box-sizing: border-box; }
+.plan .completed .mark::before { width: 13px; height: 13px; border: 0; background: var(--lapis); }
+.plan .completed .mark svg { position: absolute; width: 9px; height: 9px; color: var(--on-lapis); stroke-width: 4; }
+.plan .in_progress .mark::before { border: 0; background: var(--saffron); box-shadow: 0 0 0 4px color-mix(in srgb, var(--saffron) 25%, transparent); }
+.plan .in_progress { font-weight: 600; }
+.plan .done { color: var(--muted); }
 
 .permission {
   background: var(--surface);
@@ -339,7 +376,7 @@ header.bar h1 { flex: none; overflow: visible; }
 @keyframes walk { 0%, 100% { opacity: 0.25; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-3px); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .working span { animation: none; opacity: 0.7; }
+  .working span, .caravan span { animation: none; opacity: 0.7; }
   button:active:not(:disabled) { transform: none; }
 }
 
@@ -495,7 +532,7 @@ dialog {
   box-shadow: var(--shadow);
 }
 
-dialog::backdrop { background: rgba(10, 16, 26, 0.45); }
+dialog::backdrop { background: rgba(10, 16, 26, 0.45); backdrop-filter: blur(3px); }
 dialog h2 { margin: 0 0 12px; font-size: 20px; }
 
 .agent-choice {
@@ -546,6 +583,10 @@ dialog h2 { margin: 0 0 12px; font-size: 20px; }
 @media (min-width: 900px) { .board { grid-template-columns: repeat(5, minmax(0, 1fr)); overflow-x: auto; } }
 .lane { background: color-mix(in srgb, var(--well) 60%, transparent); border-radius: var(--r-card); padding: 10px; display: grid; gap: 8px; align-content: start; }
 .lane h3 { margin: 0 2px 2px; font-size: 14px; display: flex; align-items: center; gap: 6px; }
+/* A card travels from lane to lane; on a desk, the dotted road to the next one says so. */
+@media (min-width: 900px) {
+  .lane:not(:last-child) h3::after { content: ""; flex: 1; border-top: 1.5px dotted color-mix(in srgb, var(--muted) 55%, transparent); margin-left: 4px; }
+}
 .lane .count { color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; }
 .lane-empty { margin: 0; color: var(--muted); font-size: 13px; padding: 0 2px; }
 .lane-todo { background: var(--muted); }
@@ -698,3 +739,62 @@ details.file .counts { font-size: 13px; flex: none; }
 .diff .meta { color: var(--muted); }
 
 .list-note { margin: 4px 6px 8px; padding: 8px 12px; border-radius: var(--r-chip); background: var(--well); font-size: 14px; }
+
+/* A new session: who is ready and three ways to begin. */
+.starters { padding: 28px 0 0; display: grid; gap: 8px; justify-items: start; }
+.starters h3 { margin: 0; font-size: 22px; }
+.starters p { margin: 0 0 8px; color: var(--muted); }
+.starter {
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  padding: 11px 14px;
+  min-height: 44px;
+  width: min(460px, 100%);
+}
+.starter:hover { border-color: color-mix(in srgb, var(--lapis) 45%, transparent); }
+
+/* Home: what needs you, what is at work, where you left off. Only where there is room beside the list. */
+.home { flex: 1; min-height: 0; overflow-y: auto; padding: 44px 40px; }
+.home-inner { max-width: 680px; margin: 0 auto; display: grid; gap: 30px; }
+.home-head { display: flex; align-items: flex-start; gap: 16px; justify-content: space-between; }
+.home-head h2 { margin: 0; font-size: 32px; line-height: 1.15; letter-spacing: -0.01em; }
+.home-head p { margin: 6px 0 0; font-size: 18px; color: var(--muted); text-wrap: pretty; }
+.home-head .primary { flex: none; }
+.home-section { display: grid; gap: 8px; }
+.home-section h3 { margin: 0 0 2px; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+.home-section .count { font-size: 12px; font-weight: 700; padding: 1px 8px; border-radius: 999px; font-variant-numeric: tabular-nums; }
+.count.saffron { color: var(--saffron-text); background: color-mix(in srgb, var(--saffron) 18%, transparent); }
+.count.coral { color: var(--coral-text); background: color-mix(in srgb, var(--coral) 18%, transparent); }
+.count.lapis { color: var(--lapis); background: color-mix(in srgb, var(--lapis) 16%, transparent); }
+.home-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  padding: 12px 14px;
+  min-height: 60px;
+  transition-property: box-shadow, border-color, transform;
+}
+.home-row:hover { box-shadow: var(--shadow); }
+.home-row .dot, .home-row .caravan { margin: 0 4px; }
+.home-row .caravan { margin: 0 -1px; }
+.home-row .text { flex: 1; min-width: 0; }
+.home-row .title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-row .meta { font-size: 14px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-row .asking { font: 13px/1.5 var(--mono); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-row .go { color: var(--muted); opacity: 0.5; display: inline-grid; }
+.home-row .go svg { width: 14px; height: 14px; }
+.home-row:hover .go { opacity: 1; }
+/* The saffron edge is the "your turn" mark, the same color as that status everywhere else. */
+.home-row.asks { box-shadow: var(--shadow), inset 4px 0 0 var(--saffron); padding-left: 18px; }
+.home-row .review { flex: none; background: var(--lapis); color: var(--on-lapis); font-weight: 600; font-size: 14px; padding: 6px 13px; border-radius: 999px; }
+.home-first { display: flex; align-items: center; gap: 18px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-card); padding: 18px; box-shadow: var(--shadow); }
+.home-first img { width: 56px; height: 56px; border-radius: 14px; flex: none; }
+.home-first h3 { margin: 0 0 4px; font-size: 17px; }
+.home-first p { margin: 0; color: var(--muted); text-wrap: pretty; }

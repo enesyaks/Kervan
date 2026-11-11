@@ -121,6 +121,7 @@ struct NewSessionSheet: View {
                 .buttonStyle(.link)
                 Spacer()
                 Button(L("Cancel", "Vazgeç"), role: .cancel) { dismiss() }
+                    .buttonStyle(.kervanQuiet)
                     .keyboardShortcut(.cancelAction)
                 Button(L("Start session", "Oturumu başlat")) {
                     // Drop choices that no longer exist on the server.
@@ -142,7 +143,7 @@ struct NewSessionSheet: View {
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.kervanPrimary)
                 .disabled(!model.canCreateSession || selected == nil || selected?.isAway == true)
             }
             .padding(16)

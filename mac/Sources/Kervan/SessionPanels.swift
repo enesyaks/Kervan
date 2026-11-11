@@ -10,17 +10,9 @@ struct SessionInspector: View {
     var body: some View {
         @Bindable var model = model
         VStack(spacing: 0) {
-            Picker("Panel", selection: $model.panel) {
-                ForEach(SessionPanel.allCases) { panel in
-                    Label(panel.title, systemImage: panel.symbol).tag(panel)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelStyle(.iconOnly)
-            .labelsHidden()
-            .padding(.horizontal, 12)
-            .padding(.top, 10)
-            .help(model.panel.title)
+            PanelTabs(selection: $model.panel)
+                .padding(.horizontal, 12)
+                .padding(.top, 10)
 
             switch model.panel {
             case .files: FilesPanel(sessionID: sessionID)
@@ -31,6 +23,55 @@ struct SessionInspector: View {
         }
         // Long lists scroll inside the panel; they never make the window taller.
         .frame(minHeight: 0, maxHeight: .infinity, alignment: .top)
+    }
+}
+
+/// The panel's four views as one strip: the open one says its name on a raised plate, the rest are icons.
+private struct PanelTabs: View {
+    @Binding var selection: SessionPanel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Namespace private var plate
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(SessionPanel.allCases) { panel in
+                let selected = panel == selection
+                Button {
+                    withAnimation(Motion.pick(Motion.gentle, reduce: reduceMotion)) { selection = panel }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: panel.symbol)
+                            .font(.system(size: 12.5, weight: .medium))
+                            .foregroundStyle(selected ? Color.kervanLapis : Color.secondary)
+                        if selected {
+                            Text(panel.title)
+                                .font(.callout.weight(.semibold))
+                                .lineLimit(1)
+                                .fixedSize()
+                        }
+                    }
+                    .padding(.horizontal, selected ? 12 : 0)
+                    .frame(maxWidth: selected ? nil : .infinity)
+                    .frame(height: 28)
+                    .background {
+                        if selected {
+                            Capsule()
+                                .fill(Color.kervanSurface)
+                                .shadow(color: .black.opacity(0.08), radius: 4, y: 1)
+                                .overlay(Capsule().strokeBorder(Color.kervanHairline, lineWidth: 1))
+                                .matchedGeometryEffect(id: "plate", in: plate)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(panel.title)
+                .accessibilityLabel(panel.title)
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
+        .padding(3)
+        .background(Color.kervanWell.opacity(0.8), in: Capsule())
     }
 }
 
@@ -253,7 +294,7 @@ struct ChangesPanel: View {
                     .disabled(working)
                     .help(L("Push this work on a branch of its own and open a pull request", "Bu işi kendi branch'inde push edip pull request açar"))
                 Button("Commit") { Task { await commit() } }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.kervanPrimary)
                     .tint(.kervanLapis)
                     .disabled(commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || working)
             }
@@ -503,7 +544,7 @@ struct PreviewPanel: View {
                 .accessibilityLabel(L("Stop forwarding port \(port)", "Port \(port) yönlendirmesini durdur"))
             } else {
                 Button(L("Open in browser", "Tarayıcıda aç")) { open(port) }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.kervanPrimary)
                     .tint(.kervanLapis)
             }
         }

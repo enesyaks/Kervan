@@ -14,7 +14,7 @@ private struct Page<Content: View, Actions: View>: View {
             VStack(alignment: .leading, spacing: 22) {
                 HStack(alignment: .firstTextBaseline) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(title).font(.system(size: 26, weight: .semibold, design: .rounded))
+                        Text(title).font(.system(size: 32, weight: .bold, design: .rounded))
                         Text(subtitle).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer()
@@ -46,12 +46,13 @@ struct ProjectView: View {
             Page(title: project.name, subtitle: project.path) {
                 HStack {
                     Button(L("Edit…", "Düzenle…")) { editing = true }
+                        .buttonStyle(.kervanQuiet)
                     Button {
                         model.newSession(project: projectID)
                     } label: {
                         Label(L("New session here", "Bu projede oturum"), systemImage: "square.and.pencil")
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.kervanPrimary)
                     .tint(.kervanLapis)
                     .disabled(!model.canCreateSession)
                 }
@@ -66,23 +67,16 @@ struct ProjectView: View {
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                SettingsCard(title: L("Sessions", "Oturumlar")) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(L("Sessions", "Oturumlar")).font(.headline)
                     if sessions.isEmpty {
-                        Text(L("No sessions in this project yet.", "Bu projede henüz oturum yok.")).foregroundStyle(.secondary)
+                        Text(L("No sessions in this project yet. Start one above, or drag a board card to Working.", "Bu projede henüz oturum yok. Yukarıdan başlatın ya da panodaki bir kartı Çalışıyor'a sürükleyin."))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    ForEach(sessions) { session in
-                        Button {
-                            model.selectedSessionID = session.id
-                        } label: {
-                            HStack(spacing: 10) {
-                                StatusDot(color: session.status.tint)
-                                Text(session.title).lineLimit(1)
-                                Spacer()
-                                Text(model.store.agentName(session.agent)).font(.caption).foregroundStyle(.secondary)
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
+                    // Whoever is waiting for you comes first, then the newest.
+                    ForEach(sessions.sorted { ($0.status == .waiting ? 0 : 1, model.store.lastActivity($1.id)) < ($1.status == .waiting ? 0 : 1, model.store.lastActivity($0.id)) }) { session in
+                        HomeRow(session: session, emphasis: session.status == .waiting ? .asks : .none)
                     }
                 }
                 Button(L("Remove project…", "Projeyi kaldır…"), role: .destructive) { confirmDelete = true }
@@ -307,7 +301,7 @@ struct ProjectSheet: View {
                 Button(L("Cancel", "Vazgeç"), role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
                 Button(project == nil ? L("Create project", "Projeyi oluştur") : L("Save", "Kaydet")) { Task { await save() } }
                     .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.kervanPrimary)
                     .disabled(!canSave || saving)
             }
             .padding(16)
@@ -381,7 +375,7 @@ struct SchedulesView: View {
             } label: {
                 Label(L("New task", "Yeni görev"), systemImage: "plus")
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.kervanPrimary)
             .tint(.kervanLapis)
             .disabled(store.agents.isEmpty)
         } content: {
@@ -530,7 +524,7 @@ private struct ScheduleSheet: View {
                 Button(L("Cancel", "Vazgeç"), role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
                 Button(L("Save", "Kaydet")) { Task { await save() } }
                     .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.kervanPrimary)
                     .disabled(!canSave)
             }
             .padding(16)
@@ -618,10 +612,20 @@ struct UsageView: View {
                             Button {
                                 if model.store.session(entry.sessionId) != nil { model.selectedSessionID = entry.sessionId }
                             } label: {
-                                HStack {
-                                    Text(model.store.session(entry.sessionId)?.title ?? L("Deleted session", "Silinmiş oturum")).lineLimit(1)
-                                    Spacer()
-                                    Text(usd(entry.costUsd)).monospacedDigit().foregroundStyle(.secondary)
+                                // The bar is the session's share of the biggest spender, so the list reads at a glance.
+                                let top = report.sessions.map(\.costUsd).max() ?? 0
+                                VStack(alignment: .leading, spacing: 5) {
+                                    HStack {
+                                        Text(model.store.session(entry.sessionId)?.title ?? L("Deleted session", "Silinmiş oturum")).lineLimit(1)
+                                        Spacer()
+                                        Text(usd(entry.costUsd)).monospacedDigit().foregroundStyle(.secondary)
+                                    }
+                                    GeometryReader { geometry in
+                                        Capsule().fill(Color.kervanLapis.opacity(0.55))
+                                            .frame(width: max(3, geometry.size.width * (top > 0 ? entry.costUsd / top : 0)))
+                                    }
+                                    .frame(height: 3)
+                                    .accessibilityHidden(true)
                                 }
                                 .contentShape(Rectangle())
                             }
@@ -668,7 +672,7 @@ struct UsageView: View {
 
     private func tile(_ label: String, _ amount: Double) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(usd(amount)).font(.system(size: 22, weight: .semibold, design: .rounded)).monospacedDigit()
+            Text(usd(amount)).font(.system(size: 26, weight: .bold, design: .rounded)).monospacedDigit()
             Text(label).font(.callout).foregroundStyle(.secondary)
         }
         .padding(16)
