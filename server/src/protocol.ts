@@ -162,6 +162,8 @@ export interface ProjectInfo {
   path: string;
   /** Given to every agent in the project before its first message. */
   instructions: string;
+  /** The image `container_run` builds in when the agent names none; a devcontainer.json's image otherwise. */
+  buildImage?: string;
   createdAt: string;
   /** The project map: what an agent learned scanning the repository once, given to later sessions so they don't rescan it. */
   map?: ProjectMapInfo;

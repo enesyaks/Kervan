@@ -122,6 +122,29 @@ export const MEMORY_TOOLS: Tool[] = [
   },
 ];
 
+/**
+ * A session on this server whose machine has a container engine gets this. It is not approved by Kervan the
+ * way the others are: it runs commands, so it asks like any command does.
+ */
+export const BUILD_TOOLS: Tool[] = [
+  {
+    name: "container_run",
+    description:
+      "Run a shell command in a fresh container made from an image, with your folder at /work; the container is removed " +
+      "when the command ends and what it builds stays in your folder. For builds and tests that need tools this machine " +
+      "lacks: a Windows build with a cross-compiling image (mingw-w64, .NET, Go, Rust), an Android SDK, another toolchain.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        command: text("Shell command, run with sh -c in /work."),
+        image: text("Image, e.g. 'node:24', 'rust:1', 'mcr.microsoft.com/dotnet/sdk:9.0'. Defaults to the project's build image."),
+        timeoutSec: { type: "number", description: "1–3600 seconds, default 600." },
+      },
+      required: ["command"],
+    },
+  },
+];
+
 /** How adapters title a call to one of these tools: Claude `mcp__kervan__x`, Codex `kervan.x`, Gemini `x (kervan MCP Server)`. */
 const toolTitle = (tools: string[]) => {
   const names = tools.join("|");
@@ -262,7 +285,11 @@ export class OrchestraHub {
   private toolsFor(sessionId: string): Tool[] {
     const info = this.sessions.list().find((s) => s.id === sessionId);
     if (!info) return [];
-    return [...(info.orchestrate ? TOOLS : []), ...(this.sessions.hasMemory(info) ? MEMORY_TOOLS : [])];
+    return [
+      ...(info.orchestrate ? TOOLS : []),
+      ...(this.sessions.hasMemory(info) ? MEMORY_TOOLS : []),
+      ...(this.sessions.canBuild(info) ? BUILD_TOOLS : []),
+    ];
   }
 
   private async call(leadId: string, tool: string, args: Args): Promise<unknown> {
@@ -273,6 +300,12 @@ export class OrchestraHub {
         const info = sessions.list().find((s) => s.id === leadId)!;
         return readMap(sessions.projects?.mapText(sessions.memoryProject(info)!.id) ?? "", optional(args, "ids"));
       }
+      case "container_run":
+        return sessions.runInContainer(leadId, {
+          command: str(args, "command")!,
+          image: optional(args, "image"),
+          ...(typeof args.timeoutSec === "number" ? { timeoutSec: args.timeoutSec } : {}),
+        });
       case "case_read":
         return readCases(sessions, leadId, { id: optional(args, "id"), q: optional(args, "q"), full: args.full === true });
       case "list_agents":

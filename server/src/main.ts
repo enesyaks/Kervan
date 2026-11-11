@@ -1,3 +1,4 @@
+import { Containers, findEngine } from "./containers.ts";
 import { loadAgents } from "./agents.ts";
 import { loadConfig } from "./config.ts";
 import { log } from "./log.ts";
@@ -65,6 +66,11 @@ await orchestra.listen();
 sessions.useOrchestra(orchestra);
 // A lead on a node reaches the same tools through that node's connection.
 nodes.orchestra = orchestra;
+// Builds in throwaway containers, when this machine has podman or docker.
+const containers = new Containers(findEngine());
+sessions.containers = containers;
+containers.startPruning();
+log("info", containers.available ? "builds in containers on" : "no container engine; builds in containers off", { engine: containers.engine });
 const scheduler = new Scheduler(join(config.dataDir, "schedules.json"), {
   hasAgent: (id) => catalog.live.has(id),
   hasProject: (id) => projects.get(id) !== undefined,

@@ -1,3 +1,4 @@
+import { validImage } from "./containers.ts";
 import { cleanEnv } from "./agentenv.ts";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -80,10 +81,16 @@ export class ProjectRegistry {
     if (typeof instructions !== "string" || instructions.length > MAX_INSTRUCTIONS) {
       bad(`instructions must be text of at most ${MAX_INSTRUCTIONS} characters`);
     }
+    // "" clears it, so the project falls back to its devcontainer.json, if it has one.
+    const image = typeof input.buildImage === "string" ? input.buildImage.trim() : undefined;
+    if (input.buildImage !== undefined && typeof input.buildImage !== "string") bad("buildImage must be text");
+    if (image && !validImage(image)) bad(`'${image}' isn't an image name`);
+    const buildImage = image ? { buildImage: image } : {};
     if (id !== undefined) {
       const existing = typeof id === "string" ? this.projects.get(id) : undefined;
       if (!existing) return bad(`no project '${String(id)}'`);
-      const updated = { ...existing, name: (name as string).trim(), instructions: (instructions as string).trim() };
+      const { buildImage: _old, ...kept } = existing;
+      const updated = { ...(image === undefined ? existing : kept), name: (name as string).trim(), instructions: (instructions as string).trim(), ...buildImage };
       this.projects.set(updated.id, updated);
       this.persist();
       return updated;
@@ -119,6 +126,7 @@ export class ProjectRegistry {
       name: (name as string).trim(),
       path: folder,
       instructions: (instructions as string).trim(),
+      ...buildImage,
       createdAt: new Date().toISOString(),
     };
     this.projects.set(project.id, project);

@@ -25,6 +25,7 @@ import type { ProjectRegistry } from "./projects.ts";
 import type { Board } from "./board.ts";
 import type { ProjectMaps } from "./projectmap.ts";
 import { mapIndex } from "./projectmemory.ts";
+import { type Containers, devcontainerImage } from "./containers.ts";
 import type { Alerts } from "./alerts.ts";
 import { localParts, type Scheduler } from "./schedules.ts";
 import { TerminalHub } from "./terminals.ts";
@@ -243,6 +244,34 @@ export class SessionManager {
   /** Lets sessions created with `orchestrate` start helpers. Set once, after construction (the hub needs this manager). */
   useOrchestra(orchestra: Orchestrator): void {
     this.orchestra = orchestra;
+  }
+
+  /** Where `container_run` builds; set by main.ts when this machine has an engine. */
+  containers?: Containers;
+
+  /**
+   * A container mounts the session's folder, so the folder has to be on this machine; and a terminal agent
+   * has no MCP servers to be given the tool through.
+   */
+  canBuild(info: SessionInfo): boolean {
+    return this.containers?.available === true && this.orchestra !== undefined && this.nodeFor(info) === LOCAL_NODE && this.agents.get(info.agent)?.protocol !== "pty";
+  }
+
+  /** The image a session's builds use when its agent names none: the project's, or its devcontainer.json's. */
+  buildImage(info: SessionInfo): string | undefined {
+    const project = this.memoryProject(info);
+    return project?.buildImage ?? (project ? devcontainerImage(project.path) : undefined);
+  }
+
+  /** Runs one command in a throwaway container with the session's folder at /work, and says how it went. */
+  async runInContainer(sessionId: string, request: { command: string; image?: string; timeoutSec?: number }): Promise<string> {
+    const session = this.require(sessionId);
+    if (!this.canBuild(session.info) || !this.containers) throw new KervanError("bad_message", "this session can't build in containers");
+    const image = request.image ?? this.buildImage(session.info);
+    if (!image) throw new KervanError("bad_message", "name an image: this project has no build image");
+    const result = await this.containers.run(image, session.cwd, request.command, request.timeoutSec);
+    const head = result.timedOut ? "timed out; the container was removed" : `exit code ${result.exitCode}`;
+    return `${head} (image ${image})\n${result.output}`;
   }
 
   get agentKinds(): string[] {
@@ -911,6 +940,7 @@ export class SessionManager {
     const parts = [
       project?.instructions ? `[Kervan] Project "${project.name}" — instructions from the user:\n${project.instructions}` : undefined,
       this.mapPreface(session),
+      this.buildPreface(session),
       lead
         ? `[Kervan] You are a helper agent named "${session.info.title}", started by the lead agent "${lead.info.title}". ` +
           "Messages come from the lead, not the user, and your final answer each turn goes back to it: " +
@@ -945,6 +975,18 @@ export class SessionManager {
       await this.skillPreface(session),
     ].filter(Boolean);
     return parts.length > 0 ? parts.join("\n\n") : undefined;
+  }
+
+  /** Only said when the tool is there, so an agent isn't told about something it can't call. */
+  private buildPreface(session: Session): string | undefined {
+    if (!this.canBuild(session.info)) return undefined;
+    const image = this.buildImage(session.info);
+    return (
+      "[Kervan] `container_run` builds in a throwaway container: a fresh one from an image, with your folder at /work, " +
+      "removed when the command ends. Use it for builds and tests that need tools this machine doesn't have — a Windows " +
+      "build with a cross-compiling image, say." +
+      (image ? ` This project builds in \`${image}\` unless you name another image.` : " Name the image each time; this project has none set.")
+    );
   }
 
   /** The project a session's memory tools read: its own or, for a helper, its lead's. */
@@ -1243,7 +1285,9 @@ export class SessionManager {
           if (skipped.length > 0) {
             this.record(session, { kind: "notice", text: `This agent doesn't support HTTP MCP servers; skipped: ${skipped.join(", ")}` });
           }
-          if ((session.info.orchestrate || this.hasMemory(session.info)) && this.orchestra) servers.push(this.orchestra.mcpServer(session.info.id));
+          if ((session.info.orchestrate || this.hasMemory(session.info) || this.canBuild(session.info)) && this.orchestra) {
+            servers.push(this.orchestra.mcpServer(session.info.id));
+          }
           return servers;
         },
         ...(resume ? { resumeSessionId: session.agentSessionId } : {}),

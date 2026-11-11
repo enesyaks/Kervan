@@ -146,15 +146,18 @@ public struct ProjectInfo: Codable, Equatable, Sendable, Identifiable {
     /// Absolute path on the server.
     public let path: String
     public let instructions: String
+    /// The image agents build in when they name none; nil means a devcontainer.json's, if there is one.
+    public let buildImage: String?
     public let createdAt: String
     /// What an agent learned scanning the repository once; later sessions get it so they don't rescan it.
     public let map: ProjectMapInfo?
 
-    public init(id: String, name: String, path: String, instructions: String = "", createdAt: String = "", map: ProjectMapInfo? = nil) {
+    public init(id: String, name: String, path: String, instructions: String = "", buildImage: String? = nil, createdAt: String = "", map: ProjectMapInfo? = nil) {
         self.id = id
         self.name = name
         self.path = path
         self.instructions = instructions
+        self.buildImage = buildImage
         self.createdAt = createdAt
         self.map = map
     }
@@ -325,15 +328,18 @@ public struct ProjectInput: Encodable, Equatable, Sendable {
     public var id: String?
     public var name: String
     public var instructions: String
+    /// "" clears it; nil leaves an existing project's as it is.
+    public var buildImage: String?
     public var path: String?
     public var gitUrl: String?
     /// A new project only: the agent that maps it right after it's added.
     public var mapAgent: String?
 
-    public init(id: String? = nil, name: String, instructions: String = "", path: String? = nil, gitUrl: String? = nil, mapAgent: String? = nil) {
+    public init(id: String? = nil, name: String, instructions: String = "", buildImage: String? = nil, path: String? = nil, gitUrl: String? = nil, mapAgent: String? = nil) {
         self.id = id
         self.name = name
         self.instructions = instructions
+        self.buildImage = buildImage
         self.path = path
         self.gitUrl = gitUrl
         self.mapAgent = mapAgent

@@ -124,6 +124,19 @@ usermod -aG "$WORK" "$AGENT"
 chmod 750 /home/kervan "/home/$AGENT"
 apt-get install -y -qq util-linux sudo >/dev/null
 
+# Builds in throwaway containers (container_run): rootless Podman as the server's own user, so a container
+# sees the folder it was given and nothing of this machine's keys. Never fatal — without it, that one tool is off.
+if apt-get install -y -qq podman uidmap >/dev/null 2>&1; then
+  # Rootless containers need a range of ids of their own; useradd usually gave one already.
+  grep -q '^kervan:' /etc/subuid || usermod --add-subuids 524288-589823 kervan
+  grep -q '^kervan:' /etc/subgid || usermod --add-subgids 524288-589823 kervan
+  # Keeps /run/user/<uid> there without a login, which is where Podman keeps its runtime state.
+  loginctl enable-linger kervan || true
+  echo "Kervan: builds in containers are on (podman)."
+else
+  echo "Kervan: podman couldn't be installed, so builds in containers stay off; everything else works."
+fi
+
 # Their sign-ins move with them; gh's stays with the server, which is what pushes.
 for item in .claude .claude.json .codex .gemini; do
   if [[ -e "/home/kervan/$item" && ! -e "/home/$AGENT/$item" ]]; then

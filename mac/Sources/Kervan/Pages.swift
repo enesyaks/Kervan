@@ -242,6 +242,7 @@ struct ProjectSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var instructions = ""
+    @State private var buildImage = ""
     @State private var source = Source.clone
     @State private var location = ""
     @State private var mapAfterAdding = true
@@ -285,6 +286,15 @@ struct ProjectSheet: View {
                 } footer: {
                     Text(L("Told to every agent in this project before its first message: code style, test command, things to watch out for.", "Bu projedeki her ajana ilk mesajdan önce söylenir: kod stili, test komutu, dikkat edilecekler."))
                 }
+                Section {
+                    TextField(L("Build image", "Derleme imajı"), text: $buildImage, prompt: Text(verbatim: "mcr.microsoft.com/dotnet/sdk:9.0"))
+                        .font(.body.monospaced())
+                } footer: {
+                    Text(L(
+                        "Agents build and test in a throwaway container made from this image, removed when each command ends; they can name another for one command, a Windows cross-compiler say. Empty uses the project's devcontainer.json, if it has one. Needs podman or docker on the server.",
+                        "Ajanlar bu imajdan açılan, her komut bitince kaldırılan bir konteynerde derler ve test eder; tek bir komut için başkasını da seçebilirler, örneğin Windows için çapraz derleyici. Boş bırakılırsa projedeki devcontainer.json kullanılır. Sunucuda podman ya da docker gerekir."
+                    ))
+                }
                 if let error {
                     Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.kervanCoral)
                 }
@@ -306,11 +316,12 @@ struct ProjectSheet: View {
             }
             .padding(16)
         }
-        .frame(width: 500, height: 480) // fits a window at its smallest; the form scrolls
+        .frame(width: 500, height: 540) // fits a window at its smallest; the form scrolls
         .background(Color.kervanCanvas)
         .onAppear {
             name = project?.name ?? ""
             instructions = project?.instructions ?? ""
+            buildImage = project?.buildImage ?? ""
         }
     }
 
@@ -333,6 +344,8 @@ struct ProjectSheet: View {
             id: project?.id,
             name: name.trimmingCharacters(in: .whitespaces),
             instructions: instructions,
+            // Sent always, so emptying the field clears it.
+            buildImage: buildImage.trimmingCharacters(in: .whitespacesAndNewlines),
             path: project == nil && source == .folder ? place : nil,
             gitUrl: project == nil && source == .clone ? place : nil,
             mapAgent: project == nil && source != .empty && mapAfterAdding ? mapAgent?.id : nil
@@ -529,7 +542,7 @@ private struct ScheduleSheet: View {
             }
             .padding(16)
         }
-        .frame(width: 500, height: 480) // fits a window at its smallest; the form scrolls
+        .frame(width: 500, height: 540) // fits a window at its smallest; the form scrolls
         .background(Color.kervanCanvas)
         .onAppear(perform: load)
     }

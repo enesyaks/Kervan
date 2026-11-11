@@ -20,7 +20,9 @@ UMask=0002
 PrivateTmp=true
 ProtectSystem=strict
 RestrictSUIDSGID=true
-ReadWritePaths=/var/lib/kervan /srv/kervan /home/kervan /home/kervan-agent
+ReadWritePaths=/var/lib/kervan /srv/kervan /home/kervan /home/kervan-agent -/run/user/%U
+# Rootless Podman keeps its runtime state here; the leading "-" above lets the service start where it isn't.
+Environment=XDG_RUNTIME_DIR=/run/user/%U
 
 [Install]
 WantedBy=multi-user.target
