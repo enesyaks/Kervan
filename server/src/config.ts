@@ -15,6 +15,7 @@ export interface KervanConfig {
   nodeToken?: string;
   helperTurnMinutes?: number;
   helperIdleMinutes?: number;
+  nodeTakeoverMinutes?: number;
 }
 
 const MIN_TOKEN_LENGTH = 16;
@@ -44,6 +45,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): KervanConfig {
       : {}),
     ...(env.KERVAN_HELPER_IDLE_MINUTES
       ? { helperIdleMinutes: wholeNumber("KERVAN_HELPER_IDLE_MINUTES", env.KERVAN_HELPER_IDLE_MINUTES) }
+      : {}),
+    ...(env.KERVAN_NODE_TAKEOVER_MINUTES
+      ? { nodeTakeoverMinutes: wholeNumber("KERVAN_NODE_TAKEOVER_MINUTES", env.KERVAN_NODE_TAKEOVER_MINUTES) }
       : {}),
   };
 }

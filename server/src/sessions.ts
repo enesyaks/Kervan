@@ -68,6 +68,8 @@ export const MAX_HELPERS = 6;
 export const HELPER_TURN_MINUTES = 30;
 /** A helper idle this long has its agent stopped (it starts again with the next message), unless configured otherwise. */
 export const HELPER_IDLE_MINUTES = 10;
+/** An unattended project session cut off by its node continues on this server after the node has been away this long. */
+export const NODE_TAKEOVER_MINUTES = 10;
 
 export interface Limits {
   maxHelpers: number;
@@ -75,6 +77,8 @@ export interface Limits {
   helperTurnMinutes: number;
   /** 0 keeps idle helpers' agents running. */
   helperIdleMinutes: number;
+  /** 0 leaves unattended sessions waiting for their node. */
+  nodeTakeoverMinutes: number;
 }
 const REPLY_CHARS = 20_000;
 
@@ -194,6 +198,8 @@ export class SessionManager {
   private readonly idleTimers = new Map<string, NodeJS.Timeout>();
   /** Sessions started by a schedule or a board card: nobody is watching, so their agents rest like a helper's. */
   private readonly unattended = new Set<string>();
+  /** Unattended node sessions cut off mid-turn, waiting out their node before continuing on this server. */
+  private readonly takeoverTimers = new Map<string, { node: string; timer: NodeJS.Timeout }>();
   alerts?: Alerts;
   /** The user's shells in session folders; their output goes to every client. */
   readonly terminals = new TerminalHub((message) => this.broadcast(message));
@@ -217,8 +223,20 @@ export class SessionManager {
     this.projects = extras.projects;
     this.checkpoints = extras.checkpoints;
     this.nodes = extras.nodes;
-    if (this.nodes) this.nodes.onConnected = (node) => void this.collectLeftovers(node);
-    this.limits = { maxHelpers: MAX_HELPERS, helperTurnMinutes: HELPER_TURN_MINUTES, helperIdleMinutes: HELPER_IDLE_MINUTES, ...extras.limits };
+    if (this.nodes) {
+      this.nodes.onConnected = (node) => {
+        this.nodeBack(node);
+        void this.collectLeftovers(node);
+      };
+      this.nodes.onDisconnected = (node) => this.nodeGone(node);
+    }
+    this.limits = {
+      maxHelpers: MAX_HELPERS,
+      helperTurnMinutes: HELPER_TURN_MINUTES,
+      helperIdleMinutes: HELPER_IDLE_MINUTES,
+      nodeTakeoverMinutes: NODE_TAKEOVER_MINUTES,
+      ...extras.limits,
+    };
     this.roles = extras.roles;
     this.skills = extras.skills;
     this.mcp = extras.mcp;
@@ -945,6 +963,8 @@ export class SessionManager {
   closeAll(): void {
     this.shuttingDown = true;
     for (const id of [...this.idleTimers.keys()]) this.clearIdleTimer(id);
+    for (const { timer } of this.takeoverTimers.values()) clearTimeout(timer);
+    this.takeoverTimers.clear();
     this.terminals.closeAll();
     this.scheduler?.stop();
     for (const session of this.sessions.values()) {
@@ -1173,6 +1193,9 @@ export class SessionManager {
     const target = agent ?? [...this.agents].find(([, a]) => nodeOf(a) === LOCAL_NODE && a.protocol !== "pty")?.[0];
     if (!target || !this.agents.has(target)) throw new KervanError("unknown_agent", target ? `no agent named '${target}'` : "this server has no agent to continue with");
     if (nodeOf(this.agents.get(target)) !== LOCAL_NODE) throw new KervanError("bad_message", `'${target}' doesn't run on this server`);
+    // Moved by hand while it waited to be moved automatically.
+    clearTimeout(this.takeoverTimers.get(sessionId)?.timer);
+    this.takeoverTimers.delete(sessionId);
     if (this.agents.get(target)!.protocol === "pty") throw new KervanError("bad_message", "a terminal agent can't be given the conversation so far; pick another agent");
 
     // What the node has that this server doesn't comes first, while it can.
@@ -1215,6 +1238,67 @@ export class SessionManager {
     session.note = [await this.preface(session), takeoverNote(copy.node, copy.branch, session.events)].filter(Boolean).join("\n\n");
     this.setStatus(session, "idle");
     return { ...session.info };
+  }
+
+  /** Nobody watches a scheduled task or a board card, so nobody would continue one that a node left half done. */
+  private isUnattended(session: Session): boolean {
+    return this.unattended.has(session.info.id) || session.info.scheduleId !== undefined;
+  }
+
+  /**
+   * A node's connection is gone. Unattended project sessions it was in the middle of a turn for wait for it a while
+   * (a Mac waking up, a network blip), then continue on this server and carry on with the task.
+   */
+  private nodeGone(node: string): void {
+    const minutes = this.limits.nodeTakeoverMinutes;
+    if (minutes <= 0 || this.shuttingDown) return;
+    for (const session of this.sessions.values()) {
+      const copy = this.nodeCopyOf(session);
+      if (copy?.node !== node || !this.isUnattended(session) || session.info.archived) continue;
+      if (session.info.status !== "running" && session.info.status !== "waiting") continue;
+      const id = session.info.id;
+      clearTimeout(this.takeoverTimers.get(id)?.timer);
+      const timer = setTimeout(() => void this.autoTakeover(id, node, minutes), minutes * 60_000);
+      timer.unref();
+      this.takeoverTimers.set(id, { node, timer });
+      this.record(session, {
+        kind: "notice",
+        text: `Node '${node}' went away in the middle of this task. If it isn't back within ${minutes} min, the task continues on the server.`,
+      });
+    }
+  }
+
+  /** The node is back in time: its unattended sessions it cut off carry on there, where their agent can resume. */
+  private nodeBack(node: string): void {
+    for (const [id, waiting] of [...this.takeoverTimers]) {
+      if (waiting.node !== node) continue;
+      clearTimeout(waiting.timer);
+      this.takeoverTimers.delete(id);
+      const session = this.sessions.get(id);
+      if (!session || session.info.status !== "idle") continue;
+      try {
+        this.prompt(id, `[Kervan] The connection to node '${node}' dropped in the middle of this task. It's back: carry on from where the work stands.`);
+      } catch (error) {
+        log("warn", "couldn't carry on after a node came back", { id, node, error: errorText(error) });
+      }
+    }
+  }
+
+  private async autoTakeover(sessionId: string, node: string, minutes: number): Promise<void> {
+    this.takeoverTimers.delete(sessionId);
+    const session = this.sessions.get(sessionId);
+    if (!session || this.shuttingDown || this.nodes?.isConnected(node) || this.nodeCopyOf(session)?.node !== node || session.info.archived) return;
+    try {
+      await this.takeover(sessionId);
+      this.record(session, { kind: "notice", text: `Node '${node}' was away for ${minutes} min in the middle of this task, so it continues on the server.` });
+      this.prompt(
+        sessionId,
+        `[Kervan] The agent on node '${node}' was cut off in the middle of this task, and the node didn't come back. Carry on with it from where the work stands.`,
+      );
+    } catch (error) {
+      log("warn", "couldn't continue on the server automatically", { id: sessionId, node, error: errorText(error) });
+      this.record(session, { kind: "notice", text: `Couldn't continue this task on the server automatically: ${errorText(error)}` });
+    }
   }
 
   /**

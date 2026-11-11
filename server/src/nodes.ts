@@ -137,6 +137,8 @@ export class NodeHub {
 
   /** Set by the session manager: told when a node has said hello, i.e. is here again. */
   onConnected?: (node: string) => void;
+  /** Set by the session manager: told when a node's connection is gone, before its agents are marked exited. */
+  onDisconnected?: (node: string) => void;
 
   /** Set by main.ts: what answers a node's agents when they call the orchestration tools. */
   orchestra?: { answer(token: string, route: string, body?: unknown): Promise<{ status: number; body: unknown }> };
@@ -284,6 +286,7 @@ export class NodeHub {
     ws.on("close", () => {
       if (this.connections.get(name) !== connection) return;
       this.connections.delete(name);
+      this.onDisconnected?.(name);
       // Its agents are gone with the connection; sessions treat this like a crash and resume later.
       for (const process of connection.processes.values()) process.markExited();
       connection.processes.clear();

@@ -58,6 +58,7 @@ sessions = new SessionManager(runner, catalog.live, config.workspacesDir, store,
     ...(config.maxHelpers !== undefined ? { maxHelpers: config.maxHelpers } : {}),
     ...(config.helperTurnMinutes !== undefined ? { helperTurnMinutes: config.helperTurnMinutes } : {}),
     ...(config.helperIdleMinutes !== undefined ? { helperIdleMinutes: config.helperIdleMinutes } : {}),
+    ...(config.nodeTakeoverMinutes !== undefined ? { nodeTakeoverMinutes: config.nodeTakeoverMinutes } : {}),
   },
 });
 // Absolute: lead agents' MCP bridges run in their own working folders.

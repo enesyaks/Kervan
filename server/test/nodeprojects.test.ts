@@ -356,3 +356,83 @@ describe("continuing a node's project session on the server", () => {
     await inbox.waitFor((m) => m.type === "session.updated" && m.session.id === sessionId && m.session.movedFrom?.collected === true, 15_000);
   });
 });
+
+describe("an unattended task whose node goes away mid-turn", () => {
+  /** A server, a node with agent "uzak", a git project, and a board-style task asking a question nobody answers. */
+  async function setUp(minutes: number) {
+    const nodeDir = mkdtempSync(join(tmpdir(), "kervan-node-"));
+    const server = await startServer({ nodeToken: NODE_TOKEN, limits: { nodeTakeoverMinutes: minutes } });
+    const ws = openSocket(server.port);
+    const inbox = new Inbox(ws);
+    await opened(ws);
+    send(ws, HELLO);
+    await inbox.waitFor((m) => m.type === "welcome");
+    let node: NodeAgent | undefined;
+    const startNode = () => {
+      node = new NodeAgent({ hubUrls: [`ws://127.0.0.1:${server.port}`], token: NODE_TOKEN, name: "kutu", workspacesDir: nodeDir, runner: new LocalAcpRunner() });
+      node.start();
+    };
+    const connected = (value: boolean, from: number) =>
+      inbox.waitFor((m) => inbox.received.indexOf(m) >= from && m.type === "nodes.updated" && m.nodes.some((x: any) => x.name === "kutu" && x.connected === value));
+    let mark = inbox.received.length;
+    startNode();
+    await connected(true, mark);
+    send(ws, { type: "agent.save", id: "a1", agent: { id: "uzak", name: "Uzak", command: fakeAgent.command, args: fakeAgent.args, node: "kutu" } });
+    await inbox.waitFor((m) => m.type === "agent.list.result" && m.id === "a1", 15_000);
+    const project = await server.sessions.projects!.save({ name: "Gece işi" });
+    repository(project.path);
+    // Like a card: nobody watches it, and it stops at a question (mid-turn) when the node goes away.
+    const id = await server.sessions.runTask({ agent: "uzak", title: "Gece", prompt: "askperm: edit dosya", projectId: project.id });
+    await inbox.waitFor((m) => m.type === "session.event" && m.sessionId === id && m.event.kind === "permission_request", 15_000);
+    mark = inbox.received.length;
+    node!.stop();
+    await connected(false, mark);
+    const events = (from: number) => inbox.received.slice(from).filter((m) => m.type === "session.event" && m.sessionId === id).map((m) => m.event);
+    const done = async () => {
+      node?.stop();
+      ws.terminate();
+      await server.stop();
+    };
+    return { ...server, inbox, id, mark, startNode, connected, events, done };
+  }
+
+  it("continues on the server and carries on with the task once the node has been away long enough", async () => {
+    const t = await setUp(0.01); // under a second
+    try {
+      const prompt = await t.inbox.waitFor(
+        (m) => t.inbox.received.indexOf(m) >= t.mark && m.type === "session.event" && m.sessionId === t.id && m.event.kind === "user_message" && /didn't come back/.test(m.event.text),
+        15_000,
+      );
+      assert.match(prompt.event.text, /cut off in the middle of this task/);
+      await t.inbox.waitFor((m) => t.inbox.received.indexOf(m) > t.inbox.received.indexOf(prompt) && m.type === "session.event" && m.sessionId === t.id && m.event.kind === "turn_end", 15_000);
+      const info = t.sessions.list().find((s) => s.id === t.id)!;
+      assert.equal(info.agent, "fake");
+      assert.equal(info.movedFrom?.node, "kutu");
+      const notices = t.events(t.mark).filter((e) => e.kind === "notice").map((e) => e.text);
+      assert.ok(notices.some((text) => /went away in the middle of this task/.test(text)), notices.join("\n"));
+      assert.ok(notices.some((text) => /was away for .* so it continues on the server/.test(text)), notices.join("\n"));
+    } finally {
+      await t.done();
+    }
+  });
+
+  it("carries on on the node instead when it's back in time", async () => {
+    const t = await setUp(1);
+    try {
+      const mark = t.inbox.received.length;
+      t.startNode();
+      await t.connected(true, mark);
+      const prompt = await t.inbox.waitFor(
+        (m) => t.inbox.received.indexOf(m) >= mark && m.type === "session.event" && m.sessionId === t.id && m.event.kind === "user_message",
+        15_000,
+      );
+      assert.match(prompt.event.text, /It's back: carry on/);
+      await t.inbox.waitFor((m) => t.inbox.received.indexOf(m) > t.inbox.received.indexOf(prompt) && m.type === "session.event" && m.sessionId === t.id && m.event.kind === "turn_end", 15_000);
+      const info = t.sessions.list().find((s) => s.id === t.id)!;
+      assert.equal(info.agent, "uzak", "still on the node");
+      assert.equal(info.movedFrom, undefined);
+    } finally {
+      await t.done();
+    }
+  });
+});
