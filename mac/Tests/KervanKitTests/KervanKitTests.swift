@@ -656,6 +656,30 @@ import Testing
         #expect(AgentPlace.all(agents: [AgentInfo(id: "x", name: "X", node: "kutu")], nodes: [])[1].online)
     }
 
+    @Test func offersProjectWorkOnlyWhereAProjectCopyCanGo() throws {
+        let message = try ServerMessage.decode(#"{"type":"nodes.updated","nodes":[{"name":"yeni","connected":true,"features":["orchestra","projects"]},{"name":"eski","connected":true,"features":["orchestra"]},{"name":"onceki","connected":false}]}"#)
+        guard case .nodesUpdated(let nodes, _) = message else { Issue.record("not nodes.updated"); return }
+        #expect(nodes.map(\.canWorkOnProjects) == [true, false, false])
+
+        let agents = [
+            AgentInfo(id: "claude", name: "Claude"),
+            AgentInfo(id: "yeni-claude", name: "Claude", node: "yeni"),
+            AgentInfo(id: "eski-claude", name: "Claude", node: "eski"),
+        ]
+        // The server always; a node only when it said it can hold a copy, and a node that never said can't.
+        #expect(AgentPlace.forProjects(agents: agents, nodes: nodes).map(\.id) == [AgentPlace.serverID, "yeni"])
+        #expect(AgentPlace.canWorkOnProjects(agent: "claude", agents: agents, nodes: nodes))
+        #expect(AgentPlace.canWorkOnProjects(agent: "yeni-claude", agents: agents, nodes: nodes))
+        #expect(!AgentPlace.canWorkOnProjects(agent: "eski-claude", agents: agents, nodes: nodes))
+        #expect(!AgentPlace.canWorkOnProjects(agent: "yeni-claude", agents: agents, nodes: []), "a node the app knows nothing about")
+
+        // One line says where the work happens and where it goes; the server needs none.
+        let places = AgentPlace.all(agents: agents, nodes: nodes)
+        #expect(places[0].projectCopyNote == nil)
+        let note = try #require(places.first { $0.node == "yeni" }?.projectCopyNote)
+        #expect(note.contains("yeni"))
+    }
+
     @Test func namesTheNodeAndTracksWhichNodesAreConnected() throws {
         let store = SessionStore { _ in }
         store.handle(.agentsUpdated([AgentInfo(id: "claude", name: "Claude Code"), AgentInfo(id: "gpu-claude", name: "Claude Code", node: "gpu")]))

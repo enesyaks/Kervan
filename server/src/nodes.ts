@@ -2,6 +2,7 @@ import { tailnetOnly } from "./tailnet.ts";
 import { execFileSync } from "node:child_process";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { open, rm } from "node:fs/promises";
 import { hostname, networkInterfaces } from "node:os";
 import { isAbsolute } from "node:path";
 import type * as acp from "@agentclientprotocol/sdk";
@@ -10,6 +11,7 @@ import type { AgentCommand } from "./agents.ts";
 import type { InstalledAgent, InstallRequest, OfferedAgent, OllamaStatus } from "./agentregistry.ts";
 import type { FileEntry } from "./files.ts";
 import { log } from "./log.ts";
+import { MAX_REPO_BYTES, REPO_CHUNK_BYTES, appendPiece, megabytes, type Committed } from "./projectcopy.ts";
 import { KervanError, type ConfigOption, type SessionEventBody } from "./protocol.ts";
 import { Rpc } from "./rpc.ts";
 import type { AgentProcess, AgentRunner, PermissionDecision, PermissionRequest, StartOptions } from "./runner.ts";
@@ -91,6 +93,8 @@ export interface NodeInfo {
   lastSeen?: string;
   /** host:port the node last reached this hub at; if the hub no longer has it, the node may be lost. */
   via?: string;
+  /** What the node said it can do in its last hello (e.g. "projects"); kept while it is away. */
+  features?: string[];
 }
 
 interface RemoteProcess {
@@ -123,6 +127,12 @@ export class NodeHub {
   /** Whether a connected node told us in its hello that it can do this. */
   can(node: string, feature: string): boolean {
     return this.connections.get(node)?.features.has(feature) ?? false;
+  }
+
+  /** The same, for a node that may be away: what it said the last time it was here. For checks made while saving a card. */
+  supports(node: string, feature: string): boolean {
+    const connection = this.connections.get(node);
+    return connection ? connection.features.has(feature) : (this.known.get(node)?.features?.includes(feature) ?? false);
   }
 
   /** Set by main.ts: what answers a node's agents when they call the orchestration tools. */
@@ -241,6 +251,7 @@ export class NodeHub {
           connected: true,
           ...(params.version ? { version: params.version } : {}),
           ...(via ? { via } : {}),
+          features: [...connection.features].sort(),
           lastSeen: new Date().toISOString(),
         });
         log("info", "node connected", { node: name, version: params.version, via });
@@ -325,6 +336,67 @@ export class NodeHub {
   async writeFile(node: string, key: string, path: string, data: Buffer): Promise<number> {
     const { size } = await this.require(node).rpc.call<{ size: number }>("files.write", { key, path, data: data.toString("base64") });
     return size;
+  }
+
+  /** The commit the session's project copy on the node is on; undefined when it has none yet. */
+  async copyHead(node: string, key: string): Promise<string | undefined> {
+    const { head } = await this.ask<{ head: string | null }>(node, "repo.status", { key });
+    return head ?? undefined;
+  }
+
+  /**
+   * Gives the node a copy of a project: the bundle at `file` goes over in pieces (one frame each, well under the frame
+   * cap), then the node clones it into the session's workspace on `branch`. Returns the commit the copy is on.
+   */
+  async sendCopy(node: string, key: string, branch: string, file: string): Promise<string> {
+    const { rpc } = this.require(node);
+    const id = randomUUID();
+    const handle = await open(file, "r");
+    try {
+      const { size } = await handle.stat();
+      if (size > MAX_REPO_BYTES) {
+        throw new KervanError("bad_message", `the project's history is ${megabytes(size)}; a copy for a node can be at most ${megabytes(MAX_REPO_BYTES)}`);
+      }
+      const buffer = Buffer.alloc(REPO_CHUNK_BYTES);
+      for (let offset = 0; offset < size; ) {
+        const { bytesRead } = await handle.read(buffer, 0, REPO_CHUNK_BYTES, offset);
+        if (bytesRead === 0) break;
+        await rpc.call("blob.put", { id, offset, data: buffer.subarray(0, bytesRead).toString("base64") });
+        offset += bytesRead;
+      }
+      const { head } = await rpc.call<{ head: string }>("repo.clone", { key, branch, id });
+      return head;
+    } catch (error) {
+      void rpc.call("blob.drop", { id }).catch(() => {});
+      throw error;
+    } finally {
+      await handle.close();
+    }
+  }
+
+  /**
+   * Has the node commit what its agent changed on `branch` and, if the branch moved past `base` (what this hub has),
+   * reads the new commits back into `file` as a bundle. Returns the node's new tip, or undefined when nothing changed.
+   * If the node goes away midway the call fails and `file` is incomplete: the caller drops it.
+   */
+  async collectTurn(node: string, key: string, branch: string, base: string | undefined, message: string, file: string): Promise<string | undefined> {
+    const { rpc } = this.require(node);
+    const id = randomUUID();
+    try {
+      const result = await rpc.call<Committed>("repo.commit", { key, branch, ...(base ? { base } : {}), message, id });
+      if (!result.changed) return undefined;
+      if (result.size > MAX_REPO_BYTES) throw new Error(`this turn's work is ${megabytes(result.size)}; at most ${megabytes(MAX_REPO_BYTES)} can come at once`);
+      await rm(file, { force: true });
+      for (let offset = 0; offset < result.size; ) {
+        const { data } = await rpc.call<{ data: string }>("blob.get", { id, offset, length: REPO_CHUNK_BYTES });
+        const piece = Buffer.from(data, "base64");
+        if (piece.length === 0) throw new Error("the node's bundle ended early");
+        offset = await appendPiece(file, offset, piece);
+      }
+      return result.head;
+    } finally {
+      void rpc.call("blob.drop", { id }).catch(() => {});
+    }
   }
 
   /** What the catalog offers on this node, and its own local models. An error there is an answer, not the hub's failure. */

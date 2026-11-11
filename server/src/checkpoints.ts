@@ -13,7 +13,7 @@ const IDENTITY = ["-c", "user.name=Kervan", "-c", "user.email=kervan@localhost",
 /** The Changes panel shows at most this much of the patch; the file list is always whole. */
 export const MAX_PATCH_CHARS = 400_000;
 /** Kept out of checkpoints: rebuilt by tools, often huge, never what the user wants back. */
-const EXCLUDES = ["node_modules/", ".venv/", "venv/", "__pycache__/", ".kervan-upload-*", ".DS_Store", "dist/", "build/", "target/", ".next/"];
+export const EXCLUDES = ["node_modules/", ".venv/", "venv/", "__pycache__/", ".kervan-upload-*", ".DS_Store", "dist/", "build/", "target/", ".next/"];
 
 /**
  * Snapshots of a session's folder, one before every message, so changes can be shown and undone.

@@ -74,7 +74,7 @@ log("info", containers.available ? "builds in containers on" : "no container eng
 const scheduler = new Scheduler(join(config.dataDir, "schedules.json"), {
   hasAgent: (id) => catalog.live.has(id),
   hasProject: (id) => projects.get(id) !== undefined,
-  remoteNode: (id) => sessions.remoteNode(id),
+  projectRefusal: (agent, projectId) => sessions.projectRefusal(agent, projectId),
 });
 scheduler.onChange = (schedules) => sessions.broadcast({ type: "schedules.updated", schedules });
 sessions.scheduler = scheduler;

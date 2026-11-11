@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { cp, mkdir, writeFile } from "node:fs/promises";
+import { cp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentRegistry } from "./agents.ts";
 import { isSafeRelativePath, placeFile } from "./files.ts";
@@ -39,6 +39,7 @@ import type * as acp from "@agentclientprotocol/sdk";
 import { isMemoryCall, isOrchestraCall } from "./orchestra.ts";
 import { majorChange } from "./autoapprove.ts";
 import { LOCAL_NODE, nodeOf, type NodeHub } from "./nodes.ts";
+import { PROJECTS_FEATURE, applyBundle, branchTip, bundleBranch, ensureBranch, hasCommitsSync, transferFile } from "./projectcopy.ts";
 import {
   addWorktree,
   branchDiff,
@@ -304,10 +305,22 @@ export class SessionManager {
     return node === LOCAL_NODE ? { path: session.cwd } : { node, key: session.cwd };
   }
 
-  /** The node an agent runs on when it isn't this server; for work that can only happen here. */
-  remoteNode(agent: string): string | undefined {
+  /**
+   * Why `agent` can't work on project `projectId`, or undefined when it can. An agent on this server always can; one on
+   * a node works on a git copy of the project, so the node must have the code for that and the project must be a git
+   * repository with a commit to copy. Checked when a card or schedule is saved, not only when it comes due.
+   */
+  projectRefusal(agent: string, projectId: string): string | undefined {
     const node = nodeOf(this.agents.get(agent));
-    return node === LOCAL_NODE ? undefined : node;
+    if (node === LOCAL_NODE) return undefined;
+    if (!this.nodes?.supports(node, PROJECTS_FEATURE)) {
+      return `node '${node}' can't work on projects yet; update Kervan on it first, or pick an agent on this server`;
+    }
+    const project = this.projects?.get(projectId);
+    if (project && !hasCommitsSync(project.path)) {
+      return `project '${project.name}' isn't a git repository with at least one commit, so an agent on node '${node}' can't get a copy of it; make a first commit in it, or pick an agent on this server`;
+    }
+    return undefined;
   }
 
   /** New work is refused while its node is away, so it doesn't leave a session that can never start. */
@@ -372,14 +385,20 @@ export class SessionManager {
     }
     if (options.projectId) {
       if (!this.projects?.get(options.projectId)) throw new KervanError("bad_message", `no project '${options.projectId}'`);
-      if (node !== LOCAL_NODE) throw new KervanError("bad_message", `projects live on this server; '${agent}' runs on node '${node}'`);
+      const refusal = this.projectRefusal(agent, options.projectId);
+      if (refusal) throw new KervanError("bad_message", refusal);
+      if (node !== LOCAL_NODE && (options.teamId || options.parentId)) {
+        throw new KervanError("bad_message", `team members and helpers on node '${node}' can't take a project`);
+      }
     }
     // Sessions in a git project each get a worktree and branch of their own, so two of them never edit the same
     // files. Team members share on purpose, helpers already have one, and a repository without commits can't branch.
     const project = options.projectId ? this.projects?.get(options.projectId) : undefined;
     const worktreeFrom =
       options.worktreeFrom ??
-      (project && !options.shared && !options.teamId && !options.parentId && (await hasCommits(project.path)) ? project.path : undefined);
+      (project && node === LOCAL_NODE && !options.shared && !options.teamId && !options.parentId && (await hasCommits(project.path)) ? project.path : undefined);
+    // On a node the project is always a copy there, on a branch of its own that comes back here after every turn.
+    const nodeCopy = project !== undefined && node !== LOCAL_NODE;
 
     const id = randomUUID();
     const session: Session = {
@@ -400,7 +419,7 @@ export class SessionManager {
         // Quietly ignored for terminal agents: the choice can come from a form that serves every agent.
         ...(options.autoApprove && !options.parentId && this.agents.get(agent)?.protocol !== "pty" ? { autoApprove: true } : {}),
         ...(options.orchestrate && !options.parentId && options.budgetUsd ? { budgetUsd: options.budgetUsd } : {}),
-        ...(worktreeFrom ? { branch: branchName(options.title ?? agent, id) } : {}),
+        ...(worktreeFrom || nodeCopy ? { branch: branchName(options.title ?? agent, id) } : {}),
         ...(options.projectId ? { projectId: options.projectId } : {}),
         ...(options.scheduleId ? { scheduleId: options.scheduleId } : {}),
         ...(options.reviewOf ? { reviewOf: options.reviewOf } : {}),
@@ -414,6 +433,7 @@ export class SessionManager {
     session.cwd = this.cwdFor(this.workspacesDir, session.info);
     // A node makes its own workspace folder when the agent starts there.
     if (worktreeFrom) await addWorktree(worktreeFrom, session.cwd, session.info.branch!);
+    else if (nodeCopy) await ensureBranch(project.path, session.info.branch!).catch((error) => gitError(`couldn't make branch ${session.info.branch}`, error));
     else if (node === LOCAL_NODE) await mkdir(session.cwd, { recursive: true });
     if (session.info.skills.length > 0) {
       const target = this.agents.get(agent)!.skillsDir ?? FALLBACK_SKILLS_DIR;
@@ -494,6 +514,8 @@ export class SessionManager {
       .catch((error: unknown) => {
         this.record(session, { kind: "error", message: error instanceof Error ? error.message : String(error) });
       })
+      // Still "running" meanwhile, so the next message can't start while the turn's work is on its way.
+      .then(() => this.syncFromNode(session, messageSeq))
       .finally(() => {
         clearTimeout(session.turnTimer);
         if (session.info.status === "running" || session.info.status === "waiting") this.setStatus(session, "idle");
@@ -879,6 +901,8 @@ export class SessionManager {
   /** The repository a project session's worktree belongs to; undefined for anything else. */
   private worktreeRepo(session: Session): string | undefined {
     if (!session.info.branch || !session.info.projectId || session.info.parentId) return undefined;
+    // A node's copy is a clone on that machine, not a worktree here.
+    if (this.nodeFor(session.info) !== LOCAL_NODE) return undefined;
     return this.projects?.get(session.info.projectId)?.path;
   }
 
@@ -945,6 +969,11 @@ export class SessionManager {
         ? `[Kervan] You are a helper agent named "${session.info.title}", started by the lead agent "${lead.info.title}". ` +
           "Messages come from the lead, not the user, and your final answer each turn goes back to it: " +
           "end with a short summary of what you did, which files you changed and anything left open."
+        : undefined,
+      this.nodeCopyOf(session)
+        ? `[Kervan] You work in your own copy of the project's git repository, on branch ${session.info.branch}. After every ` +
+          "turn, whatever you changed is committed on that branch and sent to the Kervan server, which keeps the project. " +
+          "Commit when it helps, with a clear message; stay on this branch, and don't push anywhere yourself."
         : undefined,
       lead && session.info.branch
         ? `[Kervan] You work in your own git worktree on branch ${session.info.branch}; your changes stay there until ` +
@@ -1038,6 +1067,86 @@ export class SessionManager {
       "[Kervan] Agent Skills available in this session. When a task matches one, read its SKILL.md first and follow it:",
       ...lines,
     ].join("\n");
+  }
+
+  /** A project session on a node: the project, its node and the branch its copy there works on. */
+  private nodeCopyOf(session: Session): { repo: string; name: string; node: string; branch: string } | undefined {
+    const node = this.nodeFor(session.info);
+    if (node === LOCAL_NODE || !session.info.projectId || !session.info.branch) return undefined;
+    const project = this.projects?.get(session.info.projectId);
+    return project ? { repo: project.path, name: project.name, node, branch: session.info.branch } : undefined;
+  }
+
+  /** Where bundles wait on their way to or from a node; inside the workspaces folder so the agent user's git can read them. */
+  private async transfer(): Promise<string> {
+    const file = transferFile(this.workspacesDir, randomUUID());
+    await mkdir(join(this.workspacesDir, ".kervan-transfers"), { recursive: true, mode: 0o770 });
+    return file;
+  }
+
+  /**
+   * Before a node session's agent starts: a node without a copy of the project yet gets one, cloned from the session's
+   * branch here; a node that has one (a session resuming, or the node back after being away) first sends what it did
+   * that hasn't reached this server yet.
+   */
+  private async ensureNodeCopy(session: Session): Promise<void> {
+    const copy = this.nodeCopyOf(session);
+    if (!copy || !this.nodes) return;
+    if (await this.nodes.copyHead(copy.node, session.cwd)) {
+      await this.syncFromNode(session);
+      return;
+    }
+    const file = await this.transfer();
+    try {
+      // Made again at the project's current commit if someone deleted it meanwhile.
+      await ensureBranch(copy.repo, copy.branch);
+      await bundleBranch(copy.repo, copy.branch, file);
+      await this.nodes.sendCopy(copy.node, session.cwd, copy.branch, file);
+    } catch (error) {
+      throw new Error(`couldn't give node '${copy.node}' a copy of project '${copy.name}': ${errorText(error)}`);
+    } finally {
+      await rm(file, { force: true });
+    }
+    this.record(session, {
+      kind: "notice",
+      text: `Node '${copy.node}' has a copy of project '${copy.name}' on branch ${copy.branch}; its work comes back to the server after every turn.`,
+    });
+  }
+
+  /**
+   * After a turn of a node session in a project: the node commits what its agent changed and sends the new commits,
+   * which move the session's branch in the project's repository here. Never throws: work that can't come now stays
+   * committed on the node and comes with the next turn, since each sync sends everything this server doesn't have.
+   */
+  private async syncFromNode(session: Session, messageSeq?: number): Promise<void> {
+    const copy = this.nodeCopyOf(session);
+    if (!copy || !this.nodes) return;
+    if (!this.nodes.isConnected(copy.node)) {
+      this.record(session, {
+        kind: "notice",
+        text: `Node '${copy.node}' is away, so this turn's work couldn't come to the server yet; it stays there and comes when the node is back.`,
+      });
+      return;
+    }
+    const file = await this.transfer();
+    try {
+      const base = await branchTip(copy.repo, copy.branch);
+      const label = messageSeq === undefined ? "work left from before" : `after message ${messageSeq}`;
+      const head = await this.nodes.collectTurn(copy.node, session.cwd, copy.branch, base, `Kervan: ${session.info.title} (${label})`, file);
+      if (!head) return;
+      const applied = await applyBundle(copy.repo, copy.branch, file, base);
+      if (applied.moved) {
+        this.record(session, { kind: "notice", text: `Work sent to the server: branch ${copy.branch} is at ${applied.head.slice(0, 7)}.` });
+      }
+    } catch (error) {
+      log("warn", "couldn't bring a node's work to the server", { id: session.info.id, node: copy.node, error: errorText(error) });
+      this.record(session, {
+        kind: "notice",
+        text: `This turn's work couldn't come to the server (${errorText(error)}); it stays committed on node '${copy.node}' and comes with the next turn.`,
+      });
+    } finally {
+      await rm(file, { force: true });
+    }
   }
 
   /** Snapshots the folder before a message, so its changes can be shown and undone. Local sessions only. */
@@ -1273,6 +1382,7 @@ export class SessionManager {
     // What the user chose before the agent stopped; a restarted agent may come back on its defaults.
     const chosen = session.info.config ?? [];
     try {
+      await this.ensureNodeCopy(session);
       const process = await this.runner.start({
         command: this.agents.get(session.info.agent)!,
         cwd: session.cwd,
@@ -1459,6 +1569,16 @@ export class SessionManager {
   broadcast(message: ServerMessage): void {
     for (const listener of this.listeners) listener(message);
   }
+}
+
+/** A git failure's own words when it has them. */
+function errorText(error: unknown): string {
+  const stderr = error instanceof Error && "stderr" in error ? String((error as { stderr: unknown }).stderr).trim() : "";
+  return stderr || (error instanceof Error ? error.message : String(error));
+}
+
+function gitError(what: string, error: unknown): never {
+  throw new KervanError("bad_message", `${what}: ${errorText(error)}`);
 }
 
 /** Everything the agent said since the last message it was given. */

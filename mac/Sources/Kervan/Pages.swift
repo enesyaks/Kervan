@@ -502,15 +502,19 @@ private struct ScheduleSheet: View {
             Form {
                 TextField(L("Name", "Ad"), text: $input.title, prompt: Text(L("e.g. Morning test run", "ör. Sabah test turu")))
                 AgentPicker(agent: $input.agent)
-                // Projects are on this server, so only its agents can have one.
-                if onNode {
-                    Text(L("On another machine the agent works in a folder of its own there.", "Başka bir makinede ajan oradaki kendi klasöründe çalışır."))
+                // Projects are on this server; a node can work on one only through a copy, which needs an up-to-date Kervan there.
+                if !projectsHere {
+                    Text(L("On another machine the agent works in a folder of its own there. To work on a project there, update Kervan on that machine.", "Başka bir makinede ajan oradaki kendi klasöründe çalışır. Orada bir proje üzerinde çalışmak için o makinedeki Kervan'ı güncelleyin."))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
                     Picker(L("Project", "Proje"), selection: $input.projectId) {
                         Text(L("None (its own folder)", "Yok (kendi klasörü)")).tag(String?.none)
                         ForEach(model.store.projects) { Text($0.name).tag(Optional($0.id)) }
+                    }
+                    if input.projectId != nil, let node = model.store.agents.first(where: { $0.id == input.agent })?.node,
+                       let note = AgentPlace(node: node, online: true, agents: []).projectCopyNote {
+                        Text(note).font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 Section(L("When", "Ne zaman")) {
@@ -563,7 +567,9 @@ private struct ScheduleSheet: View {
         .onAppear(perform: load)
     }
 
-    private var onNode: Bool { model.store.agents.first { $0.id == input.agent }?.node != nil }
+    private var projectsHere: Bool {
+        AgentPlace.canWorkOnProjects(agent: input.agent, agents: model.store.agents, nodes: model.store.nodeInfos)
+    }
 
     private var canSave: Bool {
         !saving && !input.agent.isEmpty && !input.title.trimmingCharacters(in: .whitespaces).isEmpty
@@ -586,7 +592,7 @@ private struct ScheduleSheet: View {
     private func save() async {
         saving = true
         defer { saving = false }
-        if onNode { input.projectId = nil }
+        if !projectsHere { input.projectId = nil }
         let parts = Calendar.current.dateComponents([.hour, .minute], from: time)
         input.when = daily
             ? .daily(time: String(format: "%02d:%02d", parts.hour ?? 9, parts.minute ?? 0), weekdays: weekdays.sorted())

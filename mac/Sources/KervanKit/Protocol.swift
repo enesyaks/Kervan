@@ -59,11 +59,14 @@ public struct AgentPlace: Equatable, Sendable, Identifiable {
     public let node: String?
     public let online: Bool
     public let agents: [AgentInfo]
+    /// Whether work on a project can run here: always on the server, on a node only when it can hold a git copy.
+    public let projects: Bool
 
-    public init(node: String?, online: Bool, agents: [AgentInfo]) {
+    public init(node: String?, online: Bool, agents: [AgentInfo], projects: Bool = true) {
         self.node = node
         self.online = online
         self.agents = agents
+        self.projects = projects
     }
 
     /// Can't clash with a node's name: those are lowercase letters, digits and dashes.
@@ -80,8 +83,29 @@ public struct AgentPlace: Equatable, Sendable, Identifiable {
         let names = Set(nodes.map(\.name)).union(agents.compactMap(\.node)).sorted()
         return [AgentPlace(node: nil, online: true, agents: agents.filter { $0.node == nil })] + names.map { name in
             let here = agents.filter { $0.node == name }
-            return AgentPlace(node: name, online: nodes.first { $0.name == name }?.connected ?? !here.contains(where: \.isAway), agents: here)
+            let info = nodes.first { $0.name == name }
+            return AgentPlace(node: name, online: info?.connected ?? !here.contains(where: \.isAway), agents: here, projects: info?.canWorkOnProjects ?? false)
         }
+    }
+
+    /// The places that can take work on a project: the server, and nodes that can hold a copy of one.
+    public static func forProjects(agents: [AgentInfo], nodes: [NodeInfo]) -> [AgentPlace] {
+        all(agents: agents, nodes: nodes).filter(\.projects)
+    }
+
+    /// Whether `agent` can work on a project where it runs. An agent not in the list is taken to be on the server.
+    public static func canWorkOnProjects(agent: String, agents: [AgentInfo], nodes: [NodeInfo]) -> Bool {
+        guard let node = agents.first(where: { $0.id == agent })?.node else { return true }
+        return nodes.first { $0.name == node }?.canWorkOnProjects ?? false
+    }
+
+    /// For project work on a node: where the agent works and where its work goes. Nil on the server.
+    public var projectCopyNote: String? {
+        guard let node else { return nil }
+        return L(
+            "The agent works on a copy of the project on \(node); after each turn its work comes back to the server as a branch.",
+            "Ajan projenin \(node) üzerindeki bir kopyasında çalışır; her turdan sonra işi sunucuya bir dal (branch) olarak geri gelir."
+        )
     }
 }
 
@@ -118,14 +142,20 @@ public struct NodeInfo: Codable, Equatable, Sendable, Identifiable {
     public let lastSeen: String?
     /// host:port the node last reached the hub at.
     public let via: String?
+    /// What the node said it can do the last time it connected, e.g. "projects". Older servers don't send it.
+    public let features: [String]?
     public var id: String { name }
 
-    public init(name: String, connected: Bool, version: String? = nil, lastSeen: String? = nil, via: String? = nil) {
+    /// Whether an agent on this node can work on a project: it gets a git copy there, and its work comes back as a branch.
+    public var canWorkOnProjects: Bool { features?.contains("projects") == true }
+
+    public init(name: String, connected: Bool, version: String? = nil, lastSeen: String? = nil, via: String? = nil, features: [String]? = nil) {
         self.name = name
         self.connected = connected
         self.version = version
         self.lastSeen = lastSeen
         self.via = via
+        self.features = features
     }
 }
 

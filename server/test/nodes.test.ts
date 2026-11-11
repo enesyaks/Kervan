@@ -146,11 +146,12 @@ describe("agents on another node", () => {
     assert.match((await inbox.waitFor((m) => m.type === "error" && m.id === "c4")).message, /no skill named|skills aren't available/);
   });
 
-  it("refuses project work for a node's agent when it's set up, not when it comes due", async () => {
+  it("refuses project work a node's agent can't do when it's set up, not when it comes due", async () => {
+    // Not a git repository, so there is nothing to copy to the node (projects on a node: nodeprojects.test.ts).
     const project = await sessions.projects!.save({ name: "Sunucuda" });
-    assert.throws(() => sessions.board!.save({ projectId: project.id, title: "Kart", prompt: "yap", agent: "uzak" }), /projects live on this server/);
+    assert.throws(() => sessions.board!.save({ projectId: project.id, title: "Kart", prompt: "yap", agent: "uzak" }), /isn't a git repository with at least one commit/);
     const task = { title: "Görev", agent: "uzak", prompt: "yap", when: { kind: "interval", minutes: 60 }, timeZone: "UTC" };
-    assert.throws(() => sessions.scheduler!.save({ ...task, projectId: project.id }), /projects live on this server/);
+    assert.throws(() => sessions.scheduler!.save({ ...task, projectId: project.id }), /isn't a git repository with at least one commit/);
     const saved = sessions.scheduler!.save(task);
     assert.equal(saved.agent, "uzak");
     sessions.scheduler!.remove(saved.id);

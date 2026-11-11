@@ -6,26 +6,29 @@ import SwiftUI
 struct AgentPicker: View {
     @Environment(AppModel.self) private var model
     @Binding var agent: String
-    /// For work tied to a project, which only this server has.
-    var serverOnly = false
+    /// For work tied to a project: only this server and the nodes that can work on a copy of one.
+    var forProject = false
     /// The machine picked, kept apart from the agent because a node may not have any agents yet.
     @State private var picked: String?
 
     private var places: [AgentPlace] {
-        AgentPlace.all(agents: model.store.agents, nodes: model.store.nodeInfos)
+        forProject
+            ? AgentPlace.forProjects(agents: model.store.agents, nodes: model.store.nodeInfos)
+            : AgentPlace.all(agents: model.store.agents, nodes: model.store.nodeInfos)
     }
 
     private var placeID: String {
         picked ?? model.store.agents.first { $0.id == agent }?.node ?? AgentPlace.serverID
     }
 
+    /// An agent on a machine that isn't offered here (one that can't take a project) shows the server instead.
     private var place: AgentPlace? {
-        serverOnly ? places.first : places.first { $0.id == placeID }
+        places.first { $0.id == placeID } ?? places.first
     }
 
     var body: some View {
-        if !serverOnly && places.count > 1 {
-            Picker(selection: Binding(get: { placeID }, set: { choose($0) })) {
+        if places.count > 1 {
+            Picker(selection: Binding(get: { place?.id ?? AgentPlace.serverID }, set: { choose($0) })) {
                 ForEach(places) { Text($0.label).tag($0.id) }
             } label: {
                 Text(L("Machine", "Makine"))
@@ -40,6 +43,9 @@ struct AgentPicker: View {
             Picker(L("Agent", "Ajan"), selection: $agent) {
                 ForEach(place?.agents ?? []) { Text($0.name).tag($0.id) }
             }
+        }
+        if forProject, let note = place?.projectCopyNote {
+            Text(note).font(.caption).foregroundStyle(.secondary)
         }
         if let place, !place.online {
             Text(L("This machine is asleep or offline, so nothing can start on it now.", "Bu makine uykuda ya da çevrimdışı; şu an üzerinde iş başlatılamaz."))

@@ -36,8 +36,8 @@ struct NewSessionSheet: View {
             Form {
                 Section {
                     AgentPicker(agent: $agent)
-                    if onNode {
-                        Text(L("On another machine the agent works in a folder of its own there. Projects and skills need an agent on this server.", "Başka bir makinede ajan oradaki kendi klasöründe çalışır. Proje ve skill'ler için bu sunucudaki bir ajan gerekir."))
+                    if !projectsHere {
+                        Text(L("On another machine the agent works in a folder of its own there. To work on a project there, update Kervan on that machine. Skills need an agent on this server.", "Başka bir makinede ajan oradaki kendi klasöründe çalışır. Orada bir proje üzerinde çalışmak için o makinedeki Kervan'ı güncelleyin. Skill'ler için bu sunucudaki bir ajan gerekir."))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     } else {
@@ -49,7 +49,9 @@ struct NewSessionSheet: View {
                             Text(L("The agent works on the project's files, with the project's instructions.", "Ajan projenin dosyalarında, projenin talimatlarıyla çalışır."))
                         }
                     }
-                    if project != nil && !onNode {
+                    if project != nil && projectsHere, let note = place?.projectCopyNote {
+                        Text(note).font(.caption).foregroundStyle(.secondary)
+                    } else if project != nil && !onNode {
                         Toggle(isOn: $ownBranch) {
                             Text(L("Work on a branch of its own", "Kendi branch'inde çalışsın"))
                             Text(L("In a git repository the session gets its own copy (a worktree), so sessions in the same project never edit the same files. Turn off to work in the project folder itself.", "Git deposunda oturum kendi kopyasını (worktree) alır; böylece aynı projedeki oturumlar aynı dosyaları düzenlemez. Proje klasörünün kendisinde çalışmak için kapatın."))
@@ -128,7 +130,7 @@ struct NewSessionSheet: View {
                     let names = Set(available?.map(\.name) ?? [])
                     // What a node can't do stays picked in the sheet but isn't asked for.
                     let lead = orchestrate && selected?.terminal != true
-                    let folder = onNode ? nil : project
+                    let folder = projectsHere ? project : nil
                     model.startSession(
                         agent: agent,
                         skills: onNode ? [] : skills.filter(names.contains).sorted(),
@@ -136,7 +138,8 @@ struct NewSessionSheet: View {
                         orchestrate: lead,
                         budgetUsd: lead ? budget.flatMap { $0 > 0 ? $0 : nil } : nil,
                         projectId: folder,
-                        shared: folder != nil && !ownBranch,
+                        // On a node the project is always a copy on a branch of its own.
+                        shared: folder != nil && !ownBranch && !onNode,
                         split: lead && split,
                         autoApprove: autoApprove && selected?.terminal != true
                     )
@@ -152,14 +155,21 @@ struct NewSessionSheet: View {
         .background(Color.kervanCanvas)
         .navigationTitle(L("New session", "Yeni oturum"))
         .task {
-            // Started from a project: the project's files are on this server.
-            if project != nil, onNode, let here = model.store.agents.first(where: { $0.node == nil }) { agent = here.id }
+            // Started from a project: an agent that can't work on one gives way to one on this server.
+            if project != nil, !projectsHere, let here = model.store.agents.first(where: { $0.node == nil }) { agent = here.id }
             await loadSkills()
         }
     }
 
     private var selected: AgentInfo? { model.store.agents.first { $0.id == agent } }
     private var onNode: Bool { selected?.node != nil }
+    /// This server, or a node that can work on a copy of a project.
+    private var projectsHere: Bool {
+        AgentPlace.canWorkOnProjects(agent: agent, agents: model.store.agents, nodes: model.store.nodeInfos)
+    }
+    private var place: AgentPlace? {
+        AgentPlace.all(agents: model.store.agents, nodes: model.store.nodeInfos).first { $0.id == (selected?.node ?? AgentPlace.serverID) }
+    }
 
     private func binding(for name: String, in set: Binding<Set<String>>) -> Binding<Bool> {
         Binding(

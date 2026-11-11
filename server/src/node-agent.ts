@@ -1,5 +1,5 @@
 import { chmodSync, existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
@@ -11,13 +11,14 @@ import type { AgentDefinition } from "./agents.ts";
 import { isSafeRelativePath, listTree, resolveInside } from "./files.ts";
 import { log } from "./log.ts";
 import { ORCHESTRA_MCP_NAME, orchestraSocketPath, readBody } from "./orchestra.ts";
+import { PROJECTS_FEATURE, REPO_CHUNK_BYTES, appendPiece, cloneBundle, commitTurn, copyHead, transferFile } from "./projectcopy.ts";
 import { Rpc } from "./rpc.ts";
 import type { AgentProcess, AgentRunner } from "./runner.ts";
 import { VERSION } from "./version.ts";
 
 export const NODE_PATH = "/v1/node";
 /** What this node tells the hub it can do, so the hub never asks for something this build has no code for. */
-export const NODE_FEATURES = ["orchestra"];
+export const NODE_FEATURES = ["orchestra", PROJECTS_FEATURE];
 /** Files moved between hub and node travel inside one WebSocket message. */
 export const MAX_NODE_FILE_BYTES = 50 * 1024 * 1024;
 export const MAX_NODE_FRAME_BYTES = Math.ceil((MAX_NODE_FILE_BYTES * 4) / 3) + 64 * 1024;
@@ -37,6 +38,8 @@ export interface NodeAgentOptions {
   name: string;
   workspacesDir: string;
   runner: AgentRunner;
+  /** What it announces in its hello; tests pass fewer to play an older node. */
+  features?: string[];
   /** How often the node checks that the hub is still there; tests pass a short one. */
   heartbeatMs?: number;
   now?: () => number;
@@ -109,9 +112,11 @@ export class NodeAgent {
       opened = true;
       this.retryMs = 1000;
       log("info", "connected to hub", { hub: hubUrl, node: name });
+      // Transfers belong to a connection; whatever the last one left half-sent is of no use now.
+      void rm(join(this.options.workspacesDir, ".kervan-transfers"), { recursive: true, force: true });
       this.watch(ws);
       void rpc
-        .call<{ hubs?: string[] } | null>("hello", { version: VERSION, features: NODE_FEATURES })
+        .call<{ hubs?: string[] } | null>("hello", { version: VERSION, features: this.options.features ?? NODE_FEATURES })
         .then((answer) => this.learn(hubUrl, answer?.hubs ?? []))
         .catch(() => {});
     });
@@ -316,6 +321,46 @@ export class NodeAgent {
         return { agents, ollama, lmStudio };
       })
       .on("registry.install", (params: InstallRequest) => this.registry.install(params))
+      // A project copy: the hub sends a bundle of the session's branch in pieces, then has it cloned into the workspace;
+      // after each turn it has the work committed and reads the new commits back as a bundle. See projectcopy.ts.
+      .on("repo.status", async (params: { key: string }) => ({ head: (await copyHead(await this.workspace(params.key))) ?? null }))
+      .on("blob.put", async (params: { id: string; offset: number; data: string }) => ({
+        size: await appendPiece(transferFile(root, params.id), params.offset, Buffer.from(params.data, "base64")),
+      }))
+      .on("repo.clone", async (params: { key: string; branch: string; id: string }) => {
+        const file = transferFile(root, params.id);
+        try {
+          const dir = await this.workspace(params.key);
+          if (await copyHead(dir)) throw new Error("this session already has a copy of the project here");
+          if ((await readdir(dir)).length > 0) throw new Error("the session's folder on this node isn't empty");
+          return { head: await cloneBundle(dir, file, params.branch) };
+        } finally {
+          await rm(file, { force: true });
+        }
+      })
+      .on("repo.commit", async (params: { key: string; branch: string; base?: string; message: string; id: string }) => {
+        const file = transferFile(root, params.id);
+        try {
+          return await commitTurn(await this.workspace(params.key), params.branch, params.base, params.message, file);
+        } catch (error) {
+          await rm(file, { force: true });
+          throw error;
+        }
+      })
+      .on("blob.get", async (params: { id: string; offset: number; length: number }) => {
+        const length = Math.min(Math.max(0, params.length), REPO_CHUNK_BYTES);
+        const handle = await open(transferFile(root, params.id), "r");
+        try {
+          const buffer = Buffer.alloc(length);
+          const { bytesRead } = await handle.read(buffer, 0, length, params.offset);
+          return { data: buffer.subarray(0, bytesRead).toString("base64") };
+        } finally {
+          await handle.close();
+        }
+      })
+      .on("blob.drop", async (params: { id: string }) => {
+        await rm(transferFile(root, params.id), { force: true });
+      })
       .on("files.list", async (params: { key: string }) => listTree(await this.workspace(params.key)))
       .on("files.read", async (params: { key: string; path: string }) => {
         const file = await resolveInside(await this.workspace(params.key), params.path);

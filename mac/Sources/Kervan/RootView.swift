@@ -215,7 +215,9 @@ private struct SidebarView: View {
             Task { await model.store.setArchived(session.id, !session.archived) }
         }
         // A project session's own worktree can go with it; its work stays committed on its branch.
-        if !session.archived, session.branch != nil, session.projectId != nil, session.parentId == nil {
+        // A session on a node works on a copy there, not a worktree here.
+        if !session.archived, session.branch != nil, session.projectId != nil, session.parentId == nil,
+           model.store.agents.first(where: { $0.id == session.agent })?.node == nil {
             Button(L("Archive and Remove Worktree", "Arşivle ve Worktree'yi Kaldır")) {
                 Task {
                     if let failure = await model.store.setArchived(session.id, true, removeWorktree: true) {

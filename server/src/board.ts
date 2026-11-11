@@ -27,8 +27,8 @@ type ConfigChange = { configId: string; value: string };
 export interface BoardDeps {
   hasProject: (id: string) => boolean;
   hasAgent: (id: string) => boolean;
-  /** The node the agent runs on, when it isn't this server. */
-  remoteNode?: (id: string) => string | undefined;
+  /** Why the agent can't work on the project (an old node, a project that isn't a git repository), if it can't. */
+  projectRefusal?: (agent: string, projectId: string) => string | undefined;
   /** Starts a session in the project with the card's prompt and files, after `choose` has seen its settings; resolves with its id once the prompt is sent. */
   start: (card: CardInfo, files: { source: string; name: string }[], choose: (config: ConfigOption[]) => Promise<ConfigChange | undefined>) => Promise<string>;
   /** The session as it is now, to catch up after starting. */
@@ -92,6 +92,12 @@ export class Board {
     return { file, size };
   }
 
+  /** Every card belongs to a project; an agent that can't work on it is found now, not when the card is started. */
+  private refuseProjectWork(agent: string, projectId: string): void {
+    const refusal = this.deps.projectRefusal?.(agent, projectId);
+    if (refusal) throw new KervanError("bad_message", refusal);
+  }
+
   list(projectId: string): CardInfo[] {
     return [...this.cards.values()].filter((c) => c.projectId === projectId).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }
@@ -109,9 +115,6 @@ export class Board {
     const prompt = text("prompt", MAX_PROMPT);
     const agent = text("agent", 80);
     if (!this.deps.hasAgent(agent)) throw new KervanError("unknown_agent", `no agent named '${agent}'`);
-    // Every card belongs to a project, and projects live on this server: found now, not when the card is started.
-    const node = this.deps.remoteNode?.(agent);
-    if (node) throw new KervanError("bad_message", `projects live on this server; '${agent}' runs on node '${node}'`);
     const split = input.split === true ? { split: true } : {};
     const files = this.files(input.files);
     const now = new Date().toISOString();
@@ -120,6 +123,7 @@ export class Board {
       const card = this.require(input.id);
       this.refuseWhileChoosing(card);
       if (card.sessionId) throw new KervanError("bad_message", "a card can't be changed once its session has started");
+      this.refuseProjectWork(agent, card.projectId);
       Object.assign(card, { title, prompt, agent, updatedAt: now });
       if (input.split === true) card.split = true;
       else delete card.split;
@@ -133,6 +137,7 @@ export class Board {
     }
     const projectId = text("projectId", 80);
     if (!this.deps.hasProject(projectId)) throw new KervanError("bad_message", `no project '${projectId}'`);
+    this.refuseProjectWork(agent, projectId);
     const card: CardInfo = { id: randomUUID(), projectId, title, prompt, agent, ...split, ...(input.autoApprove === true ? { autoApprove: true } : {}), ...(files.length > 0 ? { files } : {}), column: "todo", createdAt: now, updatedAt: now };
     this.cards.set(card.id, card);
     this.changed(projectId);
@@ -306,7 +311,7 @@ export function attachBoard(sessions: SessionManager, file: string): Board {
   const board = new Board(file, {
     hasProject: (id) => sessions.projects?.get(id) !== undefined,
     hasAgent: (id) => sessions.agentKinds.includes(id),
-    remoteNode: (id) => sessions.remoteNode(id),
+    projectRefusal: (agent, projectId) => sessions.projectRefusal(agent, projectId),
     start: (card, files, choose) =>
       sessions.runTask({ agent: card.agent, title: card.title, prompt: card.prompt, projectId: card.projectId, files, ...(card.split ? { split: true } : {}), ...(card.autoApprove ? { autoApprove: true } : {}), choose }),
     session: (id) => sessions.list().find((s) => s.id === id),

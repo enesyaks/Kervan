@@ -320,7 +320,7 @@ private struct CardSheet: View {
             Text(draft.cardID == nil ? L("New card", "Yeni kart") : L("Edit card", "Kartı düzenle")).font(.title2.weight(.semibold))
             Form {
                 TextField(L("Title", "Başlık"), text: $draft.title, prompt: Text(L("e.g. Add a dark theme", "ör. Koyu tema ekle")))
-                AgentPicker(agent: $draft.agent, serverOnly: true)
+                AgentPicker(agent: $draft.agent, forProject: true)
                 Toggle(L("Split into helpers when the work is large", "İş büyük olduğunda yardımcılara böl"), isOn: $draft.split)
                 Toggle(L("Auto-approve: only ask before major changes", "Otomatik onay: yalnızca büyük değişikliklerde sor"), isOn: $draft.autoApprove)
                     .help(L("Approves routine actions by itself. It still asks before major ones: pushing, deleting folders, rewriting git history, deploying, touching secrets or files outside this task's folder.", "Sıradan işlemleri kendisi onaylar. Büyük işlemlerde yine sorar: push, klasör silme, git geçmişini değiştirme, yayına alma, gizli bilgilere ya da bu görevin klasörü dışındaki dosyalara dokunma."))
