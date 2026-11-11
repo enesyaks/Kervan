@@ -52,6 +52,13 @@ public enum HubSetup {
         ssh(user, host, "sudo -n env ACCESS=\(access.rawValue) bash \(remoteFolder)/hub-setup.sh")
     }
 
+    /// Lets this Mac log in to the machine without a password from now on. Terminal asks for the machine's password
+    /// once. A Mac with no SSH key yet gets one first, or ssh-copy-id would only say "No identities found".
+    public static func copyKeyCommand(user: String, host: String) -> String {
+        // The key names ssh-copy-id looks for, tested one by one: a glob that matches nothing makes zsh print an error.
+        "test -e ~/.ssh/id_ed25519.pub -o -e ~/.ssh/id_rsa.pub -o -e ~/.ssh/id_ecdsa.pub || { mkdir -p ~/.ssh && ssh-keygen -q -t ed25519 -N '' -f ~/.ssh/id_ed25519; }; ssh-copy-id \(user)@\(host)"
+    }
+
     /// For the Mac's own Terminal when sudo needs a password: it is typed there, never into the app.
     public static func terminalCommand(user: String, host: String, access: Access) -> String {
         "ssh -t \(user)@\(host) \"sudo env ACCESS=\(access.rawValue) bash \(remoteFolder)/hub-setup.sh\""

@@ -195,6 +195,16 @@ struct ServerUpdateSheet: View {
                         .foregroundStyle(.kervanCoral)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                if installer.sshRefused {
+                    Guidance(
+                        text: L(
+                            "Run this once: it adds this Mac's key to the server, asking for the server's password in Terminal. Then try again.",
+                            "Bunu bir kez çalıştırın: bu Mac'in anahtarını sunucuya ekler, sunucunun parolasını Terminal'de sorar. Sonra yeniden deneyin."
+                        ),
+                        command: HubSetup.copyKeyCommand(user: user, host: host),
+                        runsHere: true
+                    )
+                }
                 if done {
                     Label(tailscale
                         ? L("Tailscale is set up. Its address shows up under Web access in a moment.", "Tailscale kuruldu. Adresi birazdan Web erişimi'nde görünür.")

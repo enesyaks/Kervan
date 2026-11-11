@@ -319,7 +319,7 @@ struct OnboardingView: View {
                 }
                 Guidance(
                     text: L("If your Mac can't log in to this machine without a password, run this once in Terminal first:", "Mac'iniz bu makineye parolasız giremiyorsa önce Terminal'de bir kez şunu çalıştırın:"),
-                    command: L("ssh-copy-id \(user.trimmed.isEmpty ? "ubuntu" : user.trimmed)@\(host.trimmed.isEmpty ? "ADDRESS" : host.trimmed)", "ssh-copy-id \(user.trimmed.isEmpty ? "ubuntu" : user.trimmed)@\(host.trimmed.isEmpty ? "ADRES" : host.trimmed)"),
+                    command: HubSetup.copyKeyCommand(user: user.trimmed.isEmpty ? "ubuntu" : user.trimmed, host: host.trimmed.isEmpty ? L("ADDRESS", "ADRES") : host.trimmed),
                     runsHere: !host.trimmed.isEmpty
                 )
             }
@@ -456,6 +456,16 @@ struct OnboardingView: View {
                 }
                 if let address = installer.waitingOnTailscale {
                     TailscaleHint(address: address)
+                }
+                if installer.sshRefused {
+                    Guidance(
+                        text: L(
+                            "Run this once: it adds this Mac's key to the machine, asking for its password in Terminal. Then try again.",
+                            "Bunu bir kez çalıştırın: bu Mac'in anahtarını makineye ekler, parolasını Terminal'de sorar. Sonra yeniden deneyin."
+                        ),
+                        command: HubSetup.copyKeyCommand(user: user.trimmed, host: host.trimmed),
+                        runsHere: true
+                    )
                 }
                 if let failure = installer.failure {
                     Label(failure, systemImage: "exclamationmark.triangle.fill")

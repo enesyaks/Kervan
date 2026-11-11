@@ -70,6 +70,8 @@ final class HubInstaller {
     /// macOS keeps the app off the local network: the screen offers the settings page.
     private(set) var localNetworkBlocked = false
     var started: Bool { startedAt != nil }
+    /// The machine wouldn't let this Mac in with its key, which one command in Terminal puts right.
+    var sshRefused: Bool { failure != nil && output.contains("Permission denied") }
 
     /// A step as the list shows it. While setup runs in the user's Terminal its progress can't be seen from here, so the
     /// step says what it's waiting for rather than seeming to work on something.

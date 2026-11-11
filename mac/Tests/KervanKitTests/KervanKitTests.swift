@@ -804,6 +804,10 @@ import Testing
         #expect(HubSetup.uploadArguments(user: "ubuntu", host: "192.168.1.30").contains("BatchMode=yes"))
         #expect(HubSetup.runArguments(user: "ubuntu", host: "h", access: .tailscale).last == "sudo -n env ACCESS=tailscale bash /tmp/kervan-setup/hub-setup.sh")
         #expect(HubSetup.terminalCommand(user: "ubuntu", host: "h", access: .tailscale) == "ssh -t ubuntu@h \"sudo env ACCESS=tailscale bash /tmp/kervan-setup/hub-setup.sh\"")
+        // Copies the key; makes one first only when the Mac has none, so an existing key is never replaced.
+        let copy = HubSetup.copyKeyCommand(user: "ubuntu", host: "kervan-1.example.ts.net")
+        #expect(copy.hasSuffix("ssh-copy-id ubuntu@kervan-1.example.ts.net"))
+        #expect(copy.hasPrefix("test -e ~/.ssh/id_ed25519.pub -o -e ~/.ssh/id_rsa.pub -o -e ~/.ssh/id_ecdsa.pub || {"))
         // Setting up Podman is its own mode, so an ordinary update never installs it unasked.
         #expect(HubSetup.runArguments(user: "ubuntu", host: "h", access: .podman).last == "sudo -n env ACCESS=podman bash /tmp/kervan-setup/hub-setup.sh")
         // Asks about the token rather than the folder: the script leaves the folder behind and takes the token with it.
