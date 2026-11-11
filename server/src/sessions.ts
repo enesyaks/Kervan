@@ -20,7 +20,7 @@ import {
   type UsageReport,
 } from "./protocol.ts";
 import { commitAll, repositoryBranch, type Checkpoints } from "./checkpoints.ts";
-import { openPullRequest } from "./pullrequest.ts";
+import { openPullRequest, proposeBranch } from "./pullrequest.ts";
 import type { ProjectRegistry } from "./projects.ts";
 import type { Board } from "./board.ts";
 import type { ProjectMaps } from "./projectmap.ts";
@@ -1424,11 +1424,31 @@ export class SessionManager {
   /** Puts the session's work up for review on a branch of its own; see openPullRequest. */
   async pullRequest(sessionId: string, title: string, body: string): Promise<PullRequestInfo> {
     const session = this.require(sessionId);
+    const copy = this.nodeCopyOf(session);
+    if (copy) return this.nodePullRequest(session, copy, title.trim(), body);
     this.requireLocal(session);
     const result = await openPullRequest(session.cwd, { title: title.trim(), body, sessionId });
     this.record(session, {
       kind: "notice",
       text: result.created ? `Opened a pull request: ${result.url}` : `Pushed ${result.branch} for a pull request into ${result.base}`,
+    });
+    return result;
+  }
+
+  /**
+   * A node session's work is already on its branch here, up to its last finished turn: that branch is pushed as it is
+   * and its pull request opened, with the node's latest work brought over first when the node is here.
+   */
+  private async nodePullRequest(session: Session, copy: { repo: string; node: string; branch: string }, title: string, body: string): Promise<PullRequestInfo> {
+    if (session.info.status === "running" || session.info.status === "waiting" || session.info.status === "starting") {
+      throw new KervanError("session_busy", "wait until the agent's turn is over: its work comes to the server when the turn ends");
+    }
+    const latest = this.nodes?.isConnected(copy.node) ? await this.syncFromNode(session) : false;
+    const result = await proposeBranch(copy.repo, copy.branch, { title, body });
+    const from = latest ? "" : ` Node '${copy.node}' wasn't reachable, so this is the work up to its last turn that reached the server.`;
+    this.record(session, {
+      kind: "notice",
+      text: (result.created ? `Opened a pull request from ${result.branch}: ${result.url}` : `Pushed ${result.branch} for a pull request into ${result.base}`) + from,
     });
     return result;
   }

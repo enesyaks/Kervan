@@ -183,6 +183,34 @@ describe("a project worked on from a node", () => {
     assert.equal(git(projectPath, "show", `${branch}:yarim.txt`), "yarım kalan iş");
     assert.equal(git(projectPath, "branch", "--show-current"), "main");
   });
+
+  it("pushes the session's branch from the server and proposes it, without touching the project folder", async () => {
+    // The project's real repository, where work goes once it has piled up on the server.
+    const origin = join(mkdtempSync(join(tmpdir(), "kervan-origin-")), "origin.git");
+    execFileSync("git", ["init", "-q", "--bare", origin]);
+    git(projectPath, "remote", "add", "origin", origin);
+    git(projectPath, "push", "-q", "origin", "main");
+    await turn(sessionId, "write son.txt bitti");
+
+    const id = `pr${++n}`;
+    send(ws, { type: "session.pullRequest", id, sessionId, title: "Node'dan gelen iş", body: "" });
+    const answer = await inbox.waitFor((m) => m.id === id && (m.type === "session.pullRequest.result" || m.type === "error"), 30_000);
+    assert.equal(answer.type, "session.pullRequest.result", answer.message);
+    assert.equal(answer.pullRequest.branch, branch);
+    assert.equal(answer.pullRequest.base, "main");
+    assert.equal(git(origin, "show", `${branch}:son.txt`), "bitti");
+    assert.equal(git(origin, "show", `${branch}:yeni.txt`), "merhaba");
+    assert.equal(git(origin, "rev-parse", branch), git(projectPath, "rev-parse", branch), "exactly what the server holds");
+    assert.equal(git(projectPath, "branch", "--show-current"), "main");
+    assert.equal(git(projectPath, "status", "--porcelain"), "");
+
+    // Once main has it all (the pull request merged), there is nothing left to propose.
+    git(origin, "update-ref", "refs/heads/main", git(origin, "rev-parse", branch));
+    git(projectPath, "fetch", "-q", "origin");
+    send(ws, { type: "session.pullRequest", id: `${id}b`, sessionId, title: "Yine", body: "" });
+    const again = await inbox.waitFor((m) => m.id === `${id}b`, 30_000);
+    assert.match(again.message ?? "", /nothing to propose/);
+  });
 });
 
 describe("bringing a node's work into the hub's repository", () => {

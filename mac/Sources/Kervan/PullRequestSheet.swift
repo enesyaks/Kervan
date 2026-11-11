@@ -5,6 +5,8 @@ import SwiftUI
 /// Asks for the pull request's title and description, then has the server push the session's work and open it.
 struct PullRequestSheet: View {
     let sessionID: String
+    /// For a session on a node: its branch on the server is pushed as it is.
+    var fromNode: String?
     let done: (PullRequestInfo) -> Void
 
     @Environment(AppModel.self) private var model
@@ -14,8 +16,9 @@ struct PullRequestSheet: View {
     @State private var working = false
     @State private var failure: String?
 
-    init(sessionID: String, title: String, done: @escaping (PullRequestInfo) -> Void) {
+    init(sessionID: String, title: String, fromNode: String? = nil, done: @escaping (PullRequestInfo) -> Void) {
         self.sessionID = sessionID
+        self.fromNode = fromNode
         _title = State(initialValue: title)
         self.done = done
     }
@@ -23,7 +26,12 @@ struct PullRequestSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(L("Open a pull request", "Pull request aç")).font(.title2.weight(.semibold))
-            Text(L(
+            Text(fromNode.map { node in
+                L(
+                    "The server first takes what \(node) hasn't sent yet, if it's reachable, then pushes the session's branch as it is to the project's repository. If GitHub's gh is signed in on the server, the pull request is opened for you; otherwise GitHub opens with it ready to send.",
+                    "Sunucu önce, ulaşılabiliyorsa \(node) makinesinin henüz göndermediği işi alır, sonra oturumun dalını olduğu gibi projenin deposuna push eder. Sunucuda GitHub'ın gh aracı oturum açmışsa pull request sizin için açılır; değilse GitHub, gönderilmeye hazır hâliyle açılır."
+                )
+            } ?? L(
                 "The server commits what's left, moves the work to a branch of its own if it's on the main branch, and pushes it. If GitHub's gh is signed in on the server, the pull request is opened for you; otherwise GitHub opens with it ready to send.",
                 "Sunucu kalan değişiklikleri commit eder, iş ana branch'teyse kendi branch'ine taşır ve push eder. Sunucuda GitHub'ın gh aracı oturum açmışsa pull request sizin için açılır; değilse GitHub, gönderilmeye hazır hâliyle açılır."
             ))

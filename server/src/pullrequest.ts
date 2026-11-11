@@ -49,14 +49,7 @@ export async function openPullRequest(
 ): Promise<PullRequestInfo> {
   const current = await repositoryBranch(cwd);
   if (current === undefined) throw new KervanError("bad_message", "this folder is not a git repository");
-  const remote = await git(cwd, "remote", "get-url", "origin").catch(() => "");
-  if (!remote) throw new KervanError("bad_message", "this repository has no 'origin' remote to push to");
-
-  // Pushing to a folder runs that repository's own hooks as this server, and an agent can change where origin points.
-  if (!isNetworkRemote(remote) && !process.env.KERVAN_ALLOW_LOCAL_REMOTES) {
-    throw new KervanError("bad_message", `'origin' points at a folder on this server (${remote}), and Kervan only pushes over the network`);
-  }
-
+  const remote = await pushRemote(cwd);
   const base = await baseBranch(cwd);
   let branch = current;
   if (current === base || current === "HEAD") {
@@ -74,8 +67,35 @@ export async function openPullRequest(
 
   const ahead = await git(cwd, "rev-list", "--count", `origin/${base}..HEAD`).catch(() => "1");
   if (ahead === "0") throw new KervanError("bad_message", `nothing to propose: ${branch} has no commits that ${base} doesn't have`);
+  return propose(cwd, remote, base, branch, request);
+}
 
-  await git(cwd, "push", "-u", "origin", branch).catch((error) => {
+/**
+ * The same for a branch that already holds the work in the repository at `repo`, as a node session's branch does on
+ * the hub: it is pushed as it is, without checking anything out, so the project folder stays exactly as it was.
+ */
+export async function proposeBranch(repo: string, branch: string, request: { title: string; body: string }): Promise<PullRequestInfo> {
+  const remote = await pushRemote(repo);
+  const base = await baseBranch(repo);
+  const ahead = await git(repo, "rev-list", "--count", `origin/${base}..refs/heads/${branch}`).catch(() => "1");
+  if (ahead === "0") throw new KervanError("bad_message", `nothing to propose: ${branch} has no commits that ${base} doesn't have`);
+  return propose(repo, remote, base, branch, request);
+}
+
+/** Where pushes go: origin, over the network. */
+async function pushRemote(cwd: string): Promise<string> {
+  const remote = await git(cwd, "remote", "get-url", "origin").catch(() => "");
+  if (!remote) throw new KervanError("bad_message", "this repository has no 'origin' remote to push to");
+  // Pushing to a folder runs that repository's own hooks as this server, and an agent can change where origin points.
+  if (!isNetworkRemote(remote) && !process.env.KERVAN_ALLOW_LOCAL_REMOTES) {
+    throw new KervanError("bad_message", `'origin' points at a folder on this server (${remote}), and Kervan only pushes over the network`);
+  }
+  return remote;
+}
+
+/** Pushes `branch` and opens its pull request into `base`, or says where GitHub will. */
+async function propose(cwd: string, remote: string, base: string, branch: string, request: { title: string; body: string }): Promise<PullRequestInfo> {
+  await git(cwd, "push", "-u", "origin", `refs/heads/${branch}:refs/heads/${branch}`).catch((error) => {
     throw new KervanError(
       "bad_message",
       `pushing ${branch} failed: ${stderrOf(error)}. The server needs push access to this repository, ` +

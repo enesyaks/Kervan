@@ -316,6 +316,7 @@ import Testing
         session.projectId = "p"
         session.branch = "kervan/t-12345678"
         #expect(store.canContinueOnServer(session))
+        #expect(store.projectNode(of: session) == "mac", "its Changes panel offers the branch's pull request")
         session.agent = "claude"
         #expect(!store.canContinueOnServer(session), "already on the server")
         // A terminal agent can't be told the conversation, so it isn't offered.

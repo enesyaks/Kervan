@@ -152,6 +152,10 @@ struct ChangesPanel: View {
 
             Divider()
 
+            if let session = store.session(sessionID), let node = store.projectNode(of: session) {
+                // The files are on the node; what the server has is the branch its work comes back to.
+                nodeBranchBox(node: node, branch: session.branch ?? "", busy: busy)
+            } else {
             if let error {
                 PanelMessage(text: error, symbol: "exclamationmark.triangle", tint: .kervanCoral)
             }
@@ -183,6 +187,7 @@ struct ChangesPanel: View {
                 }
             } else if error == nil {
                 ProgressView().frame(maxWidth: .infinity).padding()
+            }
             }
         }
         .frame(maxHeight: .infinity, alignment: .top)
@@ -276,6 +281,37 @@ struct ChangesPanel: View {
         }
     }
 
+    private func nodeBranchBox(node: String, branch: String, busy: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.triangle.branch").foregroundStyle(.secondary)
+                Text(branch).font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+            }
+            Text(L(
+                "The agent works on a copy on \(node). After each turn its work comes to the server on this branch, in the project's repository. When enough has piled up, push it to the project's real repository and open a pull request.",
+                "Ajan \(node) üzerindeki bir kopyada çalışıyor. Her turdan sonra işi sunucuya, projenin deposundaki bu dala gelir. Yeterince birikince projenin asıl deposuna push edip pull request açın."
+            ))
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                Button(L("Pull request…", "Pull request…")) { proposing = true }
+                    .buttonStyle(.kervanPrimary)
+                    .disabled(working || busy)
+                    .help(L("Push this branch from the server and open a pull request", "Bu dalı sunucudan push edip pull request açar"))
+            }
+            if let proposed {
+                ProposedNote(pullRequest: proposed)
+            }
+        }
+        .padding(12)
+        .sheet(isPresented: $proposing) {
+            PullRequestSheet(sessionID: sessionID, title: model.store.session(sessionID)?.title ?? "", fromNode: node) { proposed = $0 }
+                .environment(model)
+        }
+    }
+
     private func commitBox(_ changes: ChangeSet) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Divider()
@@ -319,6 +355,8 @@ struct ChangesPanel: View {
     }
 
     private func load() async {
+        // A session on a node has no checkpoints here to compare; its panel shows the branch instead.
+        if let session = model.store.session(sessionID), model.store.projectNode(of: session) != nil { return }
         error = await model.store.loadChanges(sessionID, sinceTurn: sinceTurn)
     }
 
