@@ -334,6 +334,10 @@ async function handleRequest(
     case "project.map.get":
       if (!requireProjects(sessions).get(message.projectId)) throw new KervanError("bad_message", `no project '${message.projectId}'`);
       return send(ws, { type: "project.map.result", id: message.id, projectId: message.projectId, text: requireProjects(sessions).mapText(message.projectId) });
+    case "project.pm":
+      sessions.setProjectPM(message.projectId, message.pm);
+      sessions.broadcast({ type: "projects.updated", projects: requireProjects(sessions).list() });
+      return send(ws, { type: "project.list.result", id: message.id, projects: requireProjects(sessions).list() });
     case "project.delete":
       requireProjects(sessions).remove(message.projectId);
       sessions.broadcast({ type: "projects.updated", projects: requireProjects(sessions).list() });

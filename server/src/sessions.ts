@@ -11,6 +11,7 @@ import {
   type ChangeSet,
   type ConfigOption,
   type ProjectInfo,
+  type ProjectPM,
   type PullRequestInfo,
   type ServerMessage,
   type TeamInfo,
@@ -34,7 +35,7 @@ import type { AgentCatalog } from "./catalog.ts";
 import type { McpRegistry } from "./mcp.ts";
 import type { SkillLibrary } from "./skills.ts";
 import type { EventStore, IndexedMessage, SearchHit, StoredTeam } from "./store.ts";
-import type { RoleRegistry } from "./roles.ts";
+import type { Role, RoleRegistry } from "./roles.ts";
 import type * as acp from "@agentclientprotocol/sdk";
 import { isMemoryCall, isOrchestraCall } from "./orchestra.ts";
 import { majorChange } from "./autoapprove.ts";
@@ -340,6 +341,33 @@ export class SessionManager {
       return `project '${project.name}' isn't a git repository with at least one commit, so an agent on node '${node}' can't get a copy of it; make a first commit in it, or pick an agent on this server`;
     }
     return undefined;
+  }
+
+  /**
+   * Gives a project its PM (a role), or takes it away with null. The PM hands work to others, so a terminal agent
+   * can't be one; and its agent has to be able to work on the project where it runs.
+   */
+  setProjectPM(projectId: string, input: Record<string, unknown> | null | undefined): ProjectInfo {
+    const projects = this.projects ?? fail("this server has no projects");
+    if (!projects.get(projectId)) fail(`no project '${projectId}'`);
+    if (input === null || input === undefined) return projects.setPM(projectId, undefined);
+    const roleId = input.roleId;
+    if (typeof roleId !== "string") fail("pm needs a 'roleId'");
+    const role = this.roles?.get(roleId as string) ?? fail(`no role named '${String(roleId)}'`);
+    const agent = this.agents.get(role.agent) ?? fail(`role '${role.name}' uses agent '${role.agent}', which no longer exists`);
+    if (agent.protocol === "pty") fail("a terminal agent can't be a PM: it has no way to hand work to others");
+    const node = nodeOf(agent);
+    if (node !== LOCAL_NODE && role.skills.length > 0) fail(`skills aren't available on node '${node}' yet, so role '${role.name}' can't be a PM there`);
+    const refusal = this.projectRefusal(role.agent, projectId);
+    if (refusal) fail(refusal);
+    return projects.setPM(projectId, { roleId: role.id, autoPickup: input.autoPickup !== false, startOwnCases: input.startOwnCases === true });
+  }
+
+  /** The project's PM and its role; undefined without one, or once its role has been deleted. */
+  projectPM(projectId: string): { pm: ProjectPM; role: Role } | undefined {
+    const pm = this.projects?.get(projectId)?.pm;
+    const role = pm ? this.roles?.get(pm.roleId) : undefined;
+    return pm && role ? { pm, role } : undefined;
   }
 
   /** New work is refused while its node is away, so it doesn't leave a session that can never start. */

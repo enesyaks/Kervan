@@ -400,3 +400,28 @@ import Testing
         #expect(id == "g" && project == "p" && text == "# Map")
     }
 }
+
+@Suite struct ProjectPMTests {
+    @Test func warnsWithoutAPMOrWhenItsRoleIsGone() {
+        let pm = Role(id: "pm", name: "PM", agent: "claude", lead: true)
+        let none = ProjectInfo(id: "p", name: "n", path: "/w")
+        #expect(none.pmWarning(roles: [pm])?.contains("no PM") == true)
+        let set = ProjectInfo(id: "p", name: "n", path: "/w", pm: ProjectPM(roleId: "pm"))
+        #expect(set.pmWarning(roles: [pm]) == nil)
+        #expect(set.pmWarning(roles: [])?.contains("was deleted") == true)
+    }
+
+    @Test func aPMRoleTakesTheFirstFreeID() {
+        #expect(Role.pmTemplate(agent: "claude", taken: []).id == "pm")
+        let next = Role.pmTemplate(agent: "claude", taken: ["pm", "pm-2"])
+        #expect(next.id == "pm-3" && next.lead && next.agent == "claude" && next.skills.isEmpty)
+    }
+
+    @Test func setsAndRemovesThePM() throws {
+        let set = try ClientMessage.projectPM(id: "a", projectId: "p", pm: ProjectPM(roleId: "pm", autoPickup: false)).jsonString()
+        #expect(set.contains(#""type":"project.pm""#) && set.contains(#""roleId":"pm""#) && set.contains(#""autoPickup":false"#))
+        #expect(try ClientMessage.projectPM(id: "a", projectId: "p", pm: nil).jsonString().contains(#""pm":null"#))
+        let decoded = try JSONDecoder().decode(ProjectInfo.self, from: Data(#"{"id":"p","name":"n","path":"/w","instructions":"","createdAt":"t","pm":{"roleId":"pm","autoPickup":true,"startOwnCases":false}}"#.utf8))
+        #expect(decoded.pm == ProjectPM(roleId: "pm"))
+    }
+}

@@ -57,6 +57,7 @@ struct ProjectView: View {
                     .disabled(!model.canCreateSession)
                 }
             } content: {
+                ProjectPMSection(project: project)
                 BoardSection(projectID: projectID)
                 ProjectMapSection(project: project)
                 SettingsCard(title: L("Instructions", "Talimatlar")) {
@@ -96,6 +97,89 @@ struct ProjectView: View {
             }
         } else {
             Page(title: L("Project not found", "Proje bulunamadı"), subtitle: L("It may have been removed from the server.", "Bu proje sunucudan kaldırılmış olabilir.")) { EmptyView() } content: { EmptyView() }
+        }
+    }
+}
+
+/// The project's PM: the agent that looks at every card first, plans it, hands it to the right agent and follows it up.
+private struct ProjectPMSection: View {
+    let project: ProjectInfo
+    @Environment(AppModel.self) private var model
+    @State private var error: String?
+    @State private var working = false
+
+    /// Roles whose agent can hand out work: a terminal agent can't.
+    private var candidates: [Role] {
+        model.store.roles.filter { role in model.store.agents.first { $0.id == role.agent }.map { !$0.terminal } ?? false }
+    }
+
+    private var role: Role? { project.pm.flatMap { pm in model.store.roles.first { $0.id == pm.roleId } } }
+
+    var body: some View {
+        SettingsCard(
+            title: L("PM", "PM"),
+            footer: L(
+                "The PM looks at every new card first: it plans it with its skills, hands it to the right agent and follows it until it's done. The PM is a role, so its agent, instructions, skills and budget are set in Settings › Roles.",
+                "PM her yeni karta önce bakar: skill'leriyle planlar, doğru ajana verir ve bitene kadar takip eder. PM bir roldür; ajanı, talimatı, skill'leri ve bütçesi Ayarlar › Roller'den ayarlanır."
+            )
+        ) {
+            if let warning = project.pmWarning(roles: model.store.roles) {
+                Label(warning, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(Color.kervanSaffron)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack {
+                Picker(L("PM", "PM"), selection: Binding(get: { role?.id }, set: { choose($0) })) {
+                    Text(L("None", "Yok")).tag(String?.none)
+                    ForEach(candidates) { role in
+                        Text("\(role.name) · \(model.store.agentName(role.agent))").tag(Optional(role.id))
+                    }
+                }
+                .disabled(working)
+                Button(L("Create a PM role", "PM rolü oluştur")) {
+                    Task {
+                        working = true
+                        defer { working = false }
+                        error = await model.store.createPMRole(for: project.id)
+                    }
+                }
+                .buttonStyle(.kervanQuiet)
+                .disabled(working || !model.connection.state.isConnected)
+            }
+            if let role, let pm = project.pm {
+                Text(role.skills.isEmpty
+                    ? L("No skills: the PM plans from the project's instructions, its map and the repository's own documents.", "Skill yok: PM projenin talimatları, haritası ve deponun kendi belgeleriyle planlar.")
+                    : L("Skills: \(role.skills.joined(separator: ", "))", "Skill'ler: \(role.skills.joined(separator: ", "))"))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Toggle(isOn: Binding(get: { pm.autoPickup }, set: { on in update { $0.autoPickup = on } })) {
+                    Text(L("Pick up new cards by itself", "Yeni kartları kendiliğinden alsın"))
+                    Text(L("A new card starts its PM at once, a couple at a time; the rest wait in To do. Off: a card starts when you move it to Working.", "Yeni kart PM'ini hemen başlatır, aynı anda birkaç tane; diğerleri Yapılacak'ta bekler. Kapalıyken kart, Çalışıyor'a taşıyınca başlar."))
+                }
+                .disabled(working)
+            }
+            if let error {
+                Label(error, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(Color.kervanCoral)
+            }
+        }
+    }
+
+    private func choose(_ roleID: String?) {
+        let pm = roleID.map { ProjectPM(roleId: $0, autoPickup: project.pm?.autoPickup ?? true, startOwnCases: project.pm?.startOwnCases ?? false) }
+        Task {
+            working = true
+            defer { working = false }
+            error = await model.store.setProjectPM(project.id, pm: pm)
+        }
+    }
+
+    private func update(_ change: (inout ProjectPM) -> Void) {
+        guard var pm = project.pm else { return }
+        change(&pm)
+        Task {
+            working = true
+            defer { working = false }
+            error = await model.store.setProjectPM(project.id, pm: pm)
         }
     }
 }

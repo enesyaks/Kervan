@@ -151,8 +151,10 @@ public struct ProjectInfo: Codable, Equatable, Sendable, Identifiable {
     public let createdAt: String
     /// What an agent learned scanning the repository once; later sessions get it so they don't rescan it.
     public let map: ProjectMapInfo?
+    /// The project's PM: cards go to it first, and it plans, hands out and follows up the work.
+    public let pm: ProjectPM?
 
-    public init(id: String, name: String, path: String, instructions: String = "", buildImage: String? = nil, createdAt: String = "", map: ProjectMapInfo? = nil) {
+    public init(id: String, name: String, path: String, instructions: String = "", buildImage: String? = nil, createdAt: String = "", map: ProjectMapInfo? = nil, pm: ProjectPM? = nil) {
         self.id = id
         self.name = name
         self.path = path
@@ -160,6 +162,50 @@ public struct ProjectInfo: Codable, Equatable, Sendable, Identifiable {
         self.buildImage = buildImage
         self.createdAt = createdAt
         self.map = map
+        self.pm = pm
+    }
+}
+
+/// A project's PM: a role, and how freely it starts work.
+public struct ProjectPM: Codable, Equatable, Sendable {
+    public var roleId: String
+    /// A new card starts its PM session at once (a few at a time).
+    public var autoPickup: Bool
+    /// Cards the PM opens itself start without waiting for the user.
+    public var startOwnCases: Bool
+
+    public init(roleId: String, autoPickup: Bool = true, startOwnCases: Bool = false) {
+        self.roleId = roleId
+        self.autoPickup = autoPickup
+        self.startOwnCases = startOwnCases
+    }
+}
+
+extension ProjectInfo {
+    /// What the project page says about its PM: none yet, or a PM whose role is gone. Nil when all is well.
+    public func pmWarning(roles: [Role]) -> String? {
+        guard let pm else {
+            return L(
+                "This project has no PM, so cards go straight to the agent picked on each card. Assign a PM to have them planned, handed to the right agent and followed up.",
+                "Bu projenin PM'i yok; kartlar her kartta seçilen ajana doğrudan gidiyor. Kartların planlanması, doğru ajana verilmesi ve takip edilmesi için bir PM atayın."
+            )
+        }
+        guard roles.contains(where: { $0.id == pm.roleId }) else {
+            return L(
+                "The PM's role (\(pm.roleId)) was deleted, so cards go straight to an agent again. Pick another PM.",
+                "PM'in rolü (\(pm.roleId)) silinmiş; kartlar yeniden doğrudan bir ajana gidiyor. Başka bir PM seçin."
+            )
+        }
+        return nil
+    }
+}
+
+extension Role {
+    /// A PM role to start from: the server gives every PM how to plan, hand out and follow up work, so the role's own
+    /// instructions stay the user's. Its id is the first of pm, pm-2, … that isn't taken.
+    public static func pmTemplate(agent: String, taken: [String]) -> Role {
+        let id = (["pm"] + (2...99).map { "pm-\($0)" }).first { !taken.contains($0) } ?? "pm-\(UUID().uuidString.prefix(6).lowercased())"
+        return Role(id: id, name: "PM", agent: agent, lead: true)
     }
 }
 

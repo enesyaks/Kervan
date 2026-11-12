@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writ
 import { mkdir } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { KervanError, type ProjectInfo, type ProjectMapInfo } from "./protocol.ts";
+import { KervanError, type ProjectInfo, type ProjectMapInfo, type ProjectPM } from "./protocol.ts";
 
 const run = promisify(execFile);
 const MAX_INSTRUCTIONS = 20_000;
@@ -139,6 +139,15 @@ export class ProjectRegistry {
     if (!this.projects.delete(id)) bad(`no project '${id}'`);
     rmSync(this.mapFile(id), { force: true });
     this.persist();
+  }
+
+  /** Gives the project its PM, or takes it away; checked by the session manager, which knows the roles. */
+  setPM(id: string, pm: ProjectPM | undefined): ProjectInfo {
+    const project = this.projects.get(id) ?? bad(`no project '${id}'`);
+    if (pm) project.pm = pm;
+    else delete project.pm;
+    this.persist();
+    return project;
   }
 
   /** Where the project's map stands; `text` (cut to MAX_MAP) replaces the stored map. */

@@ -389,6 +389,22 @@ public final class SessionStore {
         await call(.projectSave(id: Self.newID(), project: project))
     }
 
+    /// Gives the project its PM, or takes it away with nil; returns the server's refusal, if any.
+    @discardableResult
+    public func setProjectPM(_ projectID: String, pm: ProjectPM?) async -> String? {
+        await call(.projectPM(id: Self.newID(), projectId: projectID, pm: pm))
+    }
+
+    /// Makes a PM role with the first agent on the server and makes it the project's PM.
+    public func createPMRole(for projectID: String) async -> String? {
+        guard let agent = agents.first(where: { $0.node == nil && !$0.terminal }) else {
+            return L("This server has no agent that can be a PM. Add one in Settings.", "Bu sunucuda PM olabilecek bir ajan yok. Ayarlar'dan ekleyin.")
+        }
+        let role = Role.pmTemplate(agent: agent.id, taken: roles.map(\.id))
+        if let failure = await saveRole(role) { return failure }
+        return await setProjectPM(projectID, pm: ProjectPM(roleId: role.id))
+    }
+
     @discardableResult
     public func deleteProject(_ id: String) async -> String? {
         await call(.projectDelete(id: Self.newID(), projectId: id))

@@ -734,6 +734,8 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
     case projectList(id: String)
     case projectSave(id: String, project: ProjectInput)
     case projectDelete(id: String, projectId: String)
+    /// Gives a project its PM, or takes it away with nil.
+    case projectPM(id: String, projectId: String, pm: ProjectPM?)
     /// (Re)builds the project map with `agent`; the project's `map` follows how it goes.
     case projectMap(id: String, projectId: String, agent: String)
     case projectMapGet(id: String, projectId: String)
@@ -791,7 +793,7 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
         case type, `protocol`, client, id, agent, sessionId, text, requestId, optionId, attachments, title, archived, query
         case skills, mcpServers, server, name, agentId, role, roleId, roles, orchestrate, budgetUsd, configId, value
         case projectId, since, seq, paths, project, schedule, scheduleId, days, timeZone, terminalId, data, message, body
-        case autoApprove, enabled, deviceId, shared, removeWorktree, card, cardId, column, alerts, split, code, ollamaModel, node, lmStudioModel, useDefault
+        case autoApprove, enabled, deviceId, shared, removeWorktree, card, cardId, column, alerts, split, code, ollamaModel, node, lmStudioModel, useDefault, pm
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -882,6 +884,11 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
             try c.encode("project.save", forKey: .type)
             try c.encode(id, forKey: .id)
             try c.encode(project, forKey: .project)
+        case .projectPM(let id, let projectId, let pm):
+            try c.encode("project.pm", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(projectId, forKey: .projectId)
+            if let pm { try c.encode(pm, forKey: .pm) } else { try c.encodeNil(forKey: .pm) }
         case .alertsGet(let id):
             try c.encode("alerts.get", forKey: .type)
             try c.encode(id, forKey: .id)

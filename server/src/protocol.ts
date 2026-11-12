@@ -174,6 +174,17 @@ export interface ProjectInfo {
   createdAt: string;
   /** The project map: what an agent learned scanning the repository once, given to later sessions so they don't rescan it. */
   map?: ProjectMapInfo;
+  /** The project's PM: cards go to it first, and it plans them, hands them out and follows them up. */
+  pm?: ProjectPM;
+}
+
+export interface ProjectPM {
+  /** The role the PM is: its agent, instructions, skills and budget. */
+  roleId: string;
+  /** A new card starts its PM session at once (a few at a time) instead of waiting to be moved to Working. */
+  autoPickup: boolean;
+  /** Cards the PM opens itself start without waiting for the user. */
+  startOwnCases: boolean;
 }
 
 export interface ProjectMapInfo {
@@ -408,6 +419,7 @@ export type ClientMessage =
   | { type: "project.list"; id: string }
   | { type: "project.save"; id: string; project: Record<string, unknown> }
   | { type: "project.delete"; id: string; projectId: string }
+  | { type: "project.pm"; id: string; projectId: string; pm?: Record<string, unknown> | null }
   /** (Re)builds the project map with `agent`; answered with `project.list.result`. */
   | { type: "project.map"; id: string; projectId: string; agent: string }
   | { type: "project.map.get"; id: string; projectId: string }
@@ -601,6 +613,7 @@ const STRING_FIELDS: Record<string, readonly string[]> = {
   "project.list": ["id"],
   "project.save": ["id"],
   "project.delete": ["id", "projectId"],
+  "project.pm": ["id", "projectId"],
   "project.map": ["id", "projectId", "agent"],
   "project.map.get": ["id", "projectId"],
   "schedule.list": ["id"],
@@ -656,6 +669,10 @@ export function parseClientMessage(raw: string): ParseResult {
   if ((data.type === "agent.registry" || data.type === "agent.install") && data.node !== undefined) {
     if (typeof data.node !== "string") return fail("bad_message", `${data.type} needs a string 'node'`);
     message.node = data.node;
+  }
+  if (data.type === "project.pm" && data.pm !== undefined && data.pm !== null) {
+    if (!isRecord(data.pm)) return fail("bad_message", "project.pm needs a 'pm' object, or null to remove it");
+    (message as Record<string, unknown>).pm = data.pm;
   }
   if (data.type === "session.takeover" && data.agent !== undefined) {
     if (typeof data.agent !== "string") return fail("bad_message", "session.takeover needs a string 'agent'");
