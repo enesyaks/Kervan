@@ -367,6 +367,8 @@ public struct CardInfo: Codable, Equatable, Sendable, Identifiable {
     public var error: String? = nil
     /// A card the PM opened itself: what kind of work, why, and from which of its sessions.
     public var openedBy: CaseOrigin? = nil
+    /// What the PM asked and is waiting to hear; the card waits in Needs you until the user answers in its session.
+    public var question: String? = nil
 }
 
 /// A skill a PM suggested: nothing uses it until the user accepts it, and then it joins the library.

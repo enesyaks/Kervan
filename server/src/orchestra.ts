@@ -131,6 +131,13 @@ export const PM_TOOLS: Tool[] = [
     inputSchema: { type: "object", properties: { plan: text("The plan, in Markdown.") }, required: ["plan"] },
   },
   {
+    name: "case_ask",
+    description:
+      "Ask the user something you can't go on without. It shows on the card, which waits in Needs you once your turn ends; " +
+      "their answer comes as your next message. Write the same questions in your answer too.",
+    inputSchema: { type: "object", properties: { question: text("The question(s), short and concrete.") }, required: ["question"] },
+  },
+  {
     name: "list_skills",
     description: "The skills in Kervan's library, with what each is for; give members the ones that fit their job.",
     inputSchema: { type: "object", properties: {} },
@@ -394,6 +401,9 @@ export class OrchestraHub {
       case "case_plan":
         sessions.setCasePlan(leadId, str(args, "plan")!);
         return "The plan is on the card.";
+      case "case_ask":
+        sessions.askUser(leadId, str(args, "question")!);
+        return "Asked. End your turn; the card waits for the user's answer.";
       case "list_skills": {
         const skills = await sessions.skillChoices();
         return skills.length > 0 ? skills.map((s) => `- ${s.name}: ${s.description || "(no description)"}`).join("\n") : "The library has no skills.";

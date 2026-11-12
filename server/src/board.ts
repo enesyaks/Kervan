@@ -220,7 +220,8 @@ export class Board {
     const lead = this.deps.projectPM?.(projectId);
     if (!lead?.pm.autoPickup) return;
     const cards = this.list(projectId);
-    const working = cards.filter((c) => c.pm && (c.column === "working" || c.column === "needs")).length;
+    // A PM waiting for the user's answer isn't working, so it doesn't hold up the next card.
+    const working = cards.filter((c) => c.pm && (c.column === "working" || (c.column === "needs" && !c.question))).length;
     let free = MAX_PM_CASES - working - cards.filter((c) => this.pickingUp.has(c.id)).length;
     const waiting = cards.filter(
       (c) =>
@@ -314,6 +315,25 @@ export class Board {
     return card;
   }
 
+  /** The PM asks the user something it needs to go on; the card waits in Needs you once its turn ends. */
+  setQuestion(sessionId: string, question: string): CardInfo {
+    const card = [...this.cards.values()].find((c) => c.sessionId === sessionId && c.pm);
+    if (!card) throw new KervanError("bad_message", "this session isn't the PM of a card");
+    card.question = question.trim().slice(0, MAX_PLAN);
+    card.updatedAt = new Date().toISOString();
+    this.changed(card.projectId);
+    return card;
+  }
+
+  /** The user answered: the card's PM is no longer waiting on them. */
+  clearQuestion(sessionId: string): void {
+    const card = [...this.cards.values()].find((c) => c.sessionId === sessionId && c.question);
+    if (!card) return;
+    delete card.question;
+    card.updatedAt = new Date().toISOString();
+    this.changed(card.projectId);
+  }
+
   /** The PM's plan for its card. */
   setPlan(sessionId: string, plan: string): CardInfo {
     const card = [...this.cards.values()].find((c) => c.sessionId === sessionId && c.pm);
@@ -377,7 +397,8 @@ export class Board {
   follow(session: SessionInfo): void {
     for (const card of this.cards.values()) {
       if (card.sessionId !== session.id || !card.prompted) continue;
-      const next = Board.columnFor(session, card.column);
+      // A PM done with its turn but waiting for the user's answer needs them, not a review.
+      const next = card.question && session.status === "idle" && !session.archived ? "needs" : Board.columnFor(session, card.column);
       if (next !== card.column) {
         this.place(card, next);
         // A PM session done with its card makes room for the next one.

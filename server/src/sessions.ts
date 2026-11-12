@@ -482,6 +482,13 @@ export class SessionManager {
     return card;
   }
 
+  /** The PM asks the user something it can't go on without; shown on the card, which waits in Needs you. */
+  askUser(sessionId: string, question: string): void {
+    const session = this.require(sessionId);
+    if (!session.info.pmCard || !this.board) throw new KervanError("bad_message", "only a card's PM can ask on its card");
+    this.board.setQuestion(sessionId, question);
+  }
+
   /** The PM's plan for its card, shown on the card. */
   setCasePlan(sessionId: string, plan: string): void {
     const session = this.require(sessionId);
@@ -680,6 +687,8 @@ export class SessionManager {
       const line = text.trim().split("\n")[0].replace(/[*_`#>~]/g, "").trim();
       session.info.title = line.length > TITLE_CHARS ? `${line.slice(0, TITLE_CHARS - 1)}…` : line;
     }
+    // The user's answer to what the PM asked: its card goes back to Working with the turn.
+    if (session.info.pmCard && !from) this.board?.clearQuestion(sessionId);
     const firstMessage = !session.events.some((event) => event.kind === "user_message");
     this.record(session, {
       kind: "user_message",
@@ -1249,6 +1258,8 @@ export class SessionManager {
         "You can't give members MCP servers; ask the user if one needs them.",
       "4. Follow them up: wait_for_helper, check their work with helper_diff, ask for fixes with message_helper, and merge " +
         "with merge_helper only what is right.",
+      "   If you can't go on without the user (the card is unclear, or a decision is theirs), ask with case_ask, write the " +
+        "same questions in your answer, and end your turn; the card waits for them in Needs you, and their answer comes as your next message.",
       "5. Stay inside the card: don't widen its scope. If you find something outside it worth doing (an improvement, a " +
         "security problem, a bug), check case_list and open a card for it with case_open, with the evidence (file and line) " +
         "in its reason, rather than doing it here.",

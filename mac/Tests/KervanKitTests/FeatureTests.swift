@@ -489,3 +489,10 @@ import Testing
         #expect(!AgentPlace.canTakeSkills(agent: "eski", agents: agents, nodes: nodes))
     }
 }
+
+@Suite struct PMQuestionTests {
+    @Test func readsWhatThePMAsked() throws {
+        let card = try JSONDecoder().decode(CardInfo.self, from: Data(#"{"id":"c","projectId":"p","title":"Jev","prompt":"x","agent":"claude","column":"needs","sessionId":"s","createdAt":"t","updatedAt":"t","pm":true,"question":"Jev nedir?"}"#.utf8))
+        #expect(card.question == "Jev nedir?" && card.column == .needs)
+    }
+}

@@ -317,6 +317,8 @@ export interface CardInfo {
   plan?: string;
   /** Why the PM couldn't pick the card up by itself; it waits for the user to start it. */
   error?: string;
+  /** What the PM asked the user and is waiting to hear; the card waits in Needs you until the user answers. */
+  question?: string;
   /** A card the PM opened itself: from which of its sessions, what kind of work, and why (with the evidence). */
   openedBy?: { sessionId: string; kind: CaseKind; reason: string };
   /** Set while the card, about to start, waits to hear which model to use. */

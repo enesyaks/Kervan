@@ -251,6 +251,19 @@ private struct CardTile: View {
                         .help(helpers.map(\.title).joined(separator: ", "))
                 }
             }
+            if let question = card.question, !compact {
+                VStack(alignment: .leading, spacing: 2) {
+                    Label(L("The PM asks", "PM soruyor"), systemImage: "questionmark.bubble")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(Color.kervanCoral)
+                    Text(question).font(.caption2).lineLimit(3)
+                    Text(L("Answer in its session.", "Cevabı oturumuna yazın.")).font(.caption2).foregroundStyle(.secondary)
+                }
+                .padding(6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.kervanCoral.opacity(0.10), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .help(question)
+            }
             if let error = card.error {
                 Label(error, systemImage: "exclamationmark.triangle")
                     .font(.caption2)

@@ -453,3 +453,54 @@ describe("skills a PM suggests", () => {
     assert.ok(!existsSync(join(dataDir, "skills", "baska")));
   });
 });
+
+describe("a PM that needs the user's answer", () => {
+  let sessions: SessionManager;
+  let stop: () => Promise<void>;
+  let ws: WebSocket;
+  let inbox: Inbox;
+  let n = 0;
+  let projectId = "";
+  const call = async (message: object): Promise<any> => {
+    const id = `m${++n}`;
+    send(ws, { ...message, id });
+    return inbox.waitFor((m) => m.id === id && m.type !== "session.event", 15_000);
+  };
+  const board = () => sessions.board!.list(projectId);
+  const add = async (title: string, prompt: string) => (await call({ type: "card.save", card: { projectId, agent: "fake", title, prompt } })).cards.find((c: any) => c.title === title).id as string;
+
+  before(async () => {
+    let port: number;
+    ({ port, sessions, stop } = await startServer());
+    ws = openSocket(port);
+    inbox = new Inbox(ws);
+    await opened(ws);
+    send(ws, HELLO);
+    await inbox.waitFor((m) => m.type === "welcome");
+    const project = await sessions.projects!.save({ name: "Sorular" });
+    projectId = project.id;
+    repository(project.path);
+    await call({ type: "role.save", role: { id: "pm", name: "PM", agent: "fake", lead: true } });
+    await call({ type: "project.pm", projectId, pm: { roleId: "pm" } });
+  });
+
+  after(async () => {
+    ws.terminate();
+    await stop();
+  });
+
+  it("waits in Needs you with its question, without holding up other cards, until the user answers", async () => {
+    const id = await add("Jev", `memcall: case_ask {"question":"Jev nedir?"}`);
+    const waiting = await until(() => board().find((c) => c.id === id && c.column === "needs"));
+    assert.equal(waiting.question, "Jev nedir?");
+
+    // Two more cards both start: a PM waiting for an answer isn't one of the two at work.
+    const others = [await add("Bir", "askperm: edit a"), await add("İki", "askperm: edit b")];
+    await until(() => others.every((other) => board().find((c) => c.id === other)?.sessionId));
+
+    // The user answers: the question goes, and the card follows the PM's new turn.
+    sessions.prompt(waiting.sessionId!, "whoami");
+    await until(() => board().find((c) => c.id === id && !c.question));
+    await until(() => board().find((c) => c.id === id)?.column === "review");
+  });
+});
