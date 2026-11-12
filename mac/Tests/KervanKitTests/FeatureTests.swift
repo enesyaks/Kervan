@@ -479,3 +479,13 @@ import Testing
         #expect(try ClientMessage.skillDraftAccept(id: "a", draftId: "d").jsonString().contains(#""draftId":"d""#))
     }
 }
+
+@Suite struct NodeSkillTests {
+    @Test func offersSkillsOnlyWhereTheyCanBeCopiedIn() {
+        let agents = [AgentInfo(id: "claude", name: "Claude"), AgentInfo(id: "yeni", name: "Y", node: "yeni"), AgentInfo(id: "eski", name: "E", node: "eski")]
+        let nodes = [NodeInfo(name: "yeni", connected: true, features: ["orchestra", "projects", "skills"]), NodeInfo(name: "eski", connected: true, features: ["orchestra", "projects"])]
+        #expect(AgentPlace.canTakeSkills(agent: "claude", agents: agents, nodes: nodes))
+        #expect(AgentPlace.canTakeSkills(agent: "yeni", agents: agents, nodes: nodes))
+        #expect(!AgentPlace.canTakeSkills(agent: "eski", agents: agents, nodes: nodes))
+    }
+}

@@ -138,12 +138,12 @@ describe("agents on another node", () => {
     assert.equal(reply, `files: file://${join(nodeDir, sessionId, "notlar/a.txt")}`);
   });
 
-  it("keeps splitting and skills on this server, though a lead may live on a node", async () => {
+  it("keeps splitting on this server, though a lead may live on a node", async () => {
     // Judging how large the work is reads the lead's folder from here, which only this server can do.
     send(ws, { type: "session.create", id: "c3", agent: "uzak", split: true });
     assert.match((await inbox.waitFor((m) => m.type === "error" && m.id === "c3")).message, /splitting work needs a lead on this server/);
     send(ws, { type: "session.create", id: "c4", agent: "uzak", skills: ["bir"] });
-    assert.match((await inbox.waitFor((m) => m.type === "error" && m.id === "c4")).message, /no skill named|skills aren't available/);
+    assert.match((await inbox.waitFor((m) => m.type === "error" && m.id === "c4")).message, /no skill named 'bir'/);
   });
 
   it("refuses project work a node's agent can't do when it's set up, not when it comes due", async () => {

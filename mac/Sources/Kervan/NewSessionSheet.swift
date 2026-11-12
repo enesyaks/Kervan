@@ -37,7 +37,7 @@ struct NewSessionSheet: View {
                 Section {
                     AgentPicker(agent: $agent)
                     if !projectsHere {
-                        Text(L("On another machine the agent works in a folder of its own there. To work on a project there, update Kervan on that machine. Skills need an agent on this server.", "Başka bir makinede ajan oradaki kendi klasöründe çalışır. Orada bir proje üzerinde çalışmak için o makinedeki Kervan'ı güncelleyin. Skill'ler için bu sunucudaki bir ajan gerekir."))
+                        Text(L("On another machine the agent works in a folder of its own there. To work on a project or with skills there, update Kervan on that machine.", "Başka bir makinede ajan oradaki kendi klasöründe çalışır. Orada bir proje üzerinde ya da skill'lerle çalışmak için o makinedeki Kervan'ı güncelleyin."))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     } else {
@@ -80,7 +80,7 @@ struct NewSessionSheet: View {
                     }
                 }
 
-                if !onNode {
+                if skillsHere {
                     Section(L("Skills", "Skill'ler")) {
                         if let available, available.isEmpty {
                             Text(L("No skills in the library. Add a skill folder in Settings.", "Kütüphanede skill yok. Ayarlar'dan skill klasörü ekleyebilirsiniz.")).foregroundStyle(.secondary)
@@ -133,7 +133,7 @@ struct NewSessionSheet: View {
                     let folder = projectsHere ? project : nil
                     model.startSession(
                         agent: agent,
-                        skills: onNode ? [] : skills.filter(names.contains).sorted(),
+                        skills: skillsHere ? skills.filter(names.contains).sorted() : [],
                         mcpServers: mcpServers.filter { name in servers.contains { $0.name == name } }.sorted(),
                         orchestrate: lead,
                         budgetUsd: lead ? budget.flatMap { $0 > 0 ? $0 : nil } : nil,
@@ -163,6 +163,10 @@ struct NewSessionSheet: View {
 
     private var selected: AgentInfo? { model.store.agents.first { $0.id == agent } }
     private var onNode: Bool { selected?.node != nil }
+    /// This server, or a node whose Kervan copies skills in.
+    private var skillsHere: Bool {
+        AgentPlace.canTakeSkills(agent: agent, agents: model.store.agents, nodes: model.store.nodeInfos)
+    }
     /// This server, or a node that can work on a copy of a project.
     private var projectsHere: Bool {
         AgentPlace.canWorkOnProjects(agent: agent, agents: model.store.agents, nodes: model.store.nodeInfos)

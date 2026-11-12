@@ -464,3 +464,82 @@ describe("an unattended task whose node goes away mid-turn", () => {
     }
   });
 });
+
+describe("skills for agents on a node", () => {
+  let sessions: SessionManager;
+  let stop: () => Promise<void>;
+  let ws: WebSocket;
+  let inbox: Inbox;
+  let node: NodeAgent;
+  let old: NodeAgent;
+  const nodeDir = mkdtempSync(join(tmpdir(), "kervan-node-"));
+  let n = 0;
+  const call = async (message: object): Promise<any> => {
+    const id = `m${++n}`;
+    send(ws, { ...message, id });
+    return inbox.waitFor((m) => m.id === id && m.type !== "session.event", 15_000);
+  };
+  const idle = (id: string) => inbox.waitFor((m) => m.type === "session.updated" && m.session.id === id && m.session.status === "idle", 15_000);
+
+  before(async () => {
+    let port: number;
+    let dataDir: string;
+    ({ port, sessions, stop, dataDir } = await startServer({ nodeToken: NODE_TOKEN }));
+    mkdirSync(join(dataDir, "skills", "test-yaz", "ornekler"), { recursive: true });
+    writeFileSync(join(dataDir, "skills", "test-yaz", "SKILL.md"), "---\nname: test-yaz\ndescription: Writes tests first.\n---\nWrite a failing test.\n");
+    writeFileSync(join(dataDir, "skills", "test-yaz", "ornekler", "bir.md"), "örnek");
+    ws = openSocket(port);
+    inbox = new Inbox(ws);
+    await opened(ws);
+    send(ws, HELLO);
+    await inbox.waitFor((m) => m.type === "welcome");
+    const mark = inbox.received.length;
+    node = new NodeAgent({ hubUrls: [`ws://127.0.0.1:${port}`], token: NODE_TOKEN, name: "kutu", workspacesDir: nodeDir, runner: new LocalAcpRunner() });
+    node.start();
+    // Can hold a project copy, but has no code for skills.
+    old = new NodeAgent({ hubUrls: [`ws://127.0.0.1:${port}`], token: NODE_TOKEN, name: "eski", workspacesDir: mkdtempSync(join(tmpdir(), "kervan-oldnode-")), runner: new LocalAcpRunner(), features: ["orchestra", "projects"] });
+    old.start();
+    for (const name of ["kutu", "eski"]) {
+      await inbox.waitFor((m) => inbox.received.indexOf(m) >= mark && m.type === "nodes.updated" && m.nodes.some((x: any) => x.name === name && x.connected));
+    }
+    await call({ type: "agent.save", agent: { id: "uzak", name: "Uzak", command: fakeAgent.command, args: fakeAgent.args, node: "kutu" } });
+    await call({ type: "agent.save", agent: { id: "eskiajan", name: "Eski", command: fakeAgent.command, args: fakeAgent.args, node: "eski" } });
+  });
+
+  after(async () => {
+    node?.stop();
+    old?.stop();
+    ws.terminate();
+    await stop();
+  });
+
+  it("copies an agent's skills into its folder on the node, files and all", async () => {
+    const created = await call({ type: "session.create", agent: "uzak", skills: ["test-yaz"] });
+    assert.equal(created.type, "session.created", created.message);
+    await idle(created.session.id);
+    const skills = join(nodeDir, created.session.id, ".kervan", "skills", "test-yaz");
+    assert.match(readFileSync(join(skills, "SKILL.md"), "utf8"), /Write a failing test/);
+    assert.equal(readFileSync(join(skills, "ornekler", "bir.md"), "utf8"), "örnek");
+  });
+
+  it("keeps the skills out of a project copy's commits", async () => {
+    const project = await sessions.projects!.save({ name: "Skill'li proje" });
+    repository(project.path);
+    const created = await call({ type: "session.create", agent: "uzak", skills: ["test-yaz"], projectId: project.id });
+    assert.equal(created.type, "session.created", created.message);
+    const { id, branch } = created.session;
+    await idle(id);
+    assert.ok(existsSync(join(nodeDir, id, ".kervan", "skills", "test-yaz", "SKILL.md")), "copied after the clone");
+    const seen = inbox.received.length;
+    send(ws, { type: "session.prompt", id: `p${++n}`, sessionId: id, text: "write yeni.txt iş" });
+    await inbox.waitFor((m) => inbox.received.indexOf(m) >= seen && m.type === "session.event" && m.sessionId === id && m.event.kind === "turn_end", 15_000);
+    await inbox.waitFor((m) => inbox.received.indexOf(m) >= seen && m.type === "session.updated" && m.session.id === id && m.session.status === "idle", 15_000);
+    assert.equal(git(project.path, "show", `${branch}:yeni.txt`), "iş");
+    assert.equal(git(project.path, "ls-tree", "-r", "--name-only", branch).split("\n").filter((f) => f.startsWith(".kervan")).length, 0);
+  });
+
+  it("refuses skills for an older node, saying to update it", async () => {
+    const refused = await call({ type: "session.create", agent: "eskiajan", skills: ["test-yaz"] });
+    assert.match(refused.message, /node 'eski' can't take skills yet; update Kervan on it first/);
+  });
+});

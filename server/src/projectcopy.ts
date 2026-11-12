@@ -1,7 +1,7 @@
 import { execFile, execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { appendFile, mkdir, stat } from "node:fs/promises";
+import { appendFile, mkdir, readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { EXCLUDES } from "./checkpoints.ts";
@@ -16,6 +16,10 @@ import { assertSafeRepository, gitEnv, workspaceGit } from "./safegit.ts";
 
 /** What a node announces in its hello when it can hold a project copy. */
 export const PROJECTS_FEATURE = "projects";
+/** What a node announces when its agents can be given skills: copied in, and kept out of a project copy's commits. */
+export const SKILLS_FEATURE = "skills";
+/** A path git's exclude file may list for Kervan: plain names, no wildcards or line breaks. */
+const EXCLUDE = /^\/?[\w.-]+(\/[\w.-]+)*\/?$/;
 /** A bundle travels in pieces of this size: well inside one node frame (MAX_NODE_FILE_BYTES). */
 export const REPO_CHUNK_BYTES = 8 * 1024 * 1024;
 /** A copy or a turn's work larger than this is refused with a message rather than sent. */
@@ -144,10 +148,20 @@ export type Committed = { head: string; changed: false } | { head: string; chang
  * Commits what the agent left uncommitted and, if its branch moved past `base` (what the hub has), writes the new
  * commits as a bundle to `file`. A turn that changed nothing writes nothing.
  */
-export async function commitTurn(dir: string, branch: string, base: string | undefined, message: string, file: string): Promise<Committed> {
+export async function commitTurn(dir: string, branch: string, base: string | undefined, message: string, file: string, exclude: string[] = []): Promise<Committed> {
   assertBranch(branch);
   if (!existsSync(join(dir, ".git"))) throw new Error("this node has no copy of the project for this session");
   await assertSafeRepository(dir);
+  // Skills copied in for the agent are Kervan's, not the project's work.
+  if (exclude.length > 0) {
+    if (!exclude.every((path) => EXCLUDE.test(path))) throw new Error("bad exclude path");
+    const listed = new Set((await readFile(join(dir, ".git", "info", "exclude"), "utf8").catch(() => "")).split("\n"));
+    const missing = exclude.filter((path) => !listed.has(path));
+    if (missing.length > 0) {
+      await mkdir(join(dir, ".git", "info"), { recursive: true });
+      await appendFile(join(dir, ".git", "info", "exclude"), `\n${missing.join("\n")}\n`);
+    }
+  }
   await nodeGit(dir, ["add", "-A"]);
   const staged = await nodeGit(dir, ["diff", "--cached", "--quiet"]).then(() => false, () => true);
   if (staged) {

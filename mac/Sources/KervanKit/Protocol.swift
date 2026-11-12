@@ -99,6 +99,12 @@ public struct AgentPlace: Equatable, Sendable, Identifiable {
         return nodes.first { $0.name == node }?.canWorkOnProjects ?? false
     }
 
+    /// Whether `agent` can be given skills where it runs. An agent not in the list is taken to be on the server.
+    public static func canTakeSkills(agent: String, agents: [AgentInfo], nodes: [NodeInfo]) -> Bool {
+        guard let node = agents.first(where: { $0.id == agent })?.node else { return true }
+        return nodes.first { $0.name == node }?.canTakeSkills ?? false
+    }
+
     /// For project work on a node: where the agent works and where its work goes. Nil on the server.
     public var projectCopyNote: String? {
         guard let node else { return nil }
@@ -148,6 +154,9 @@ public struct NodeInfo: Codable, Equatable, Sendable, Identifiable {
 
     /// Whether an agent on this node can work on a project: it gets a git copy there, and its work comes back as a branch.
     public var canWorkOnProjects: Bool { features?.contains("projects") == true }
+
+    /// Whether an agent on this node can be given skills: they are copied into its folder there.
+    public var canTakeSkills: Bool { features?.contains("skills") == true }
 
     public init(name: String, connected: Bool, version: String? = nil, lastSeen: String? = nil, via: String? = nil, features: [String]? = nil) {
         self.name = name

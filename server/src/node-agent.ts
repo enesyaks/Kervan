@@ -11,14 +11,14 @@ import type { AgentDefinition } from "./agents.ts";
 import { isSafeRelativePath, listTree, resolveInside } from "./files.ts";
 import { log } from "./log.ts";
 import { ORCHESTRA_MCP_NAME, orchestraSocketPath, readBody } from "./orchestra.ts";
-import { PROJECTS_FEATURE, REPO_CHUNK_BYTES, appendPiece, cloneBundle, commitTurn, copyHead, transferFile } from "./projectcopy.ts";
+import { PROJECTS_FEATURE, REPO_CHUNK_BYTES, SKILLS_FEATURE, appendPiece, cloneBundle, commitTurn, copyHead, transferFile } from "./projectcopy.ts";
 import { Rpc } from "./rpc.ts";
 import type { AgentProcess, AgentRunner } from "./runner.ts";
 import { VERSION } from "./version.ts";
 
 export const NODE_PATH = "/v1/node";
 /** What this node tells the hub it can do, so the hub never asks for something this build has no code for. */
-export const NODE_FEATURES = ["orchestra", PROJECTS_FEATURE];
+export const NODE_FEATURES = ["orchestra", PROJECTS_FEATURE, SKILLS_FEATURE];
 /** Files moved between hub and node travel inside one WebSocket message. */
 export const MAX_NODE_FILE_BYTES = 50 * 1024 * 1024;
 export const MAX_NODE_FRAME_BYTES = Math.ceil((MAX_NODE_FILE_BYTES * 4) / 3) + 64 * 1024;
@@ -338,10 +338,10 @@ export class NodeAgent {
           await rm(file, { force: true });
         }
       })
-      .on("repo.commit", async (params: { key: string; branch: string; base?: string; message: string; id: string }) => {
+      .on("repo.commit", async (params: { key: string; branch: string; base?: string; message: string; id: string; exclude?: string[] }) => {
         const file = transferFile(root, params.id);
         try {
-          return await commitTurn(await this.workspace(params.key), params.branch, params.base, params.message, file);
+          return await commitTurn(await this.workspace(params.key), params.branch, params.base, params.message, file, params.exclude ?? []);
         } catch (error) {
           await rm(file, { force: true });
           throw error;

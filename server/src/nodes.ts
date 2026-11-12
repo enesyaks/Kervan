@@ -387,11 +387,11 @@ export class NodeHub {
    * reads the new commits back into `file` as a bundle. Returns the node's new tip, or undefined when nothing changed.
    * If the node goes away midway the call fails and `file` is incomplete: the caller drops it.
    */
-  async collectTurn(node: string, key: string, branch: string, base: string | undefined, message: string, file: string): Promise<string | undefined> {
+  async collectTurn(node: string, key: string, branch: string, base: string | undefined, message: string, file: string, exclude: string[] = []): Promise<string | undefined> {
     const { rpc } = this.require(node);
     const id = randomUUID();
     try {
-      const result = await rpc.call<Committed>("repo.commit", { key, branch, ...(base ? { base } : {}), message, id });
+      const result = await rpc.call<Committed>("repo.commit", { key, branch, ...(base ? { base } : {}), message, id, ...(exclude.length > 0 ? { exclude } : {}) });
       if (!result.changed) return undefined;
       if (result.size > MAX_REPO_BYTES) throw new Error(`this turn's work is ${megabytes(result.size)}; at most ${megabytes(MAX_REPO_BYTES)} can come at once`);
       await rm(file, { force: true });

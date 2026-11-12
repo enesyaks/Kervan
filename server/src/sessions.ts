@@ -4,7 +4,8 @@ import { cp, mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { SkillDrafts } from "./skilldrafts.ts";
 import type { AgentRegistry } from "./agents.ts";
-import { isSafeRelativePath, placeFile } from "./files.ts";
+import { isSafeRelativePath, listTree, placeFile } from "./files.ts";
+import { readFile } from "node:fs/promises";
 import { log } from "./log.ts";
 import {
   KervanError,
@@ -43,7 +44,7 @@ import type * as acp from "@agentclientprotocol/sdk";
 import { isMemoryCall, isOrchestraCall, isPMCall } from "./orchestra.ts";
 import { majorChange } from "./autoapprove.ts";
 import { LOCAL_NODE, nodeOf, type NodeHub } from "./nodes.ts";
-import { PROJECTS_FEATURE, applyBundle, branchTip, bundleBranch, ensureBranch, hasCommitsSync, transferFile } from "./projectcopy.ts";
+import { PROJECTS_FEATURE, SKILLS_FEATURE, applyBundle, branchTip, bundleBranch, ensureBranch, hasCommitsSync, transferFile } from "./projectcopy.ts";
 import {
   addWorktree,
   branchDiff,
@@ -369,7 +370,7 @@ export class SessionManager {
     const agent = this.agents.get(role.agent) ?? fail(`role '${role.name}' uses agent '${role.agent}', which no longer exists`);
     if (agent.protocol === "pty") fail("a terminal agent can't be a PM: it has no way to hand work to others");
     const node = nodeOf(agent);
-    if (node !== LOCAL_NODE && role.skills.length > 0) fail(`skills aren't available on node '${node}' yet, so role '${role.name}' can't be a PM there`);
+    if (role.skills.length > 0) this.refuseSkillsOn(node);
     const refusal = this.projectRefusal(role.agent, projectId);
     if (refusal) fail(refusal);
     const project = projects.setPM(projectId, { roleId: role.id, autoPickup: input.autoPickup !== false, startOwnCases: input.startOwnCases === true });
@@ -395,7 +396,7 @@ export class SessionManager {
     const missing = (skills as string[]).find((s) => !this.skills?.has(s));
     if (missing) fail(`no skill named '${missing}' (see list_skills)`);
     const node = nodeOf(definition);
-    if (node !== LOCAL_NODE && (skills as string[]).length > 0) fail(`skills aren't available on node '${node}' yet; give this member an agent on the server, or no skills`);
+    if ((skills as string[]).length > 0) this.refuseSkillsOn(node);
     const refusal = this.projectRefusal(agent as string, projectId);
     if (refusal) fail(refusal);
     return { id: id as string, name: (name as string).trim(), agent: agent as string, instructions: (instructions as string).trim(), skills: [...new Set(skills as string[])] };
@@ -488,6 +489,33 @@ export class SessionManager {
     this.board.setPlan(sessionId, plan);
   }
 
+  /** Skills on a node are copied there by its own code, which an older node doesn't have. */
+  private refuseSkillsOn(node: string): void {
+    if (node !== LOCAL_NODE && !this.nodes?.supports(node, SKILLS_FEATURE)) fail(`node '${node}' can't take skills yet; update Kervan on it first`);
+  }
+
+  /** Where an agent finds its skills in its folder. */
+  private skillsDir(agent: string): string {
+    return this.agents.get(agent)?.skillsDir ?? FALLBACK_SKILLS_DIR;
+  }
+
+  /**
+   * Copies a node session's skills into its workspace there, as copyInto does here: one file at a time over the
+   * node's connection. After the project copy, which needs an empty folder; again on every start, since the node
+   * may have lost them.
+   */
+  private async ensureNodeSkills(session: Session): Promise<void> {
+    const node = this.nodeFor(session.info);
+    if (node === LOCAL_NODE || session.info.skills.length === 0 || !this.skills || !this.nodes) return;
+    const target = this.skillsDir(session.info.agent);
+    for (const name of session.info.skills) {
+      const dir = this.skills.dir(name);
+      for (const entry of (await listTree(dir)).entries.filter((e) => e.type === "file")) {
+        await this.nodes.writeFile(node, session.cwd, `${target}/${name}/${entry.path}`, await readFile(join(dir, entry.path)));
+      }
+    }
+  }
+
   /** The project's PM and its role; undefined without one, or once its role has been deleted. */
   projectPM(projectId: string): { pm: ProjectPM; role: Role } | undefined {
     const pm = this.projects?.get(projectId)?.pm;
@@ -548,7 +576,7 @@ export class SessionManager {
       if (options.orchestrate && !this.nodes?.can(node, "orchestra")) {
         throw new KervanError("bad_message", `node '${node}' can't start helpers; update it first`);
       }
-      if (skills.length > 0) throw new KervanError("bad_message", `skills aren't available on node '${node}' yet`);
+      if (skills.length > 0) this.refuseSkillsOn(node);
       if (!this.nodes) throw new KervanError("node_offline", `this server doesn't accept nodes, so '${agent}' can't run`);
       this.requireOnline(node);
     }
@@ -608,9 +636,9 @@ export class SessionManager {
     if (worktreeFrom) await addWorktree(worktreeFrom, session.cwd, session.info.branch!);
     else if (nodeCopy) await ensureBranch(project.path, session.info.branch!).catch((error) => gitError(`couldn't make branch ${session.info.branch}`, error));
     else if (node === LOCAL_NODE) await mkdir(session.cwd, { recursive: true });
-    if (session.info.skills.length > 0) {
-      const target = this.agents.get(agent)!.skillsDir ?? FALLBACK_SKILLS_DIR;
-      await this.skills!.copyInto(session.info.skills, session.cwd, target);
+    // On a node `cwd` is a key there, not a folder here: its skills go over when its agent starts (ensureNodeSkills).
+    if (session.info.skills.length > 0 && node === LOCAL_NODE) {
+      await this.skills!.copyInto(session.info.skills, session.cwd, this.skillsDir(agent));
     }
     this.sessions.set(id, session);
     this.save(session);
@@ -1357,7 +1385,8 @@ export class SessionManager {
     try {
       const base = await branchTip(copy.repo, copy.branch);
       const label = messageSeq === undefined ? "work left from before" : `after message ${messageSeq}`;
-      const head = await this.nodes.collectTurn(copy.node, session.cwd, copy.branch, base, `Kervan: ${session.info.title} (${label})`, file);
+      const exclude = session.info.skills.map((name) => `/${this.skillsDir(session.info.agent)}/${name}/`);
+      const head = await this.nodes.collectTurn(copy.node, session.cwd, copy.branch, base, `Kervan: ${session.info.title} (${label})`, file, exclude);
       if (!head) return true;
       const applied = await applyBundle(copy.repo, copy.branch, file, base);
       if (applied.moved) {
@@ -1811,6 +1840,7 @@ export class SessionManager {
     const chosen = session.info.config ?? [];
     try {
       await this.ensureNodeCopy(session);
+      await this.ensureNodeSkills(session);
       const process = await this.runner.start({
         command: this.agents.get(session.info.agent)!,
         cwd: session.cwd,
