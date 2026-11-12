@@ -27,6 +27,8 @@ extension CardColumn {
 /// A project's task board: cards hold a prompt; dragging one to Working starts its session, and from then on the
 /// server moves the card as the session waits, finishes or is archived.
 struct BoardSection: View {
+    /// The tallest a lane's cards get before the lane scrolls: about four cards.
+    static let laneHeight: CGFloat = 420
     let projectID: String
     @Environment(AppModel.self) private var model
     @State private var editing: CardDraft?
@@ -123,8 +125,15 @@ struct BoardSection: View {
                 }
             }
             .padding(.horizontal, 4)
-            ForEach(cards) { card in
-                CardTile(card: card, edit: { editing = CardDraft(card) })
+            // A lane grows with its cards up to a point, then scrolls on its own, so a busy board stays one screen tall.
+            if !cards.isEmpty {
+                CappedScroll(maxHeight: Self.laneHeight) {
+                    VStack(spacing: 8) {
+                        ForEach(cards) { card in
+                            CardTile(card: card, compact: column == .done, edit: { editing = CardDraft(card) })
+                        }
+                    }
+                }
             }
             if cards.isEmpty {
                 RoundedRectangle(cornerRadius: Radius.chip, style: .continuous)
@@ -156,9 +165,34 @@ struct BoardSection: View {
     }
 }
 
+/// A vertical scroll view as tall as its content, up to `maxHeight`; past that it scrolls.
+private struct CappedScroll<Content: View>: View {
+    let maxHeight: CGFloat
+    @ViewBuilder let content: Content
+    @State private var contentHeight: CGFloat = 0
+
+    var body: some View {
+        ScrollView(.vertical) {
+            content.background(
+                GeometryReader { proxy in Color.clear.preference(key: ContentHeight.self, value: proxy.size.height) }
+            )
+        }
+        .scrollIndicators(contentHeight > maxHeight ? .visible : .hidden)
+        .frame(height: min(max(contentHeight, 1), maxHeight))
+        .onPreferenceChange(ContentHeight.self) { contentHeight = $0 }
+    }
+}
+
+private struct ContentHeight: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
 /// One card: what it asks for, which agent, and, once started, its session's state with a way to open it.
 private struct CardTile: View {
     let card: CardInfo
+    /// Done cards: the title and who did it, nothing more; the session has the rest.
+    var compact = false
     let edit: () -> Void
     @Environment(AppModel.self) private var model
 
@@ -184,33 +218,37 @@ private struct CardTile: View {
                 .help(origin.reason)
             }
             Text(card.title).font(.callout.weight(.semibold)).lineLimit(2)
-            if let origin = card.openedBy {
-                Text(origin.reason).font(.caption2).foregroundStyle(.secondary).lineLimit(2).help(origin.reason)
+            if let origin = card.openedBy, !compact {
+                Text(origin.reason).font(.caption2).foregroundStyle(.secondary).lineLimit(1).help(origin.reason)
             }
-            Text(card.prompt).font(.caption).foregroundStyle(.secondary).lineLimit(3)
-            if let files = card.files, !files.isEmpty {
+            if !compact {
+                // Once the PM has a plan, the plan says more than the prompt.
+                Text(card.prompt).font(.caption).foregroundStyle(.secondary).lineLimit(card.plan == nil ? 2 : 1).help(card.prompt)
+            }
+            if let files = card.files, !files.isEmpty, !compact {
                 Label(files.map(CardInfo.fileName).joined(separator: ", "), systemImage: "paperclip")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
-            if let plan = card.plan, !plan.isEmpty {
+            if let plan = card.plan, !plan.isEmpty, !compact {
                 Text(plan)
                     .font(.caption2)
-                    .lineLimit(4)
+                    .lineLimit(3)
                     .padding(6)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color.kervanWell.opacity(0.7), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                     .help(plan)
             }
-            if let sessionID = card.sessionId, card.pm == true {
+            if let sessionID = card.sessionId, card.pm == true, !compact {
                 let helpers = model.store.helpers(of: sessionID)
                 if !helpers.isEmpty {
                     Label(helpers.map(\.title).joined(separator: ", "), systemImage: "person.2")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
-                        .lineLimit(2)
+                        .lineLimit(1)
+                        .help(helpers.map(\.title).joined(separator: ", "))
                 }
             }
             if let error = card.error {
