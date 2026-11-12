@@ -160,6 +160,21 @@ private struct ProjectPMSection: View {
                     Text(L("A new card starts its PM at once, a couple at a time; the rest wait in To do. Off: a card starts when you move it to Working.", "Yeni kart PM'ini hemen başlatır, aynı anda birkaç tane; diğerleri Yapılacak'ta bekler. Kapalıyken kart, Çalışıyor'a taşıyınca başlar."))
                 }
                 .disabled(working)
+                Toggle(isOn: Binding(get: { pm.startOwnCases }, set: { on in update { $0.startOwnCases = on } })) {
+                    Text(L("Start the cards the PM opens by itself", "PM'in kendi açtığı kartlar da kendiliğinden başlasın"))
+                    Text(L("The PM opens cards for improvements, security problems and fixes it finds. Off: they wait in To do until you start them.", "PM bulduğu geliştirmeler, güvenlik sorunları ve hatalar için kart açar. Kapalıyken bu kartlar siz başlatana kadar Yapılacak'ta bekler."))
+                }
+                .disabled(working)
+                Button(L("Ask the PM to review the project", "PM projeyi gözden geçirsin")) {
+                    Task {
+                        working = true
+                        defer { working = false }
+                        error = await model.store.saveCard(CardInput(projectId: project.id, title: ProjectPM.reviewTitle, prompt: ProjectPM.reviewPrompt, agent: role.agent))
+                    }
+                }
+                .buttonStyle(.kervanQuiet)
+                .disabled(working || !model.connection.state.isConnected)
+                .help(L("Adds a card for the PM: it looks the project over and opens a card for each thing worth doing.", "PM için bir kart ekler: PM projeyi gözden geçirir ve yapılmaya değer her şey için bir kart açar."))
             }
             if let error {
                 Label(error, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(Color.kervanCoral)

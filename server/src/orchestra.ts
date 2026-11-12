@@ -156,6 +156,27 @@ export const PM_TOOLS: Tool[] = [
     },
   },
   {
+    name: "case_list",
+    description: "This project's cards that aren't done: title, column, and what kind of card you opened. Check before case_open.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "case_open",
+    description:
+      "Open a new card for work outside this card that is worth doing. It waits for the user in To do unless the project " +
+      "lets your cards start by themselves. A card you opened can't open more; at most 3 per card, and 5 waiting per project.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: text("Short, e.g. 'Escape user input in search'."),
+        prompt: text("Everything the work needs: what, where, and what done means."),
+        kind: { type: "string", enum: ["feature", "security", "fix"], description: "What the card is for." },
+        reason: text("Why it's worth doing, with the evidence: file and line. Required to name a file for security."),
+      },
+      required: ["title", "prompt", "kind", "reason"],
+    },
+  },
+  {
     name: "team_remove",
     description: "Take a member off the project's team.",
     inputSchema: { type: "object", properties: { id: text("The member's id.") }, required: ["id"] },
@@ -366,6 +387,14 @@ export class OrchestraHub {
         const info = sessions.list().find((s) => s.id === leadId)!;
         const team = sessions.memoryProject(info)?.team ?? [];
         return team.length > 0 ? team : "The team is empty. Add members with team_save.";
+      }
+      case "case_list": {
+        const cases = sessions.openCases(leadId);
+        return cases.length > 0 ? cases : "No open cards.";
+      }
+      case "case_open": {
+        const card = sessions.openCase(leadId, { title: args.title, prompt: args.prompt, kind: args.kind, reason: args.reason });
+        return `Opened card ${card.id}: "${card.title}".`;
       }
       case "team_save":
         return sessions.saveTeamMember(leadId, args);

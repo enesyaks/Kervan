@@ -446,3 +446,25 @@ import Testing
         #expect(emptied.contains(#""type":"project.team""#) && emptied.contains(#""team":[]"#))
     }
 }
+
+@Suite struct PMOpenedCardTests {
+    private func card(_ id: String, kind: String?) throws -> CardInfo {
+        let origin = kind.map { #","openedBy":{"sessionId":"s","kind":"\#($0)","reason":"src/a.ts:3"}"# } ?? ""
+        return try JSONDecoder().decode(CardInfo.self, from: Data(#"{"id":"\#(id)","projectId":"p","title":"T","prompt":"x","agent":"claude","column":"todo","createdAt":"t","updatedAt":"t"\#(origin)}"#.utf8))
+    }
+
+    @Test func readsWhereACardCameFrom() throws {
+        let security = try card("a", kind: "security")
+        #expect(security.openedBy == CaseOrigin(sessionId: "s", kind: .security, reason: "src/a.ts:3"))
+        #expect(try card("b", kind: nil).openedBy == nil)
+    }
+
+    @Test func putsSecurityProblemsFirstAndKeepsTheRestInOrder() throws {
+        let lane = [try card("1", kind: nil), try card("2", kind: "fix"), try card("3", kind: "security"), try card("4", kind: nil), try card("5", kind: "security")]
+        #expect(lane.laneOrder().map(\.id) == ["3", "5", "1", "2", "4"])
+    }
+
+    @Test func theReviewCardAsksForCardsNotChanges() {
+        #expect(ProjectPM.reviewPrompt.contains("case_open") && ProjectPM.reviewPrompt.contains("Don't change any files"))
+    }
+}

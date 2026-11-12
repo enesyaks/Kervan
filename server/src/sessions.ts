@@ -8,6 +8,7 @@ import { log } from "./log.ts";
 import {
   KervanError,
   type AgentDetail,
+  type CardInfo,
   type ChangeSet,
   type ConfigOption,
   type ProjectInfo,
@@ -442,6 +443,26 @@ export class SessionManager {
   /** The skills in the library, for a PM choosing what each member should know. */
   async skillChoices(): Promise<{ name: string; description: string }[]> {
     return ((await this.skills?.list()) ?? []).map(({ name, description }) => ({ name, description }));
+  }
+
+  /** The project's open cards, for a PM about to open one. */
+  openCases(sessionId: string): ReturnType<Board["openCases"]> {
+    const project = this.pmProject(sessionId);
+    return this.board?.openCases(project.id) ?? [];
+  }
+
+  /** A card the PM opens itself; see Board.openCase. The user hears of it in the PM's session. */
+  openCase(sessionId: string, input: { title: unknown; prompt: unknown; kind: unknown; reason: unknown }): CardInfo {
+    const project = this.pmProject(sessionId);
+    const lead = this.projectPM(project.id) ?? fail("this project has no PM any more");
+    if (!this.board) fail("this server has no board");
+    const card = this.board!.openCase(sessionId, lead.role.agent, input);
+    const kind = { feature: "an improvement", security: "a security problem", fix: "a fix" }[card.openedBy!.kind];
+    this.record(this.require(sessionId), {
+      kind: "notice",
+      text: `Opened a card for ${kind}: "${card.title}". ${lead.pm.startOwnCases ? "It starts by itself." : "It waits in To do until you start it."}`,
+    });
+    return card;
   }
 
   /** The PM's plan for its card, shown on the card. */
@@ -1184,7 +1205,9 @@ export class SessionManager {
         "You can't give members MCP servers; ask the user if one needs them.",
       "4. Follow them up: wait_for_helper, check their work with helper_diff, ask for fixes with message_helper, and merge " +
         "with merge_helper only what is right.",
-      "5. Stay inside the card: don't widen its scope.",
+      "5. Stay inside the card: don't widen its scope. If you find something outside it worth doing (an improvement, a " +
+        "security problem, a bug), check case_list and open a card for it with case_open, with the evidence (file and line) " +
+        "in its reason, rather than doing it here.",
       "6. End with a short summary for the user: what was done, by whom, and what is left.",
     ].join("\n");
   }

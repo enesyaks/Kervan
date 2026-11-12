@@ -191,6 +191,9 @@ export interface ProjectMember {
   skills: string[];
 }
 
+/** What a card the PM opens is for. */
+export type CaseKind = "feature" | "security" | "fix";
+
 export interface ProjectPM {
   /** The role the PM is: its agent, instructions, skills and budget. */
   roleId: string;
@@ -300,6 +303,8 @@ export interface CardInfo {
   plan?: string;
   /** Why the PM couldn't pick the card up by itself; it waits for the user to start it. */
   error?: string;
+  /** A card the PM opened itself: from which of its sessions, what kind of work, and why (with the evidence). */
+  openedBy?: { sessionId: string; kind: CaseKind; reason: string };
   /** Set while the card, about to start, waits to hear which model to use. */
   modelChoice?: CardModelChoice;
   createdAt: string;

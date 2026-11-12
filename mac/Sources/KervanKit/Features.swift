@@ -365,6 +365,53 @@ public struct CardInfo: Codable, Equatable, Sendable, Identifiable {
     public var plan: String? = nil
     /// Why the PM couldn't pick it up by itself; it waits to be started.
     public var error: String? = nil
+    /// A card the PM opened itself: what kind of work, why, and from which of its sessions.
+    public var openedBy: CaseOrigin? = nil
+}
+
+/// Where a card the PM opened came from.
+public struct CaseOrigin: Codable, Equatable, Sendable {
+    public enum Kind: String, Codable, Sendable { case feature, security, fix }
+    public let sessionId: String
+    public let kind: Kind
+    /// Why it's worth doing, with the evidence.
+    public let reason: String
+
+    public init(sessionId: String, kind: Kind, reason: String) {
+        self.sessionId = sessionId
+        self.kind = kind
+        self.reason = reason
+    }
+
+    public var title: String {
+        switch kind {
+        case .feature: L("Improvement", "Geliştirme")
+        case .security: L("Security", "Güvenlik")
+        case .fix: L("Fix", "Düzeltme")
+        }
+    }
+}
+
+extension Array where Element == CardInfo {
+    /// A lane's cards as shown: security problems the PM found come first, the rest keep their order.
+    public func laneOrder() -> [CardInfo] {
+        enumerated()
+            .sorted { a, b in
+                let x = a.element.openedBy?.kind == .security ? 0 : 1
+                let y = b.element.openedBy?.kind == .security ? 0 : 1
+                return x != y ? x < y : a.offset < b.offset
+            }
+            .map(\.element)
+    }
+}
+
+extension ProjectPM {
+    /// The card that asks the PM to look the project over and open cards for what's worth doing.
+    public static var reviewTitle: String { L("Project review", "Proje gözden geçirme") }
+    public static let reviewPrompt =
+        "Review the project: look for bugs, security problems and improvements worth doing. Don't change any files yourself. " +
+        "Check case_list, then open a card with case_open for each thing worth doing, with the evidence (file and line) in its " +
+        "reason, most important first. End with a short list of what you opened and why."
 }
 
 extension CardInfo {

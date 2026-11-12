@@ -279,3 +279,103 @@ describe("a PM's own team", () => {
     assert.equal(emptied.projects.find((p: any) => p.id === projectId).team, undefined);
   });
 });
+
+describe("cards the PM opens itself", () => {
+  let sessions: SessionManager;
+  let stop: () => Promise<void>;
+  let ws: WebSocket;
+  let inbox: Inbox;
+  let n = 0;
+  let projectId = "";
+  const call = async (message: object): Promise<any> => {
+    const id = `m${++n}`;
+    send(ws, { ...message, id });
+    return inbox.waitFor((m) => m.id === id && m.type !== "session.event", 15_000);
+  };
+  const board = () => sessions.board!.list(projectId);
+  const replies = (sessionId: string) => sessions.history(sessionId).filter((e) => e.kind === "agent_message_chunk").map((e: any) => e.text as string);
+  /** Gives a card to the PM and returns its session once the PM has answered. */
+  const pmCard = async (prompt: string) => {
+    const title = `kart ${++n}`;
+    const saved = await call({ type: "card.save", card: { projectId, agent: "fake", title, prompt } });
+    const id = saved.cards.find((c: any) => c.title === title).id;
+    const sessionId = (await until(() => board().find((c) => c.id === id && c.sessionId)))!.sessionId!;
+    await until(() => replies(sessionId).length > 0 && sessions.list().find((s) => s.id === sessionId)?.status === "idle");
+    return sessionId;
+  };
+  /** Another message to a PM, and its answer. */
+  const again = async (sessionId: string, text: string) => {
+    const before = replies(sessionId).length;
+    sessions.prompt(sessionId, text);
+    await until(() => replies(sessionId).length > before && sessions.list().find((s) => s.id === sessionId)?.status === "idle");
+    return replies(sessionId).at(-1)!;
+  };
+  const open = (fields: object) =>
+    `memcall: case_open ${JSON.stringify({ prompt: "Yap.", kind: "fix", reason: "src/a.ts:3 hatalı", ...fields })}`;
+
+  before(async () => {
+    let port: number;
+    ({ port, sessions, stop } = await startServer());
+    ws = openSocket(port);
+    inbox = new Inbox(ws);
+    await opened(ws);
+    send(ws, HELLO);
+    await inbox.waitFor((m) => m.type === "welcome");
+    const project = await sessions.projects!.save({ name: "Öneriler" });
+    projectId = project.id;
+    repository(project.path);
+    await call({ type: "role.save", role: { id: "pm", name: "PM", agent: "fake", lead: true } });
+    await call({ type: "project.pm", projectId, pm: { roleId: "pm" } });
+  });
+
+  after(async () => {
+    ws.terminate();
+    await stop();
+  });
+
+  it("lands in To do as a proposal that waits for the user, and the user hears of it", async () => {
+    const sessionId = await pmCard(open({ title: "Arama girdisini kaçır", kind: "security", reason: "src/search.ts:42 girdi kaçırılmadan sorguya giriyor" }));
+    assert.match(replies(sessionId).at(-1)!, /Opened card/);
+    const proposal = board().find((c) => c.title === "Arama girdisini kaçır")!;
+    assert.deepEqual(proposal.openedBy, { sessionId, kind: "security", reason: "src/search.ts:42 girdi kaçırılmadan sorguya giriyor" });
+    assert.equal(proposal.column, "todo");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(board().find((c) => c.id === proposal.id)!.sessionId, undefined, "it doesn't start by itself");
+    assert.ok(sessions.history(sessionId).some((e) => e.kind === "notice" && /Opened a card for a security problem: "Arama girdisini kaçır"\. It waits in To do/.test((e as any).text)));
+    assert.match(await again(sessionId, "memcall: case_list {}"), /Arama girdisini kaçır/);
+  });
+
+  it("refuses a security card without evidence, and a title that's already open", async () => {
+    const sessionId = await pmCard(open({ title: "Kanıtsız", kind: "security", reason: "bence güvensiz" }));
+    assert.match(replies(sessionId).at(-1)!, /refused: a security card needs evidence/);
+    assert.match(await again(sessionId, open({ title: "arama girdisini KAÇIR" })), /refused: a card titled 'Arama girdisini kaçır' is already open/);
+  });
+
+  it("doesn't let a card the PM opened open more", async () => {
+    const chain = open({ title: "Zincirin sonu" });
+    await pmCard(open({ title: "Zincir", prompt: chain }));
+    const opened = board().find((c) => c.title === "Zincir")!;
+    await call({ type: "card.move", cardId: opened.id, column: "working" });
+    const sessionId = board().find((c) => c.id === opened.id)!.sessionId!;
+    await until(() => replies(sessionId).length > 0);
+    assert.match(replies(sessionId).at(-1)!, /refused: a card the PM opened can't open more/);
+    assert.equal(board().find((c) => c.title === "Zincirin sonu"), undefined);
+  });
+
+  it("opens at most three from one card, and leaves at most five waiting in a project", async () => {
+    const first = await pmCard(open({ title: "Bir" }));
+    assert.match(await again(first, open({ title: "İki" })), /Opened card/);
+    assert.match(await again(first, open({ title: "Üç" })), /Opened card/);
+    assert.match(await again(first, open({ title: "Dört-fazla" })), /refused: you've opened 3 cards from this card already/);
+    // Waiting now: the security one, Bir, İki and Üç (Zincir was started by hand); one more fills the project.
+    const second = await pmCard(open({ title: "Beş" }));
+    assert.match(replies(second).at(-1)!, /Opened card/);
+    assert.match(await again(second, open({ title: "Altı" })), /refused: 5 cards you opened are still waiting for the user/);
+  });
+
+  it("starts what the PM opens by itself when the project allows it", async () => {
+    await call({ type: "project.pm", projectId, pm: { roleId: "pm", startOwnCases: true } });
+    // The five waiting proposals start now too, two at a time; the new one joins them.
+    await until(() => board().filter((c) => c.openedBy && c.sessionId).length >= 2);
+  });
+});

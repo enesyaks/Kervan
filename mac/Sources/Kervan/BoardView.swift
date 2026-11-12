@@ -49,7 +49,7 @@ struct BoardSection: View {
             ScrollView(.horizontal) {
                 HStack(alignment: .top, spacing: 12) {
                     ForEach(CardColumn.allCases) { column in
-                        lane(column, cards: cards.filter { $0.column == column })
+                        lane(column, cards: cards.filter { $0.column == column }.laneOrder())
                     }
                 }
                 .padding(.bottom, 6)
@@ -171,7 +171,22 @@ private struct CardTile: View {
     var body: some View {
         let session = card.sessionId.flatMap { id in model.store.sessions.first { $0.id == id } }
         VStack(alignment: .leading, spacing: 6) {
+            if let origin = card.openedBy {
+                HStack(spacing: 4) {
+                    Text(origin.title)
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .foregroundStyle(origin.kind == .security ? Color.kervanCoral : origin.kind == .fix ? Color.kervanSaffron : Color.kervanLapis)
+                        .background((origin.kind == .security ? Color.kervanCoral : origin.kind == .fix ? Color.kervanSaffron : Color.kervanLapis).opacity(0.14), in: Capsule())
+                    Text(L("Opened by the PM", "PM açtı")).font(.caption2).foregroundStyle(.secondary)
+                }
+                .help(origin.reason)
+            }
             Text(card.title).font(.callout.weight(.semibold)).lineLimit(2)
+            if let origin = card.openedBy {
+                Text(origin.reason).font(.caption2).foregroundStyle(.secondary).lineLimit(2).help(origin.reason)
+            }
             Text(card.prompt).font(.caption).foregroundStyle(.secondary).lineLimit(3)
             if let files = card.files, !files.isEmpty {
                 Label(files.map(CardInfo.fileName).joined(separator: ", "), systemImage: "paperclip")

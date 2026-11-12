@@ -7,7 +7,7 @@ import { pipeline } from "node:stream/promises";
 import { TooLargeError } from "./files.ts";
 import { log } from "./log.ts";
 import { suggestModel } from "./modelpick.ts";
-import { KervanError, type CardColumn, type CardInfo, type ConfigOption, type ProjectPM, type ServerMessage, type SessionInfo } from "./protocol.ts";
+import { KervanError, type CardColumn, type CardInfo, type CaseKind, type ConfigOption, type ProjectPM, type ServerMessage, type SessionInfo } from "./protocol.ts";
 import type { Role } from "./roles.ts";
 import type { SessionManager } from "./sessions.ts";
 
@@ -26,6 +26,13 @@ const MODEL_CHOICE_SECONDS = 15;
 export const MAX_PM_CASES = 2;
 /** A PM's plan for a card, as shown on it. */
 const MAX_PLAN = 8_000;
+/** Cards a PM opened that nobody has started yet, per project; past this it has to wait for the user. */
+export const MAX_PM_PROPOSALS = 5;
+/** Cards one PM session may open. */
+export const MAX_CASES_PER_PM = 3;
+const KINDS: readonly CaseKind[] = ["feature", "security", "fix"];
+/** A file, optionally with a line: what a security card's reason has to point at. */
+const EVIDENCE = /[\w./-]+\.[A-Za-z0-9]+(:\d+)?/;
 
 /** A setting to change before the card's prompt goes. */
 type ConfigChange = { configId: string; value: string };
@@ -215,7 +222,12 @@ export class Board {
     const cards = this.list(projectId);
     const working = cards.filter((c) => c.pm && (c.column === "working" || c.column === "needs")).length;
     let free = MAX_PM_CASES - working - cards.filter((c) => this.pickingUp.has(c.id)).length;
-    const waiting = cards.filter((c) => c.column === "todo" && !c.sessionId && !c.direct && !c.error && !c.modelChoice && !this.pickingUp.has(c.id));
+    const waiting = cards.filter(
+      (c) =>
+        c.column === "todo" && !c.sessionId && !c.direct && !c.error && !c.modelChoice && !this.pickingUp.has(c.id) &&
+        // What the PM opened itself waits for the user, unless the project lets those start too.
+        (!c.openedBy || lead.pm.startOwnCases),
+    );
     for (const card of waiting) {
       if (free-- <= 0) break;
       this.pickingUp.add(card.id);
@@ -237,6 +249,69 @@ export class Board {
   /** Every project's waiting cards, e.g. once the server is up. */
   pickUpAll(): void {
     for (const projectId of new Set([...this.cards.values()].map((c) => c.projectId))) this.pickUp(projectId);
+  }
+
+  /** The project's cards that aren't done, in short: what a PM checks before opening one. */
+  openCases(projectId: string): { id: string; title: string; column: CardColumn; kind?: CaseKind; plan?: string }[] {
+    return this.list(projectId)
+      .filter((c) => c.column !== "done")
+      .map((c) => ({
+        id: c.id,
+        title: c.title,
+        column: c.column,
+        ...(c.openedBy ? { kind: c.openedBy.kind } : {}),
+        ...(c.plan ? { plan: c.plan.length > 300 ? `${c.plan.slice(0, 299)}…` : c.plan } : {}),
+      }));
+  }
+
+  /**
+   * A card the PM opens itself: a feature, a security problem or a fix it found. It lands in To do as a proposal and
+   * starts only when the user moves it, unless the project lets the PM's own cards start too. Limits keep a PM from
+   * flooding the board or starting a chain: a card the PM opened can't open more, a session opens at most a few, the
+   * project holds at most a few proposals nobody has started, and a title already open is refused.
+   */
+  openCase(pmSessionId: string, agent: string, input: { title: unknown; prompt: unknown; kind: unknown; reason: unknown }): CardInfo {
+    const own = [...this.cards.values()].find((c) => c.sessionId === pmSessionId && c.pm);
+    if (!own) throw new KervanError("bad_message", "only a card's PM can open cards");
+    if (own.openedBy) throw new KervanError("bad_message", "a card the PM opened can't open more; mention what you found in your summary instead");
+    const text = (value: unknown, key: string, max: number) => {
+      if (typeof value !== "string" || value.trim() === "" || value.length > max) throw new KervanError("bad_message", `${key} must be 1–${max} characters`);
+      return value.trim();
+    };
+    const title = text(input.title, "title", MAX_TITLE);
+    const prompt = text(input.prompt, "prompt", MAX_PROMPT);
+    const reason = text(input.reason, "reason", 2_000);
+    if (!KINDS.includes(input.kind as CaseKind)) throw new KervanError("bad_message", `kind must be one of ${KINDS.join(", ")}`);
+    const kind = input.kind as CaseKind;
+    if (kind === "security" && !EVIDENCE.test(reason)) {
+      throw new KervanError("bad_message", "a security card needs evidence: name the file (and line) in its reason");
+    }
+    const cards = this.list(own.projectId);
+    if (cards.filter((c) => c.openedBy?.sessionId === pmSessionId).length >= MAX_CASES_PER_PM) {
+      throw new KervanError("bad_message", `you've opened ${MAX_CASES_PER_PM} cards from this card already; mention the rest in your summary`);
+    }
+    if (cards.filter((c) => c.openedBy && c.column === "todo" && !c.sessionId).length >= MAX_PM_PROPOSALS) {
+      throw new KervanError("bad_message", `${MAX_PM_PROPOSALS} cards you opened are still waiting for the user; mention this in your summary instead`);
+    }
+    const same = title.toLocaleLowerCase("tr");
+    const duplicate = cards.find((c) => c.column !== "done" && c.title.toLocaleLowerCase("tr") === same);
+    if (duplicate) throw new KervanError("bad_message", `a card titled '${duplicate.title}' is already open (${duplicate.column})`);
+    const now = new Date().toISOString();
+    const card: CardInfo = {
+      id: randomUUID(),
+      projectId: own.projectId,
+      title,
+      prompt,
+      agent,
+      openedBy: { sessionId: pmSessionId, kind, reason },
+      column: "todo",
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.cards.set(card.id, card);
+    this.changed(card.projectId);
+    this.pickUp(card.projectId);
+    return card;
   }
 
   /** The PM's plan for its card. */
