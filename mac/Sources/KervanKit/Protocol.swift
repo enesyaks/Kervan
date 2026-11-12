@@ -738,6 +738,10 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
     case projectPM(id: String, projectId: String, pm: ProjectPM?)
     /// Replaces the project's team.
     case projectTeam(id: String, projectId: String, team: [ProjectMember])
+    /// Skills PMs suggested, waiting for the user.
+    case skillDrafts(id: String)
+    case skillDraftAccept(id: String, draftId: String)
+    case skillDraftDiscard(id: String, draftId: String)
     /// (Re)builds the project map with `agent`; the project's `map` follows how it goes.
     case projectMap(id: String, projectId: String, agent: String)
     case projectMapGet(id: String, projectId: String)
@@ -795,7 +799,7 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
         case type, `protocol`, client, id, agent, sessionId, text, requestId, optionId, attachments, title, archived, query
         case skills, mcpServers, server, name, agentId, role, roleId, roles, orchestrate, budgetUsd, configId, value
         case projectId, since, seq, paths, project, schedule, scheduleId, days, timeZone, terminalId, data, message, body
-        case autoApprove, enabled, deviceId, shared, removeWorktree, card, cardId, column, alerts, split, code, ollamaModel, node, lmStudioModel, useDefault, pm, team
+        case autoApprove, enabled, deviceId, shared, removeWorktree, card, cardId, column, alerts, split, code, ollamaModel, node, lmStudioModel, useDefault, pm, team, draftId
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -896,6 +900,17 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
             try c.encode(id, forKey: .id)
             try c.encode(projectId, forKey: .projectId)
             try c.encode(team, forKey: .team)
+        case .skillDrafts(let id):
+            try c.encode("skill.drafts", forKey: .type)
+            try c.encode(id, forKey: .id)
+        case .skillDraftAccept(let id, let draftId):
+            try c.encode("skill.draft.accept", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(draftId, forKey: .draftId)
+        case .skillDraftDiscard(let id, let draftId):
+            try c.encode("skill.draft.discard", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(draftId, forKey: .draftId)
         case .alertsGet(let id):
             try c.encode("alerts.get", forKey: .type)
             try c.encode(id, forKey: .id)
@@ -1134,6 +1149,8 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
     case nodesUpdated([NodeInfo], hubAddresses: [HubAddress] = [])
     case nodeInvited(id: String, name: String, code: String, expiresAt: String)
     case roleListResult(id: String, roles: [Role])
+    case skillDraftsResult(id: String, drafts: [SkillDraft])
+    case skillDraftsUpdated([SkillDraft])
     case teamCreated(id: String, team: TeamInfo)
     case teamListResult(id: String, teams: [TeamInfo])
     case teamUpdated(TeamInfo)
@@ -1174,7 +1191,7 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
         case nodes, roles, team, teams, name, expiresAt, hubAddresses
         case changes, projects, schedules, report, terminalId, backlog, data, ports, pullRequest, web, github, url, error
         case projectId, cards, alerts, text
-        case agent, needsCode, signedIn, ollama, lmStudio
+        case agent, needsCode, signedIn, ollama, lmStudio, drafts
     }
 
     public init(from decoder: any Decoder) throws {
@@ -1219,6 +1236,10 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
             )
         case "role.list.result":
             self = .roleListResult(id: try c.decode(String.self, forKey: .id), roles: try c.decode([Role].self, forKey: .roles))
+        case "skill.drafts.result":
+            self = .skillDraftsResult(id: try c.decode(String.self, forKey: .id), drafts: try c.decode([SkillDraft].self, forKey: .drafts))
+        case "skill.drafts.updated":
+            self = .skillDraftsUpdated(try c.decode([SkillDraft].self, forKey: .drafts))
         case "team.created":
             self = .teamCreated(id: try c.decode(String.self, forKey: .id), team: try c.decode(TeamInfo.self, forKey: .team))
         case "team.list.result":

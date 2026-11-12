@@ -41,6 +41,8 @@ private struct WireDown: LocalizedError {
         ("session.review", { await $0.review("s", agent: "a") }),
         ("session.archive", { await $0.setArchived("s", true, removeWorktree: true) }),
         ("session.takeover", { await $0.continueOnServer("s", agent: "claude") }),
+        ("skill.draft.accept", { await $0.acceptSkillDraft("d") }),
+        ("skill.draft.discard", { await $0.discardSkillDraft("d") }),
         ("alerts.get", { await $0.loadAlerts() }),
         ("alerts.test", { await $0.testAlerts() }),
         ("board.list", { await $0.loadBoard("p") }),

@@ -151,7 +151,7 @@ private struct ProjectPMSection: View {
             }
             if let role, let pm = project.pm {
                 Text(role.skills.isEmpty
-                    ? L("No skills: the PM plans from the project's instructions, its map and the repository's own documents.", "Skill yok: PM projenin talimatları, haritası ve deponun kendi belgeleriyle planlar.")
+                    ? L("No skills: the PM plans from the project's instructions, its map and the repository's own documents, and suggests skills for you to accept in Settings › Skills when the same kind of work keeps coming.", "Skill yok: PM projenin talimatları, haritası ve deponun kendi belgeleriyle planlar; aynı tür iş tekrar ettiğinde Ayarlar › Skill'ler'de kabul etmeniz için skill önerir.")
                     : L("Skills: \(role.skills.joined(separator: ", "))", "Skill'ler: \(role.skills.joined(separator: ", "))"))
                     .font(.callout)
                     .foregroundStyle(.secondary)

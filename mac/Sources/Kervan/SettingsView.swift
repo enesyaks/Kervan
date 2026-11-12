@@ -410,6 +410,69 @@ struct SettingsCard<Content: View>: View {
     }
 }
 
+/// Skills a PM suggested: read in full, then accepted into the library or discarded. Nothing uses them before that.
+private struct SkillDraftsCard: View {
+    let accepted: () -> Void
+    @Environment(AppModel.self) private var model
+    @State private var open: Set<String> = []
+    @State private var error: String?
+    @State private var busy = false
+
+    var body: some View {
+        SettingsCard(
+            title: L("Suggested by the PM", "PM'in önerileri"),
+            footer: L(
+                "A PM suggests a skill when the same kind of work keeps coming and no skill covers it. An agent wrote it, so read it before you accept it: from then on every agent given the skill follows it.",
+                "PM aynı tür iş tekrar ettiğinde ve onu karşılayan bir skill olmadığında skill önerir. Bunu bir ajan yazdı; kabul etmeden önce okuyun: bundan sonra bu skill'i alan her ajan ona uyar."
+            )
+        ) {
+            ForEach(model.store.skillDrafts) { draft in
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .firstTextBaseline) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(draft.name).font(.body.monospaced())
+                            Text(draft.description).font(.caption).foregroundStyle(.secondary)
+                            if let project = draft.projectId.flatMap({ model.store.project($0) }) {
+                                Text(L("From the PM of \(project.name)", "\(project.name) projesinin PM'inden")).font(.caption2).foregroundStyle(.tertiary)
+                            }
+                        }
+                        Spacer()
+                        Button(L("Discard", "At"), role: .destructive) { act { await model.store.discardSkillDraft(draft.id) } }
+                            .buttonStyle(.borderless)
+                        Button(L("Accept", "Kabul et")) {
+                            act {
+                                let failure = await model.store.acceptSkillDraft(draft.id)
+                                if failure == nil { accepted() }
+                                return failure
+                            }
+                        }
+                        .buttonStyle(.kervanPrimary)
+                    }
+                    DisclosureGroup(L("Read it", "Oku"), isExpanded: Binding(get: { open.contains(draft.id) }, set: { if $0 { open.insert(draft.id) } else { open.remove(draft.id) } })) {
+                        Text(draft.body)
+                            .font(.caption.monospaced())
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .font(.caption)
+                }
+                .disabled(busy)
+            }
+            if let error {
+                Label(error, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(Color.kervanCoral)
+            }
+        }
+    }
+
+    private func act(_ work: @escaping () async -> String?) {
+        Task {
+            busy = true
+            defer { busy = false }
+            error = await work()
+        }
+    }
+}
+
 private struct SkillsSettings: View {
     @Environment(AppModel.self) private var model
     @State private var skills: [SkillInfo] = []
@@ -423,6 +486,10 @@ private struct SkillsSettings: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+
+            if !model.store.skillDrafts.isEmpty {
+                SkillDraftsCard(accepted: { Task { await reload() } })
+            }
 
             List {
                 ForEach(skills) { skill in

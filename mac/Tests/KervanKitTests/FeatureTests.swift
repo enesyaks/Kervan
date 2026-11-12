@@ -468,3 +468,14 @@ import Testing
         #expect(ProjectPM.reviewPrompt.contains("case_open") && ProjectPM.reviewPrompt.contains("Don't change any files"))
     }
 }
+
+@MainActor @Suite struct SkillDraftTests {
+    @Test func keepsWhatPMsSuggestedUntilItIsAcceptedOrDiscarded() throws {
+        let store = SessionStore { _ in }
+        store.handle(try ServerMessage.decode(#"{"type":"skill.drafts.updated","drafts":[{"id":"d","name":"surum-cikar","description":"Sürüm çıkarırken.","body":"1. Test","sessionId":"s","projectId":"p","createdAt":"t"}]}"#))
+        #expect(store.skillDrafts.map(\.name) == ["surum-cikar"])
+        store.handle(try ServerMessage.decode(#"{"type":"skill.drafts.result","id":"x","drafts":[]}"#))
+        #expect(store.skillDrafts.isEmpty)
+        #expect(try ClientMessage.skillDraftAccept(id: "a", draftId: "d").jsonString().contains(#""draftId":"d""#))
+    }
+}

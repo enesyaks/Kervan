@@ -191,6 +191,20 @@ export interface ProjectMember {
   skills: string[];
 }
 
+/** A skill a PM suggested, waiting for the user to accept (it then joins the library) or discard it. */
+export interface SkillDraft {
+  id: string;
+  name: string;
+  /** When to use it, as in SKILL.md's front matter. */
+  description: string;
+  /** SKILL.md after the front matter: how to do the job. */
+  body: string;
+  /** The PM session that suggested it, and its project. */
+  sessionId: string;
+  projectId?: string;
+  createdAt: string;
+}
+
 /** What a card the PM opens is for. */
 export type CaseKind = "feature" | "security" | "fix";
 
@@ -447,6 +461,9 @@ export type ClientMessage =
   | { type: "project.delete"; id: string; projectId: string }
   | { type: "project.pm"; id: string; projectId: string; pm?: Record<string, unknown> | null }
   | { type: "project.team"; id: string; projectId: string; team: unknown[] }
+  | { type: "skill.drafts"; id: string }
+  | { type: "skill.draft.accept"; id: string; draftId: string }
+  | { type: "skill.draft.discard"; id: string; draftId: string }
   /** (Re)builds the project map with `agent`; answered with `project.list.result`. */
   | { type: "project.map"; id: string; projectId: string; agent: string }
   | { type: "project.map.get"; id: string; projectId: string }
@@ -531,6 +548,8 @@ export type ServerMessage =
   | { type: "project.list.result"; id: string; projects: ProjectInfo[] }
   /** Broadcast after a project was added, changed or removed. */
   | { type: "projects.updated"; projects: ProjectInfo[] }
+  | { type: "skill.drafts.result"; id: string; drafts: SkillDraft[] }
+  | { type: "skill.drafts.updated"; drafts: SkillDraft[] }
   /** The map's text (Markdown); empty while there is none. */
   | { type: "project.map.result"; id: string; projectId: string; text: string }
   | { type: "schedule.list.result"; id: string; schedules: ScheduleInfo[] }
@@ -642,6 +661,9 @@ const STRING_FIELDS: Record<string, readonly string[]> = {
   "project.delete": ["id", "projectId"],
   "project.pm": ["id", "projectId"],
   "project.team": ["id", "projectId"],
+  "skill.drafts": ["id"],
+  "skill.draft.accept": ["id", "draftId"],
+  "skill.draft.discard": ["id", "draftId"],
   "project.map": ["id", "projectId", "agent"],
   "project.map.get": ["id", "projectId"],
   "schedule.list": ["id"],

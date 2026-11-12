@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import type WebSocket from "ws";
@@ -377,5 +377,79 @@ describe("cards the PM opens itself", () => {
     await call({ type: "project.pm", projectId, pm: { roleId: "pm", startOwnCases: true } });
     // The five waiting proposals start now too, two at a time; the new one joins them.
     await until(() => board().filter((c) => c.openedBy && c.sessionId).length >= 2);
+  });
+});
+
+describe("skills a PM suggests", () => {
+  let sessions: SessionManager;
+  let stop: () => Promise<void>;
+  let ws: WebSocket;
+  let inbox: Inbox;
+  let dataDir = "";
+  let n = 0;
+  let projectId = "";
+  const call = async (message: object): Promise<any> => {
+    const id = `m${++n}`;
+    send(ws, { ...message, id });
+    return inbox.waitFor((m) => m.id === id && m.type !== "session.event", 15_000);
+  };
+  const pmSays = async (prompt: string) => {
+    const title = `kart ${++n}`;
+    const saved = await call({ type: "card.save", card: { projectId, agent: "fake", title, prompt } });
+    const id = saved.cards.find((c: any) => c.title === title).id;
+    const sessionId = (await until(() => sessions.board!.list(projectId).find((c) => c.id === id && c.sessionId)))!.sessionId!;
+    const text = await until(() => sessions.history(sessionId).filter((e) => e.kind === "agent_message_chunk").map((e: any) => e.text).join("") || undefined);
+    return { text, sessionId };
+  };
+  const draft = (fields: object = {}) =>
+    `memcall: skill_draft ${JSON.stringify({ name: "surum-cikar", description: "Bu depoda sürüm çıkarırken.", body: "1. Testleri çalıştır.\n2. Sürümü artır.", ...fields })}`;
+
+  before(async () => {
+    let port: number;
+    ({ port, sessions, stop, dataDir } = await startServer());
+    ws = openSocket(port);
+    inbox = new Inbox(ws);
+    await opened(ws);
+    send(ws, HELLO);
+    await inbox.waitFor((m) => m.type === "welcome");
+    const project = await sessions.projects!.save({ name: "Skill'siz" });
+    projectId = project.id;
+    repository(project.path);
+    await call({ type: "role.save", role: { id: "pm", name: "PM", agent: "fake", lead: true } });
+    await call({ type: "project.pm", projectId, pm: { roleId: "pm" } });
+  });
+
+  after(async () => {
+    ws.terminate();
+    await stop();
+  });
+
+  it("waits for the user, and no agent can use it before that", async () => {
+    const { text, sessionId } = await pmSays(draft());
+    assert.match(text, /Suggested\. It waits for the user/);
+    const { drafts } = await call({ type: "skill.drafts" });
+    assert.equal(drafts.length, 1);
+    assert.equal(drafts[0].name, "surum-cikar");
+    assert.equal(drafts[0].sessionId, sessionId);
+    assert.ok(!existsSync(join(dataDir, "skills", "surum-cikar")), "not in the library");
+    assert.ok(sessions.history(sessionId).some((e) => e.kind === "notice" && /No agent uses it until you accept it/.test((e as any).text)));
+    // Not a skill a role or member can be given yet.
+    assert.match((await call({ type: "role.save", role: { id: "r", name: "R", agent: "fake", skills: ["surum-cikar"] } })).message, /no skill named 'surum-cikar'/);
+  });
+
+  it("becomes a skill in the library once accepted, and is gone when discarded", async () => {
+    const { drafts } = await call({ type: "skill.drafts" });
+    const accepted = await call({ type: "skill.draft.accept", draftId: drafts[0].id });
+    assert.deepEqual(accepted.drafts, []);
+    const skill = readFileSync(join(dataDir, "skills", "surum-cikar", "SKILL.md"), "utf8");
+    assert.match(skill, /^---\nname: surum-cikar\ndescription: Bu depoda sürüm çıkarırken\.\n---\n\n1\. Testleri çalıştır\./);
+    assert.equal((await call({ type: "role.save", role: { id: "r", name: "R", agent: "fake", skills: ["surum-cikar"] } })).type, "role.list.result");
+
+    assert.match((await pmSays(draft())).text, /refused: the library already has a skill named 'surum-cikar'/);
+    await pmSays(draft({ name: "baska" }));
+    const waiting = (await call({ type: "skill.drafts" })).drafts;
+    await call({ type: "skill.draft.discard", draftId: waiting[0].id });
+    assert.deepEqual((await call({ type: "skill.drafts" })).drafts, []);
+    assert.ok(!existsSync(join(dataDir, "skills", "baska")));
   });
 });

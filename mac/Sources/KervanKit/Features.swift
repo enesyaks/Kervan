@@ -369,6 +369,29 @@ public struct CardInfo: Codable, Equatable, Sendable, Identifiable {
     public var openedBy: CaseOrigin? = nil
 }
 
+/// A skill a PM suggested: nothing uses it until the user accepts it, and then it joins the library.
+public struct SkillDraft: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let name: String
+    /// When to use it.
+    public let description: String
+    /// How to do the job: SKILL.md after its front matter.
+    public let body: String
+    public let sessionId: String
+    public let projectId: String?
+    public let createdAt: String
+
+    public init(id: String, name: String, description: String, body: String, sessionId: String, projectId: String? = nil, createdAt: String = "") {
+        self.id = id
+        self.name = name
+        self.description = description
+        self.body = body
+        self.sessionId = sessionId
+        self.projectId = projectId
+        self.createdAt = createdAt
+    }
+}
+
 /// Where a card the PM opened came from.
 public struct CaseOrigin: Codable, Equatable, Sendable {
     public enum Kind: String, Codable, Sendable { case feature, security, fix }

@@ -342,6 +342,16 @@ async function handleRequest(
       sessions.setProjectTeam(message.projectId, message.team);
       sessions.broadcast({ type: "projects.updated", projects: requireProjects(sessions).list() });
       return send(ws, { type: "project.list.result", id: message.id, projects: requireProjects(sessions).list() });
+    case "skill.drafts":
+      return send(ws, { type: "skill.drafts.result", id: message.id, drafts: sessions.skillDrafts?.list() ?? [] });
+    case "skill.draft.accept":
+    case "skill.draft.discard": {
+      const drafts = sessions.skillDrafts ?? (() => { throw new KervanError("bad_message", "this server keeps no skills"); })();
+      if (message.type === "skill.draft.accept") await drafts.accept(message.draftId);
+      else drafts.discard(message.draftId);
+      sessions.broadcast({ type: "skill.drafts.updated", drafts: drafts.list() });
+      return send(ws, { type: "skill.drafts.result", id: message.id, drafts: drafts.list() });
+    }
     case "project.delete":
       requireProjects(sessions).remove(message.projectId);
       sessions.broadcast({ type: "projects.updated", projects: requireProjects(sessions).list() });

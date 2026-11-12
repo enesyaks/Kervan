@@ -25,6 +25,8 @@ public final class SessionStore {
     /// The server's refusal of the last agent save (it tries the agent first), if any.
     public private(set) var agentSaveError: String?
     public private(set) var roles: [Role] = []
+    /// Skills PMs suggested, waiting to be accepted or discarded.
+    public private(set) var skillDrafts: [SkillDraft] = []
     /// Newest first.
     public private(set) var teams: [TeamInfo] = []
     /// MCP servers registered on the server, refreshed on connect and after every change.
@@ -142,6 +144,7 @@ public final class SessionStore {
         await request(.sessionList(id: Self.newID()))
         await request(.mcpList(id: Self.newID()))
         await request(.roleList(id: Self.newID()))
+        await request(.skillDrafts(id: Self.newID()))
         await request(.teamList(id: Self.newID()))
         await request(.nodeList(id: Self.newID()))
         await request(.projectList(id: Self.newID()))
@@ -393,6 +396,17 @@ public final class SessionStore {
     @discardableResult
     public func setProjectPM(_ projectID: String, pm: ProjectPM?) async -> String? {
         await call(.projectPM(id: Self.newID(), projectId: projectID, pm: pm))
+    }
+
+    /// Makes a suggested skill part of the library; returns the server's refusal, if any.
+    @discardableResult
+    public func acceptSkillDraft(_ draftID: String) async -> String? {
+        await call(.skillDraftAccept(id: Self.newID(), draftId: draftID))
+    }
+
+    @discardableResult
+    public func discardSkillDraft(_ draftID: String) async -> String? {
+        await call(.skillDraftDiscard(id: Self.newID(), draftId: draftID))
     }
 
     /// Takes a member off the project's team; returns the server's refusal, if any.
@@ -762,6 +776,8 @@ public final class SessionStore {
             if !agentConfigs.isEmpty { Task { await loadAgentConfigs() } }
         case .roleListResult(_, let roles):
             self.roles = roles
+        case .skillDraftsResult(_, let drafts), .skillDraftsUpdated(let drafts):
+            skillDrafts = drafts
         case .teamListResult(_, let teams):
             self.teams = teams.sorted { $0.createdAt > $1.createdAt }
         case .teamCreated(let requestID, let team):

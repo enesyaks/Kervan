@@ -177,6 +177,21 @@ export const PM_TOOLS: Tool[] = [
     },
   },
   {
+    name: "skill_draft",
+    description:
+      "Suggest a new skill for work that keeps coming and no skill covers. It waits for the user, who reads it and accepts or " +
+      "discards it; no agent uses it before that. At most 2 per card.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: text("Lowercase letters, digits or '-', e.g. 'release-steps'."),
+        description: text("When to use it, in one sentence."),
+        body: text("How to do the job, step by step, in Markdown, as this project does it."),
+      },
+      required: ["name", "description", "body"],
+    },
+  },
+  {
     name: "team_remove",
     description: "Take a member off the project's team.",
     inputSchema: { type: "object", properties: { id: text("The member's id.") }, required: ["id"] },
@@ -396,6 +411,9 @@ export class OrchestraHub {
         const card = sessions.openCase(leadId, { title: args.title, prompt: args.prompt, kind: args.kind, reason: args.reason });
         return `Opened card ${card.id}: "${card.title}".`;
       }
+      case "skill_draft":
+        sessions.suggestSkill(leadId, args);
+        return "Suggested. It waits for the user to accept it.";
       case "team_save":
         return sessions.saveTeamMember(leadId, args);
       case "team_remove":

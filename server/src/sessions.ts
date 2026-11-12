@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { cp, mkdir, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { SkillDrafts } from "./skilldrafts.ts";
 import type { AgentRegistry } from "./agents.ts";
 import { isSafeRelativePath, placeFile } from "./files.ts";
 import { log } from "./log.ts";
@@ -199,6 +200,8 @@ export class SessionManager {
   readonly nodes?: NodeHub;
   readonly projects?: ProjectRegistry;
   private readonly checkpoints?: Checkpoints;
+  /** Skills PMs suggested, waiting for the user. */
+  readonly skillDrafts?: SkillDrafts;
   /** Set once the scheduler exists (it needs this manager to start its sessions). */
   scheduler?: Scheduler;
   board?: Board;
@@ -230,6 +233,7 @@ export class SessionManager {
     } = {},
   ) {
     this.projects = extras.projects;
+    this.skillDrafts = extras.skills ? new SkillDrafts(join(dirname(extras.skills.root), "skill-drafts.json"), extras.skills) : undefined;
     this.checkpoints = extras.checkpoints;
     this.nodes = extras.nodes;
     if (this.nodes) {
@@ -443,6 +447,18 @@ export class SessionManager {
   /** The skills in the library, for a PM choosing what each member should know. */
   async skillChoices(): Promise<{ name: string; description: string }[]> {
     return ((await this.skills?.list()) ?? []).map(({ name, description }) => ({ name, description }));
+  }
+
+  /** A PM suggests a skill for work that keeps coming and no skill covers; it waits for the user. */
+  suggestSkill(sessionId: string, input: Record<string, unknown>): void {
+    const project = this.pmProject(sessionId);
+    const drafts = this.skillDrafts ?? fail("this server keeps no skills");
+    const draft = drafts.add(input, { sessionId, projectId: project.id });
+    this.broadcast({ type: "skill.drafts.updated", drafts: drafts.list() });
+    this.record(this.require(sessionId), {
+      kind: "notice",
+      text: `Suggested a skill: ${draft.name} — ${draft.description}. No agent uses it until you accept it in Settings › Skills.`,
+    });
   }
 
   /** The project's open cards, for a PM about to open one. */
@@ -1209,6 +1225,9 @@ export class SessionManager {
         "security problem, a bug), check case_list and open a card for it with case_open, with the evidence (file and line) " +
         "in its reason, rather than doing it here.",
       "6. End with a short summary for the user: what was done, by whom, and what is left.",
+      "If this kind of work keeps coming (case_read shows it) and no skill covers it, suggest one with skill_draft: when to use " +
+        "it and how to do the job, step by step, as this project does it. It is only a suggestion: no agent uses it until the " +
+        "user accepts it.",
     ].join("\n");
   }
 
