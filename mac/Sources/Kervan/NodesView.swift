@@ -400,7 +400,14 @@ final class SSHInstaller {
                 guard let self else { return }
                 pipe.fileHandleForReading.readabilityHandler = nil
                 self.isRunning = false
-                if status == 0 { self.succeeded = true } else { self.failure = NodeSetup.explain(output: self.output) }
+                if status == 0 {
+                    self.succeeded = true
+                } else if self.output.contains("Permission denied"), let key = await Task.detached(operation: { SSHKeys.probe() }).value {
+                    // A locked key, not a missing one: say how to unlock it, since ssh-copy-id wouldn't help.
+                    self.failure = "\(SSHKeys.lockedMessage)\n\(SSHKeys.unlockCommand(key: key))"
+                } else {
+                    self.failure = NodeSetup.explain(output: self.output)
+                }
             }
         }
         do {

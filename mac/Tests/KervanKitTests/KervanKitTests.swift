@@ -869,3 +869,52 @@ import Testing
         #expect(AgentSignIn.of("yerel") == nil)
     }
 }
+
+@Suite struct SSHKeyTests {
+    @Test func tellsALockedKeyFromAMissingOne() {
+        // Keys, none opening without a passphrase, an empty agent: unlocking is what helps, not ssh-copy-id.
+        #expect(SSHKeys.lockedKey(present: ["id_ed25519"], unlocked: [], agentHasKeys: false) == "id_ed25519")
+        #expect(SSHKeys.lockedKey(present: ["id_rsa", "id_ed25519"], unlocked: [], agentHasKeys: false) == "id_ed25519", "the one ssh tries first")
+        // The agent already holds a key, or one key opens by itself: ssh can sign, so the refusal is about the server.
+        #expect(SSHKeys.lockedKey(present: ["id_ed25519"], unlocked: [], agentHasKeys: true) == nil)
+        #expect(SSHKeys.lockedKey(present: ["id_ed25519", "id_rsa"], unlocked: ["id_rsa"], agentHasKeys: false) == nil)
+        // No key at all: copying one (made first) is the answer.
+        #expect(SSHKeys.lockedKey(present: [], unlocked: [], agentHasKeys: false) == nil)
+    }
+
+    @Test func findsNothingLockedWithoutKeysOrWithAKeyThatOpens() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("kervan-ssh-\(UUID().uuidString)")
+        let folder = home.appendingPathComponent(".ssh")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        #expect(SSHKeys.probe(home: home) == nil)
+
+        let keygen = Process()
+        keygen.executableURL = URL(fileURLWithPath: "/usr/bin/ssh-keygen")
+        keygen.arguments = ["-q", "-t", "ed25519", "-N", "", "-f", folder.appendingPathComponent("id_ed25519").path]
+        try keygen.run()
+        keygen.waitUntilExit()
+        #expect(SSHKeys.probe(home: home) == nil, "a key without a passphrase opens by itself")
+    }
+
+    @Test func theUnlockCommandAddsTheKeychainSettingsOnce() throws {
+        let command = SSHKeys.unlockCommand(key: "id_ed25519")
+        #expect(command.hasPrefix("ssh-add --apple-use-keychain ~/.ssh/id_ed25519 && "))
+        // Runs in zsh, Terminal's shell, with the passphrase step left out: the settings go in once, however often it runs.
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("kervan-ssh-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: home.appendingPathComponent(".ssh"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let script = command.replacingOccurrences(of: "ssh-add --apple-use-keychain ~/.ssh/id_ed25519", with: "true")
+        for _ in 0..<2 {
+            let shell = Process()
+            shell.executableURL = URL(fileURLWithPath: "/bin/zsh")
+            shell.arguments = ["-f", "-c", script]
+            shell.environment = ["HOME": home.path, "PATH": "/usr/bin:/bin"]
+            try shell.run()
+            shell.waitUntilExit()
+            #expect(shell.terminationStatus == 0)
+        }
+        let config = try String(contentsOf: home.appendingPathComponent(".ssh/config"), encoding: .utf8)
+        #expect(config == "\nHost *\n  UseKeychain yes\n  AddKeysToAgent yes\n")
+    }
+}

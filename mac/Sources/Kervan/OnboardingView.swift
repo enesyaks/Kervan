@@ -457,7 +457,16 @@ struct OnboardingView: View {
                 if let address = installer.waitingOnTailscale {
                     TailscaleHint(address: address)
                 }
-                if installer.sshRefused {
+                if let key = installer.lockedKey {
+                    Guidance(
+                        text: L(
+                            "Run this once: Terminal asks for the key's passphrase and keeps it in the Keychain, so Kervan can use the key from now on, after a restart too. Then try again.",
+                            "Bunu bir kez çalıştırın: Terminal anahtarın parolasını sorar ve Anahtar Zinciri'nde saklar; Kervan anahtarı bundan sonra, yeniden başlatmadan sonra da kullanabilir. Sonra yeniden deneyin."
+                        ),
+                        command: SSHKeys.unlockCommand(key: key),
+                        runsHere: true
+                    )
+                } else if installer.sshRefused {
                     Guidance(
                         text: L(
                             "Run this once: it adds this Mac's key to the machine, asking for its password in Terminal. Then try again.",

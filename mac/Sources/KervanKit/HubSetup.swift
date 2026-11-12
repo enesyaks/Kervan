@@ -71,6 +71,63 @@ public enum HubSetup {
     }
 }
 
+/// Why this Mac's SSH key can't log in on its own, and what puts that right. The app runs ssh with no terminal to ask
+/// in, so a key with a passphrase is no use to it unless the ssh agent already holds it, and ssh-copy-id can't help:
+/// the server may well have the key and still be refused, because this side can't open it.
+public enum SSHKeys {
+    /// The private keys ssh tries by default, most preferred first.
+    public static let defaultKeys = ["id_ed25519", "id_ecdsa", "id_rsa"]
+
+    /// The key to unlock: this Mac has keys, none of them opens without a passphrase, and the agent holds none.
+    public static func lockedKey(present: [String], unlocked: Set<String>, agentHasKeys: Bool) -> String? {
+        guard !agentHasKeys, !present.isEmpty, !present.contains(where: unlocked.contains) else { return nil }
+        return defaultKeys.first(where: present.contains) ?? present.first
+    }
+
+    /// Puts the key in the ssh agent with its passphrase kept in the Keychain (Terminal asks for it once), and has ssh
+    /// take it from there after a restart too, unless ~/.ssh/config already says so.
+    public static func unlockCommand(key: String) -> String {
+        "ssh-add --apple-use-keychain ~/.ssh/\(key) && { grep -qs 'UseKeychain yes' ~/.ssh/config || printf '\\nHost *\\n  UseKeychain yes\\n  AddKeysToAgent yes\\n' >> ~/.ssh/config; }"
+    }
+
+    /// Looks at this Mac: which default keys there are, which open without a passphrase, whether the agent has any.
+    /// Runs two small programs, so call it off the main thread.
+    public static func probe(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> String? {
+        let folder = home.appendingPathComponent(".ssh")
+        let present = defaultKeys.filter { FileManager.default.fileExists(atPath: folder.appendingPathComponent($0).path) }
+        guard !present.isEmpty else { return nil }
+        // -P "" tries an empty passphrase and fails at once on a key that has one; nothing waits for typing.
+        let unlocked = Set(present.filter { run("/usr/bin/ssh-keygen", ["-y", "-P", "", "-f", folder.appendingPathComponent($0).path]) == 0 })
+        // 0: it holds keys; 1: it holds none; 2: there is no agent.
+        let agentHasKeys = run("/usr/bin/ssh-add", ["-l"]) == 0
+        return lockedKey(present: present, unlocked: unlocked, agentHasKeys: agentHasKeys)
+    }
+
+    private static func run(_ program: String, _ arguments: [String]) -> Int32 {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: program)
+        process.arguments = arguments
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus
+        } catch {
+            return -1
+        }
+    }
+
+    /// What the app says instead of "add your key with ssh-copy-id" when the key is locked.
+    public static var lockedMessage: String {
+        L(
+            "The SSH connection was refused because this Mac's SSH key has a passphrase, and Kervan can't type it. Unlock the key once, as below, then try again.",
+            "SSH bağlantısı reddedildi, çünkü bu Mac'in SSH anahtarı parolalı ve Kervan parolayı giremez. Anahtarı aşağıdaki gibi bir kez açın, sonra yeniden deneyin."
+        )
+    }
+}
+
 /// The stages of setting up a hub, as hub-setup.sh reports them.
 public enum HubSetupStep: Int, CaseIterable, Comparable, Sendable {
     case uploading, packages, files, settings, firewall, service, tailscaleLogin, ready

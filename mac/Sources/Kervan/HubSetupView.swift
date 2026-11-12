@@ -72,6 +72,8 @@ final class HubInstaller {
     var started: Bool { startedAt != nil }
     /// The machine wouldn't let this Mac in with its key, which one command in Terminal puts right.
     var sshRefused: Bool { failure != nil && output.contains("Permission denied") }
+    /// Refused because this Mac's key has a passphrase ssh can't ask for here: the key to unlock, not to copy.
+    private(set) var lockedKey: String?
 
     /// A step as the list shows it. While setup runs in the user's Terminal its progress can't be seen from here, so the
     /// step says what it's waiting for rather than seeming to work on something.
@@ -124,6 +126,10 @@ final class HubInstaller {
                 self.waitingForTerminal = false
                 self.failure = (error as? SetupError)?.message ?? error.localizedDescription
                 if self.output.contains("No route to host") { self.localNetworkBlocked = true }
+                if self.output.contains("Permission denied") {
+                    self.lockedKey = await Task.detached { SSHKeys.probe() }.value
+                    if self.lockedKey != nil { self.failure = SSHKeys.lockedMessage }
+                }
             }
         }
     }
@@ -132,6 +138,7 @@ final class HubInstaller {
         stop()
         output = ""
         failure = nil
+        lockedKey = nil
         startedAt = nil
         step = .uploading
         tailscaleURL = nil
