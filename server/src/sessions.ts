@@ -11,6 +11,7 @@ import {
   type ChangeSet,
   type ConfigOption,
   type ProjectInfo,
+  type ProjectMember,
   type ProjectPM,
   type PullRequestInfo,
   type ServerMessage,
@@ -71,6 +72,10 @@ export const HELPER_TURN_MINUTES = 30;
 export const HELPER_IDLE_MINUTES = 10;
 /** An unattended project session cut off by its node continues on this server after the node has been away this long. */
 export const NODE_TAKEOVER_MINUTES = 10;
+/** A project's team: enough for real work, few enough that a PM can't fill the server with agents. */
+export const MAX_TEAM = 8;
+const MEMBER_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const MAX_MEMBER_INSTRUCTIONS = 4_000;
 
 export interface Limits {
   maxHelpers: number;
@@ -368,6 +373,77 @@ export class SessionManager {
     return project;
   }
 
+  /** A team member as given by a PM or the app, checked against the agents and skills there are. */
+  private member(projectId: string, input: unknown): ProjectMember {
+    if (typeof input !== "object" || input === null || Array.isArray(input)) fail("a team member must be an object");
+    const raw = input as Record<string, unknown>;
+    const { id, name, agent } = raw;
+    if (typeof id !== "string" || !MEMBER_ID.test(id)) fail("a member's id is lowercase letters, digits or '-'");
+    if (typeof name !== "string" || name.trim() === "" || name.length > 60) fail("a member needs a name of at most 60 characters");
+    const definition = typeof agent === "string" ? this.agents.get(agent) : undefined;
+    if (!definition) fail(`no agent named '${String(agent)}' (see list_agents)`);
+    if (definition!.protocol === "pty") fail("a terminal agent can't be told its task by a PM; pick another agent");
+    const instructions = raw.instructions ?? "";
+    if (typeof instructions !== "string" || instructions.length > MAX_MEMBER_INSTRUCTIONS) fail(`instructions must be text of at most ${MAX_MEMBER_INSTRUCTIONS} characters`);
+    const skills = raw.skills === undefined ? [] : raw.skills;
+    if (!Array.isArray(skills) || !skills.every((s) => typeof s === "string")) fail("skills must be a list of skill names (see list_skills)");
+    const missing = (skills as string[]).find((s) => !this.skills?.has(s));
+    if (missing) fail(`no skill named '${missing}' (see list_skills)`);
+    const node = nodeOf(definition);
+    if (node !== LOCAL_NODE && (skills as string[]).length > 0) fail(`skills aren't available on node '${node}' yet; give this member an agent on the server, or no skills`);
+    const refusal = this.projectRefusal(agent as string, projectId);
+    if (refusal) fail(refusal);
+    return { id: id as string, name: (name as string).trim(), agent: agent as string, instructions: (instructions as string).trim(), skills: [...new Set(skills as string[])] };
+  }
+
+  /** Replaces the project's team, from the app. */
+  setProjectTeam(projectId: string, input: unknown[]): ProjectInfo {
+    const projects = this.projects ?? fail("this server has no projects");
+    if (!projects.get(projectId)) fail(`no project '${projectId}'`);
+    if (input.length > MAX_TEAM) fail(`a team has at most ${MAX_TEAM} members`);
+    const team = input.map((member) => this.member(projectId, member));
+    if (new Set(team.map((m) => m.id)).size !== team.length) fail("two members have the same id");
+    return projects.setTeam(projectId, team);
+  }
+
+  /** The project a PM session works for; it has to be one. */
+  private pmProject(sessionId: string): ProjectInfo {
+    const session = this.require(sessionId);
+    if (!session.info.pmCard) fail("only a project's PM can do that");
+    return this.memoryProject(session.info) ?? fail("this session's project is gone");
+  }
+
+  /** A PM adds a member to its project's team, or changes one; the user hears of it in the PM's session. */
+  saveTeamMember(sessionId: string, input: unknown): ProjectMember {
+    const project = this.pmProject(sessionId);
+    const member = this.member(project.id, input);
+    const team = project.team ?? [];
+    const others = team.filter((m) => m.id !== member.id);
+    if (others.length >= MAX_TEAM) fail(`a team has at most ${MAX_TEAM} members; remove one first`);
+    this.projects!.setTeam(project.id, [...others, member]);
+    this.broadcast({ type: "projects.updated", projects: this.projects!.list() });
+    const skills = member.skills.length > 0 ? `skills: ${member.skills.join(", ")}` : "no skills";
+    this.record(this.require(sessionId), {
+      kind: "notice",
+      text: `${others.length === team.length ? "Added to" : "Changed in"} the project's team: ${member.name} (${this.agents.get(member.agent)?.name ?? member.agent}; ${skills}).`,
+    });
+    return member;
+  }
+
+  /** A PM takes a member off its project's team. */
+  removeTeamMember(sessionId: string, memberId: string): void {
+    const project = this.pmProject(sessionId);
+    const member = (project.team ?? []).find((m) => m.id === memberId) ?? fail(`no member '${memberId}' in the team`);
+    this.projects!.setTeam(project.id, (project.team ?? []).filter((m) => m.id !== memberId));
+    this.broadcast({ type: "projects.updated", projects: this.projects!.list() });
+    this.record(this.require(sessionId), { kind: "notice", text: `Removed from the project's team: ${member.name}.` });
+  }
+
+  /** The skills in the library, for a PM choosing what each member should know. */
+  async skillChoices(): Promise<{ name: string; description: string }[]> {
+    return ((await this.skills?.list()) ?? []).map(({ name, description }) => ({ name, description }));
+  }
+
   /** The PM's plan for its card, shown on the card. */
   setCasePlan(sessionId: string, plan: string): void {
     const session = this.require(sessionId);
@@ -637,11 +713,26 @@ export class SessionManager {
   }
 
   /** start_helper can pick from these. */
-  helperChoices(): { agents: { id: string; name: string }[]; roles: { id: string; name: string; agent: string }[] } {
+  helperChoices(leadId?: string): {
+    agents: { id: string; name: string }[];
+    roles: { id: string; name: string; agent: string }[];
+    team?: { id: string; name: string; agent: string; skills: string[] }[];
+  } {
+    const lead = leadId ? this.sessions.get(leadId) : undefined;
+    const team = lead ? this.memoryProject(lead.info)?.team : undefined;
     return {
       agents: this.agentDetails,
       roles: (this.roles?.list() ?? []).map(({ id, name, agent }) => ({ id, name, agent })),
+      // The project's own team, usable as roles with start_helper; a member's id wins over a role's of the same name.
+      ...(team && team.length > 0 ? { team: team.map(({ id, name, agent, skills }) => ({ id, name, agent, skills })) } : {}),
     };
+  }
+
+  /** A role a lead names for a helper: its project's team member first, then the server's roles. */
+  private helperRole(lead: Session, id: string): Role | undefined {
+    const member = this.memoryProject(lead.info)?.team?.find((m) => m.id === id);
+    if (member) return { ...member, mcpServers: [] };
+    return this.roles?.get(id);
   }
 
   /** A lead agent starts a helper in its own folder and gives it its first task. */
@@ -656,7 +747,7 @@ export class SessionManager {
     if (this.helperSessions(leadId).length >= max) {
       throw new KervanError("bad_message", `at most ${max} helpers; message or reuse one you have`);
     }
-    const role = request.role === undefined ? undefined : (this.roles?.get(request.role) ?? fail(`no role named '${request.role}'`));
+    const role = request.role === undefined ? undefined : (this.helperRole(lead, request.role) ?? fail(`no role or team member named '${request.role}'`));
     const agent = role?.agent ?? request.agent ?? fail("give an agent or a role (see list_agents)");
     const remoteNode = nodeOf(this.agents.get(agent));
     const leadNode = this.nodeFor(lead.info);
@@ -1086,8 +1177,11 @@ export class SessionManager {
           (this.hasMemory(session.info) ? " and earlier work in it (case_read)." : "."),
       "2. Write the plan with case_plan: the steps, what done means for each, which skill each follows (or that none fitted), " +
         "and who does it. It shows on the card; call case_plan again when the plan changes.",
-      "3. Small work you do yourself. Otherwise start helpers with start_helper, each with the role or agent whose skills and " +
-        "machine fit its step (list_agents), and a self-contained task with what done means. Start independent steps together.",
+      "3. Small work you do yourself. Otherwise start helpers with start_helper, each with the team member, role or agent whose " +
+        "skills and machine fit its step (list_agents), and a self-contained task with what done means. Start independent steps together.",
+      "   The project's team (team_list) is who you hand work to. Shape it as the work needs with team_save and team_remove: " +
+        "for each member pick the agent (list_agents) and, from list_skills, only the skills that make sense for its job. " +
+        "You can't give members MCP servers; ask the user if one needs them.",
       "4. Follow them up: wait_for_helper, check their work with helper_diff, ask for fixes with message_helper, and merge " +
         "with merge_helper only what is right.",
       "5. Stay inside the card: don't widen its scope.",

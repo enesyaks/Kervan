@@ -196,3 +196,86 @@ describe("cards in a project with a PM", () => {
     assert.equal(info(board().find((c) => c.id === id)!.sessionId!)?.pmCard, id, "still the PM's when started by hand");
   });
 });
+
+describe("a PM's own team", () => {
+  let sessions: SessionManager;
+  let stop: () => Promise<void>;
+  let ws: WebSocket;
+  let inbox: Inbox;
+  let n = 0;
+  let projectId = "";
+  const call = async (message: object): Promise<any> => {
+    const id = `m${++n}`;
+    send(ws, { ...message, id });
+    return inbox.waitFor((m) => m.id === id && m.type !== "session.event", 15_000);
+  };
+  /** Adds a card for the PM and returns the PM's answer to it. */
+  const ask = async (prompt: string, fields: object = {}) => {
+    const title = `kart ${++n}`;
+    const saved = await call({ type: "card.save", card: { projectId, agent: "fake", title, prompt, ...fields } });
+    const id = saved.cards.find((c: any) => c.title === title).id;
+    const sessionId = (await until(() => sessions.board!.list(projectId).find((c) => c.id === id && c.sessionId)))!.sessionId!;
+    const text = await until(() => sessions.history(sessionId).filter((e) => e.kind === "agent_message_chunk").map((e: any) => e.text).join("") || undefined);
+    return { text, sessionId };
+  };
+
+  before(async () => {
+    let port: number;
+    let dataDir: string;
+    ({ port, sessions, stop, dataDir } = await startServer());
+    mkdirSync(join(dataDir, "skills", "test-yaz"), { recursive: true });
+    writeFileSync(join(dataDir, "skills", "test-yaz", "SKILL.md"), "---\nname: test-yaz\ndescription: Writes tests first.\n---\nWrite a failing test, then fix.\n");
+    ws = openSocket(port);
+    inbox = new Inbox(ws);
+    await opened(ws);
+    send(ws, HELLO);
+    await inbox.waitFor((m) => m.type === "welcome");
+    const project = await sessions.projects!.save({ name: "Ekip" });
+    projectId = project.id;
+    repository(project.path);
+    await call({ type: "role.save", role: { id: "pm", name: "PM", agent: "fake", lead: true } });
+    await call({ type: "project.pm", projectId, pm: { roleId: "pm" } });
+  });
+
+  after(async () => {
+    ws.terminate();
+    await stop();
+  });
+
+  it("sees the skills in the library", async () => {
+    assert.match((await ask("memcall: list_skills {}")).text, /- test-yaz: Writes tests first\./);
+  });
+
+  it("puts members together from agents and the skills that fit, and the user hears of it", async () => {
+    const member = { id: "tester", name: "Testçi", agent: "fake", skills: ["test-yaz"], instructions: "Önce test yaz." };
+    const { sessionId } = await ask(`memcall: team_save ${JSON.stringify(member)}`);
+    assert.deepEqual(sessions.projects!.get(projectId)!.team, [member]);
+    assert.ok(sessions.history(sessionId).some((e) => e.kind === "notice" && /Added to the project's team: Testçi \(Fake; skills: test-yaz\)/.test((e as any).text)));
+
+    assert.match((await ask(`memcall: team_save ${JSON.stringify({ ...member, id: "x", skills: ["yok"] })}`)).text, /refused: no skill named 'yok'/);
+    assert.match((await ask(`memcall: team_save ${JSON.stringify({ ...member, id: "y", agent: "nope" })}`)).text, /refused: no agent named 'nope'/);
+    assert.equal(sessions.projects!.get(projectId)!.team!.length, 1, "nothing was added by the refused ones");
+  });
+
+  it("hands work to a team member, who comes with its skills and instructions", async () => {
+    const { text, sessionId } = await ask(`memcall: start_helper {"name":"Test","task":"whoami","role":"tester"}`);
+    assert.doesNotMatch(text, /refused/);
+    const helper = await until(() => sessions.list().find((s) => s.parentId === sessionId));
+    assert.deepEqual(helper.skills, ["test-yaz"]);
+    assert.equal(helper.role, "Testçi");
+    assert.match(JSON.stringify(sessions.helperChoices(sessionId).team), /"id":"tester"/, "list_agents shows the team");
+  });
+
+  it("is the PM's alone to change; the app can replace or empty it", async () => {
+    const plain = await call({ type: "card.save", card: { projectId, agent: "fake", title: "doğrudan", prompt: "memcall: team_list {}", direct: true } });
+    const id = plain.cards.find((c: any) => c.title === "doğrudan").id;
+    await call({ type: "card.move", cardId: id, column: "working" });
+    const sessionId = sessions.board!.list(projectId).find((c) => c.id === id)!.sessionId!;
+    const text = await until(() => sessions.history(sessionId).filter((e) => e.kind === "agent_message_chunk").map((e: any) => e.text).join("") || undefined);
+    assert.match(text, /refused/, "a session that isn't the PM has no team tools");
+
+    assert.match((await call({ type: "project.team", projectId, team: [{ id: "a", name: "A", agent: "yok" }] })).message, /no agent named 'yok'/);
+    const emptied = await call({ type: "project.team", projectId, team: [] });
+    assert.equal(emptied.projects.find((p: any) => p.id === projectId).team, undefined);
+  });
+});

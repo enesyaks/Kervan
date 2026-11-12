@@ -153,6 +153,8 @@ public struct ProjectInfo: Codable, Equatable, Sendable, Identifiable {
     public let map: ProjectMapInfo?
     /// The project's PM: cards go to it first, and it plans, hands out and follows up the work.
     public let pm: ProjectPM?
+    /// Who the PM hands work to: each an agent with the skills that fit its job.
+    public var team: [ProjectMember]? = nil
 
     public init(id: String, name: String, path: String, instructions: String = "", buildImage: String? = nil, createdAt: String = "", map: ProjectMapInfo? = nil, pm: ProjectPM? = nil) {
         self.id = id
@@ -163,6 +165,23 @@ public struct ProjectInfo: Codable, Equatable, Sendable, Identifiable {
         self.createdAt = createdAt
         self.map = map
         self.pm = pm
+    }
+}
+
+/// A member of a project's team, put together by its PM (or the user): like a role, but the project's own.
+public struct ProjectMember: Codable, Equatable, Sendable, Identifiable {
+    public var id: String
+    public var name: String
+    public var agent: String
+    public var instructions: String
+    public var skills: [String]
+
+    public init(id: String, name: String, agent: String, instructions: String = "", skills: [String] = []) {
+        self.id = id
+        self.name = name
+        self.agent = agent
+        self.instructions = instructions
+        self.skills = skills
     }
 }
 

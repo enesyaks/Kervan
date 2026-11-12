@@ -178,6 +178,17 @@ export interface ProjectInfo {
   map?: ProjectMapInfo;
   /** The project's PM: cards go to it first, and it plans them, hands them out and follows them up. */
   pm?: ProjectPM;
+  /** Who the PM hands work to: members it (or the user) put together, each an agent with skills. */
+  team?: ProjectMember[];
+}
+
+/** A member of a project's team: like a role, but the project's own, and with no MCP servers (those are the user's to give). */
+export interface ProjectMember {
+  id: string;
+  name: string;
+  agent: string;
+  instructions: string;
+  skills: string[];
 }
 
 export interface ProjectPM {
@@ -430,6 +441,7 @@ export type ClientMessage =
   | { type: "project.save"; id: string; project: Record<string, unknown> }
   | { type: "project.delete"; id: string; projectId: string }
   | { type: "project.pm"; id: string; projectId: string; pm?: Record<string, unknown> | null }
+  | { type: "project.team"; id: string; projectId: string; team: unknown[] }
   /** (Re)builds the project map with `agent`; answered with `project.list.result`. */
   | { type: "project.map"; id: string; projectId: string; agent: string }
   | { type: "project.map.get"; id: string; projectId: string }
@@ -624,6 +636,7 @@ const STRING_FIELDS: Record<string, readonly string[]> = {
   "project.save": ["id"],
   "project.delete": ["id", "projectId"],
   "project.pm": ["id", "projectId"],
+  "project.team": ["id", "projectId"],
   "project.map": ["id", "projectId", "agent"],
   "project.map.get": ["id", "projectId"],
   "schedule.list": ["id"],
@@ -683,6 +696,10 @@ export function parseClientMessage(raw: string): ParseResult {
   if (data.type === "project.pm" && data.pm !== undefined && data.pm !== null) {
     if (!isRecord(data.pm)) return fail("bad_message", "project.pm needs a 'pm' object, or null to remove it");
     (message as Record<string, unknown>).pm = data.pm;
+  }
+  if (data.type === "project.team") {
+    if (!Array.isArray(data.team)) return fail("bad_message", "project.team needs a 'team' list");
+    (message as Record<string, unknown>).team = data.team;
   }
   if (data.type === "session.takeover" && data.agent !== undefined) {
     if (typeof data.agent !== "string") return fail("bad_message", "session.takeover needs a string 'agent'");

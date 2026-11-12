@@ -130,6 +130,36 @@ export const PM_TOOLS: Tool[] = [
       "Write your plan for this card; it shows on the card. Steps, what done means for each, which skill each follows, and who does it.",
     inputSchema: { type: "object", properties: { plan: text("The plan, in Markdown.") }, required: ["plan"] },
   },
+  {
+    name: "list_skills",
+    description: "The skills in Kervan's library, with what each is for; give members the ones that fit their job.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "team_list",
+    description: "This project's team: who you hand work to, with their agent and skills. Use a member's id as `role` in start_helper.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "team_save",
+    description: "Add a member to the project's team, or change one (same id). At most 8 members; no MCP servers.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: text("Lowercase letters, digits or '-', e.g. 'tester'."),
+        name: text("Shown to the user, e.g. 'Tester'."),
+        agent: text("Agent id from list_agents."),
+        instructions: text("What this member is told before every task: its job and how to do it."),
+        skills: { type: "array", items: { type: "string" }, description: "Skill names from list_skills." },
+      },
+      required: ["id", "name", "agent"],
+    },
+  },
+  {
+    name: "team_remove",
+    description: "Take a member off the project's team.",
+    inputSchema: { type: "object", properties: { id: text("The member's id.") }, required: ["id"] },
+  },
 ];
 
 /**
@@ -328,8 +358,22 @@ export class OrchestraHub {
       case "case_plan":
         sessions.setCasePlan(leadId, str(args, "plan")!);
         return "The plan is on the card.";
+      case "list_skills": {
+        const skills = await sessions.skillChoices();
+        return skills.length > 0 ? skills.map((s) => `- ${s.name}: ${s.description || "(no description)"}`).join("\n") : "The library has no skills.";
+      }
+      case "team_list": {
+        const info = sessions.list().find((s) => s.id === leadId)!;
+        const team = sessions.memoryProject(info)?.team ?? [];
+        return team.length > 0 ? team : "The team is empty. Add members with team_save.";
+      }
+      case "team_save":
+        return sessions.saveTeamMember(leadId, args);
+      case "team_remove":
+        sessions.removeTeamMember(leadId, str(args, "id")!);
+        return "Removed.";
       case "list_agents":
-        return sessions.helperChoices();
+        return sessions.helperChoices(leadId);
       case "start_helper":
         return sessions.startHelper(leadId, {
           name: str(args, "name")!,

@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writ
 import { mkdir } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { KervanError, type ProjectInfo, type ProjectMapInfo, type ProjectPM } from "./protocol.ts";
+import { KervanError, type ProjectInfo, type ProjectMapInfo, type ProjectMember, type ProjectPM } from "./protocol.ts";
 
 const run = promisify(execFile);
 const MAX_INSTRUCTIONS = 20_000;
@@ -146,6 +146,15 @@ export class ProjectRegistry {
     const project = this.projects.get(id) ?? bad(`no project '${id}'`);
     if (pm) project.pm = pm;
     else delete project.pm;
+    this.persist();
+    return project;
+  }
+
+  /** The project's team, as checked by the session manager. */
+  setTeam(id: string, team: ProjectMember[]): ProjectInfo {
+    const project = this.projects.get(id) ?? bad(`no project '${id}'`);
+    if (team.length > 0) project.team = team;
+    else delete project.team;
     this.persist();
     return project;
   }

@@ -338,6 +338,10 @@ async function handleRequest(
       sessions.setProjectPM(message.projectId, message.pm);
       sessions.broadcast({ type: "projects.updated", projects: requireProjects(sessions).list() });
       return send(ws, { type: "project.list.result", id: message.id, projects: requireProjects(sessions).list() });
+    case "project.team":
+      sessions.setProjectTeam(message.projectId, message.team);
+      sessions.broadcast({ type: "projects.updated", projects: requireProjects(sessions).list() });
+      return send(ws, { type: "project.list.result", id: message.id, projects: requireProjects(sessions).list() });
     case "project.delete":
       requireProjects(sessions).remove(message.projectId);
       sessions.broadcast({ type: "projects.updated", projects: requireProjects(sessions).list() });

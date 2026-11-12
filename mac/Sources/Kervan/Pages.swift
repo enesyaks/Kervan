@@ -58,6 +58,9 @@ struct ProjectView: View {
                 }
             } content: {
                 ProjectPMSection(project: project)
+                if project.pm != nil || !(project.team ?? []).isEmpty {
+                    ProjectTeamSection(project: project)
+                }
                 BoardSection(projectID: projectID)
                 ProjectMapSection(project: project)
                 SettingsCard(title: L("Instructions", "Talimatlar")) {
@@ -180,6 +183,50 @@ private struct ProjectPMSection: View {
             working = true
             defer { working = false }
             error = await model.store.setProjectPM(project.id, pm: pm)
+        }
+    }
+}
+
+/// The project's team: who the PM hands work to. The PM puts it together; the user sees it and can take members off.
+private struct ProjectTeamSection: View {
+    let project: ProjectInfo
+    @Environment(AppModel.self) private var model
+    @State private var error: String?
+
+    var body: some View {
+        SettingsCard(
+            title: L("Team", "Ekip"),
+            footer: L(
+                "The PM puts the team together as the work needs: for each member an agent and the skills from the library that fit its job. It can't give members MCP servers.",
+                "PM ekibi işin gerektirdiği gibi kurar: her üyeye bir ajan ve kütüphaneden işine uyan skill'ler. Üyelere MCP sunucusu veremez."
+            )
+        ) {
+            let team = project.team ?? []
+            if team.isEmpty {
+                Text(L("No members yet. The PM adds them when a card needs them.", "Henüz üye yok. PM bir kart gerektirdiğinde ekler."))
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(team) { member in
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(member.name) · \(model.store.agentName(member.agent))").font(.callout.weight(.medium))
+                        Text(member.skills.isEmpty ? L("No skills", "Skill yok") : member.skills.joined(separator: ", "))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        if !member.instructions.isEmpty {
+                            Text(member.instructions).font(.caption).foregroundStyle(.secondary).lineLimit(2).help(member.instructions)
+                        }
+                    }
+                    Spacer()
+                    Button(L("Remove", "Çıkar"), role: .destructive) {
+                        Task { error = await model.store.removeTeamMember(member.id, from: project.id) }
+                    }
+                    .buttonStyle(.link)
+                }
+            }
+            if let error {
+                Label(error, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(Color.kervanCoral)
+            }
         }
     }
 }

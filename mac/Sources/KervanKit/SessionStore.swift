@@ -395,6 +395,13 @@ public final class SessionStore {
         await call(.projectPM(id: Self.newID(), projectId: projectID, pm: pm))
     }
 
+    /// Takes a member off the project's team; returns the server's refusal, if any.
+    @discardableResult
+    public func removeTeamMember(_ memberID: String, from projectID: String) async -> String? {
+        let team = (project(projectID)?.team ?? []).filter { $0.id != memberID }
+        return await call(.projectTeam(id: Self.newID(), projectId: projectID, team: team))
+    }
+
     /// Makes a PM role with the first agent on the server and makes it the project's PM.
     public func createPMRole(for projectID: String) async -> String? {
         guard let agent = agents.first(where: { $0.node == nil && !$0.terminal }) else {

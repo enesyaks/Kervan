@@ -437,3 +437,12 @@ import Testing
         #expect(String(decoding: direct, as: UTF8.self).contains(#""direct":true"#))
     }
 }
+
+@Suite struct ProjectTeamTests {
+    @Test func readsTheTeamAndSendsItWhole() throws {
+        let project = try JSONDecoder().decode(ProjectInfo.self, from: Data(#"{"id":"p","name":"n","path":"/w","instructions":"","createdAt":"t","team":[{"id":"tester","name":"Testçi","agent":"claude","instructions":"","skills":["test-yaz"]}]}"#.utf8))
+        #expect(project.team == [ProjectMember(id: "tester", name: "Testçi", agent: "claude", skills: ["test-yaz"])])
+        let emptied = try ClientMessage.projectTeam(id: "a", projectId: "p", team: []).jsonString()
+        #expect(emptied.contains(#""type":"project.team""#) && emptied.contains(#""team":[]"#))
+    }
+}
