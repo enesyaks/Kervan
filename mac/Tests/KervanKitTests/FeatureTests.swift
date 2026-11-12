@@ -425,3 +425,15 @@ import Testing
         #expect(decoded.pm == ProjectPM(roleId: "pm"))
     }
 }
+
+@Suite struct PMCardTests {
+    @Test func readsThePMsPlanAndSendsDirectOnlyWhenAsked() throws {
+        let card = try JSONDecoder().decode(CardInfo.self, from: Data(#"{"id":"c","projectId":"p","title":"T","prompt":"x","agent":"claude","column":"working","sessionId":"s","createdAt":"t","updatedAt":"t","pm":true,"plan":"1. Yaz"}"#.utf8))
+        #expect(card.pm == true && card.plan == "1. Yaz" && card.direct == nil && card.error == nil)
+        // An older server's card has none of it.
+        let old = try JSONDecoder().decode(CardInfo.self, from: Data(#"{"id":"c","projectId":"p","title":"T","prompt":"x","agent":"claude","column":"todo","createdAt":"t","updatedAt":"t"}"#.utf8))
+        #expect(old.pm == nil && old.plan == nil)
+        let direct = try JSONEncoder().encode(CardInput(projectId: "p", title: "T", prompt: "x", agent: "claude", direct: true))
+        #expect(String(decoding: direct, as: UTF8.self).contains(#""direct":true"#))
+    }
+}

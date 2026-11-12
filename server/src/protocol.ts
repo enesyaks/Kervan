@@ -49,6 +49,8 @@ export interface SessionInfo {
    * its branch was when it moved. `collected` once the node came back and anything it hadn't sent was saved.
    */
   movedFrom?: { node: string; head: string; collected?: boolean };
+  /** A PM session: the board card it plans, hands out and follows up. */
+  pmCard?: string;
   /** Last reported by the agent; cost only from agents that report it (Claude). */
   usage?: SessionUsage;
   /** Choices the agent offers for this session (model, reasoning effort, mode), with the current value. */
@@ -279,6 +281,14 @@ export interface CardInfo {
   sessionId?: string;
   /** The prompt has been sent; from here the column follows the session. */
   prompted?: boolean;
+  /** In a project with a PM: go straight to `agent` instead of to the PM. */
+  direct?: boolean;
+  /** Its session is the project's PM, which plans the card and hands it out. */
+  pm?: boolean;
+  /** The PM's plan for the card, as it last wrote it. */
+  plan?: string;
+  /** Why the PM couldn't pick the card up by itself; it waits for the user to start it. */
+  error?: string;
   /** Set while the card, about to start, waits to hear which model to use. */
   modelChoice?: CardModelChoice;
   createdAt: string;

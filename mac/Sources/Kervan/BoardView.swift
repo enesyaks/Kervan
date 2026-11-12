@@ -55,10 +55,15 @@ struct BoardSection: View {
                 .padding(.bottom, 6)
             }
             .scrollIndicators(.automatic)
-            Text(L(
-                "Drag a card to Working to start a session with its prompt. It then moves by itself: Needs you when the agent asks, Review when it finishes, Done when you archive the session.",
-                "Bir kartı Çalışıyor'a sürükleyince istemiyle bir oturum başlar. Sonra kendiliğinden ilerler: ajan bir şey sorunca Sizi bekliyor, bitirince İncelenecek, oturumu arşivleyince Bitti."
-            ))
+            Text(model.store.project(projectID)?.pm?.autoPickup == true
+                ? L(
+                    "New cards go to the PM at once, two at a time: it plans each, writes the plan on the card, hands the work out and follows it up. A card then moves by itself: Needs you when an agent asks, Review when it's done, Done when you archive the session.",
+                    "Yeni kartlar hemen PM'e gider, aynı anda iki tane: PM her birini planlar, planı karta yazar, işi dağıtır ve takip eder. Kart sonra kendiliğinden ilerler: bir ajan bir şey sorunca Sizi bekliyor, iş bitince İncelenecek, oturumu arşivleyince Bitti."
+                )
+                : L(
+                    "Drag a card to Working to start a session with its prompt. It then moves by itself: Needs you when the agent asks, Review when it finishes, Done when you archive the session.",
+                    "Bir kartı Çalışıyor'a sürükleyince istemiyle bir oturum başlar. Sonra kendiliğinden ilerler: ajan bir şey sorunca Sizi bekliyor, bitirince İncelenecek, oturumu arşivleyince Bitti."
+                ))
             .font(.caption)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
@@ -157,6 +162,12 @@ private struct CardTile: View {
     let edit: () -> Void
     @Environment(AppModel.self) private var model
 
+    /// Handled by the project's PM: started by it, or waiting for it.
+    private var byPM: Bool {
+        if card.sessionId != nil { return card.pm == true }
+        return card.direct != true && model.store.project(card.projectId)?.pm.map { pm in model.store.roles.contains { $0.id == pm.roleId } } == true
+    }
+
     var body: some View {
         let session = card.sessionId.flatMap { id in model.store.sessions.first { $0.id == id } }
         VStack(alignment: .leading, spacing: 6) {
@@ -169,12 +180,36 @@ private struct CardTile: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
+            if let plan = card.plan, !plan.isEmpty {
+                Text(plan)
+                    .font(.caption2)
+                    .lineLimit(4)
+                    .padding(6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.kervanWell.opacity(0.7), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .help(plan)
+            }
+            if let sessionID = card.sessionId, card.pm == true {
+                let helpers = model.store.helpers(of: sessionID)
+                if !helpers.isEmpty {
+                    Label(helpers.map(\.title).joined(separator: ", "), systemImage: "person.2")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            }
+            if let error = card.error {
+                Label(error, systemImage: "exclamationmark.triangle")
+                    .font(.caption2)
+                    .foregroundStyle(Color.kervanCoral)
+                    .lineLimit(3)
+            }
             HStack(spacing: 6) {
-                Text(model.store.agentName(card.agent))
+                Text(byPM ? L("PM", "PM") : model.store.agentName(card.agent))
                     .font(.caption2.weight(.medium))
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(Color.kervanWell, in: Capsule())
+                    .background(byPM ? Color.kervanLapis.opacity(0.18) : Color.kervanWell, in: Capsule())
                 Spacer(minLength: 0)
                 if let session {
                     StatusDot(color: session.status.tint, size: 6)
@@ -288,6 +323,8 @@ struct CardDraft: Identifiable {
     var split = false
     var autoApprove = false
     var files: [Attachment] = []
+    /// In a project with a PM: straight to `agent` instead.
+    var direct = false
 
     init(projectID: String, agent: String) {
         self.projectID = projectID
@@ -302,6 +339,7 @@ struct CardDraft: Identifiable {
         agent = card.agent
         split = card.split ?? false
         autoApprove = card.autoApprove ?? false
+        direct = card.direct ?? false
         files = (card.files ?? []).map { Attachment(name: CardInfo.fileName($0), remotePath: $0, state: .ready) }
     }
 }
@@ -309,6 +347,11 @@ struct CardDraft: Identifiable {
 private struct CardSheet: View {
     @State var draft: CardDraft
     @Environment(AppModel.self) private var model
+
+    /// The project's PM, while its role exists; a card then goes to it unless sent straight to an agent.
+    private var pmRole: Role? {
+        model.store.project(draft.projectID)?.pm.flatMap { pm in model.store.roles.first { $0.id == pm.roleId } }
+    }
     @Environment(\.dismiss) private var dismiss
     @State private var failure: String?
     @State private var saving = false
@@ -320,8 +363,16 @@ private struct CardSheet: View {
             Text(draft.cardID == nil ? L("New card", "Yeni kart") : L("Edit card", "Kartı düzenle")).font(.title2.weight(.semibold))
             Form {
                 TextField(L("Title", "Başlık"), text: $draft.title, prompt: Text(L("e.g. Add a dark theme", "ör. Koyu tema ekle")))
-                AgentPicker(agent: $draft.agent, forProject: true)
-                Toggle(L("Split into helpers when the work is large", "İş büyük olduğunda yardımcılara böl"), isOn: $draft.split)
+                if let pm = pmRole {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label(L("\(pm.name) plans this card and hands it to the right agent.", "\(pm.name) bu kartı planlar ve doğru ajana verir."), systemImage: "person.crop.circle.badge.checkmark")
+                        Toggle(L("Give it straight to an agent instead", "Bunun yerine doğrudan bir ajana ver"), isOn: $draft.direct)
+                    }
+                }
+                if pmRole == nil || draft.direct {
+                    AgentPicker(agent: $draft.agent, forProject: true)
+                    Toggle(L("Split into helpers when the work is large", "İş büyük olduğunda yardımcılara böl"), isOn: $draft.split)
+                }
                 Toggle(L("Auto-approve: only ask before major changes", "Otomatik onay: yalnızca büyük değişikliklerde sor"), isOn: $draft.autoApprove)
                     .help(L("Approves routine actions by itself. It still asks before major ones: pushing, deleting folders, rewriting git history, deploying, touching secrets or files outside this task's folder.", "Sıradan işlemleri kendisi onaylar. Büyük işlemlerde yine sorar: push, klasör silme, git geçmişini değiştirme, yayına alma, gizli bilgilere ya da bu görevin klasörü dışındaki dosyalara dokunma."))
                 VStack(alignment: .leading, spacing: 4) {
@@ -443,7 +494,7 @@ private struct CardSheet: View {
         defer { saving = false }
         failure = await model.store.saveCard(CardInput(
             id: draft.cardID, projectId: draft.projectID, title: draft.title, prompt: draft.prompt, agent: draft.agent, split: draft.split, autoApprove: draft.autoApprove,
-            files: draft.files.map(\.remotePath)
+            files: draft.files.map(\.remotePath), direct: draft.direct
         ))
         if failure == nil { dismiss() }
     }

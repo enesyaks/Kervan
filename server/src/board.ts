@@ -7,7 +7,8 @@ import { pipeline } from "node:stream/promises";
 import { TooLargeError } from "./files.ts";
 import { log } from "./log.ts";
 import { suggestModel } from "./modelpick.ts";
-import { KervanError, type CardColumn, type CardInfo, type ConfigOption, type ServerMessage, type SessionInfo } from "./protocol.ts";
+import { KervanError, type CardColumn, type CardInfo, type ConfigOption, type ProjectPM, type ServerMessage, type SessionInfo } from "./protocol.ts";
+import type { Role } from "./roles.ts";
 import type { SessionManager } from "./sessions.ts";
 
 const COLUMNS: readonly CardColumn[] = ["todo", "working", "needs", "review", "done"];
@@ -21,6 +22,11 @@ const ORPHAN_MS = 24 * 60 * 60_000;
 /** Long enough to read the popup and answer it; short enough that a card nobody is watching isn't held up. */
 const MODEL_CHOICE_SECONDS = 15;
 
+/** At most this many PM sessions per project work at once; the cards after them wait in To do. */
+export const MAX_PM_CASES = 2;
+/** A PM's plan for a card, as shown on it. */
+const MAX_PLAN = 8_000;
+
 /** A setting to change before the card's prompt goes. */
 type ConfigChange = { configId: string; value: string };
 
@@ -29,8 +35,13 @@ export interface BoardDeps {
   hasAgent: (id: string) => boolean;
   /** Why the agent can't work on the project (an old node, a project that isn't a git repository), if it can't. */
   projectRefusal?: (agent: string, projectId: string) => string | undefined;
-  /** Starts a session in the project with the card's prompt and files, after `choose` has seen its settings; resolves with its id once the prompt is sent. */
-  start: (card: CardInfo, files: { source: string; name: string }[], choose: (config: ConfigOption[]) => Promise<ConfigChange | undefined>) => Promise<string>;
+  /**
+   * Starts a session in the project with the card's prompt and files, after `choose` has seen its settings; resolves with
+   * its id once the prompt is sent. With `pm` the session is the project's PM, in that role.
+   */
+  start: (card: CardInfo, files: { source: string; name: string }[], choose: (config: ConfigOption[]) => Promise<ConfigChange | undefined>, pm?: Role) => Promise<string>;
+  /** The project's PM and its role, if it has one. */
+  projectPM?: (projectId: string) => { pm: ProjectPM; role: Role } | undefined;
   /** The session as it is now, to catch up after starting. */
   session: (id: string) => SessionInfo | undefined;
   broadcast: (message: ServerMessage) => void;
@@ -52,6 +63,8 @@ export class Board {
   private cards: Map<string, CardInfo>;
   /** Cards waiting to hear which model to use. */
   private readonly choices = new Map<string, { answer: (useDefault: boolean) => void; cancel: () => void }>();
+  /** Cards the PM is picking up right now, before their session counts as working. */
+  private readonly pickingUp = new Set<string>();
 
   constructor(file: string, deps: BoardDeps) {
     this.file = file;
@@ -129,6 +142,8 @@ export class Board {
       else delete card.split;
       if (input.autoApprove === true) card.autoApprove = true;
       else delete card.autoApprove;
+      if (input.direct === true) card.direct = true;
+      else delete card.direct;
       this.drop((card.files ?? []).filter((f) => !files.includes(f)));
       if (files.length > 0) card.files = files;
       else delete card.files;
@@ -138,9 +153,23 @@ export class Board {
     const projectId = text("projectId", 80);
     if (!this.deps.hasProject(projectId)) throw new KervanError("bad_message", `no project '${projectId}'`);
     this.refuseProjectWork(agent, projectId);
-    const card: CardInfo = { id: randomUUID(), projectId, title, prompt, agent, ...split, ...(input.autoApprove === true ? { autoApprove: true } : {}), ...(files.length > 0 ? { files } : {}), column: "todo", createdAt: now, updatedAt: now };
+    const card: CardInfo = {
+      id: randomUUID(),
+      projectId,
+      title,
+      prompt,
+      agent,
+      ...split,
+      ...(input.autoApprove === true ? { autoApprove: true } : {}),
+      ...(input.direct === true ? { direct: true } : {}),
+      ...(files.length > 0 ? { files } : {}),
+      column: "todo",
+      createdAt: now,
+      updatedAt: now,
+    };
     this.cards.set(card.id, card);
     this.changed(projectId);
+    this.pickUp(projectId);
     return card;
   }
 
@@ -150,10 +179,14 @@ export class Board {
     const card = this.require(cardId);
     this.refuseWhileChoosing(card);
     if (column === "working" && !card.sessionId) {
+      delete card.error;
       this.place(card, "working");
       try {
         const files = (card.files ?? []).map((f) => ({ source: join(this.filesDir, f), name: f.slice(f.indexOf("/") + 1) }));
-        card.sessionId = await this.deps.start(card, files, (config) => this.chooseModel(card, config));
+        // In a project with a PM the card goes to it, unless it was meant for its own agent.
+        const lead = card.direct ? undefined : this.deps.projectPM?.(card.projectId);
+        card.sessionId = await this.deps.start(card, files, (config) => this.chooseModel(card, config), lead?.role);
+        if (lead) card.pm = true;
         card.prompted = true;
       } catch (error) {
         if (!this.cards.has(cardId)) return; // deleted while it waited for its model
@@ -170,6 +203,50 @@ export class Board {
     }
     if (column === "todo" && card.sessionId) throw new KervanError("bad_message", "a card whose session has started can't go back to To do");
     this.place(card, column as CardColumn);
+  }
+
+  /**
+   * Starts cards waiting in To do with the project's PM, when it picks them up by itself: the oldest first, and only
+   * while fewer than MAX_PM_CASES of its sessions work. Called when a card is added, a card moves, or the PM changes.
+   */
+  pickUp(projectId: string): void {
+    const lead = this.deps.projectPM?.(projectId);
+    if (!lead?.pm.autoPickup) return;
+    const cards = this.list(projectId);
+    const working = cards.filter((c) => c.pm && (c.column === "working" || c.column === "needs")).length;
+    let free = MAX_PM_CASES - working - cards.filter((c) => this.pickingUp.has(c.id)).length;
+    const waiting = cards.filter((c) => c.column === "todo" && !c.sessionId && !c.direct && !c.error && !c.modelChoice && !this.pickingUp.has(c.id));
+    for (const card of waiting) {
+      if (free-- <= 0) break;
+      this.pickingUp.add(card.id);
+      void this.move(card.id, "working")
+        .catch((error: unknown) => {
+          // It waits for the user to start it rather than being tried again and again.
+          const stored = this.cards.get(card.id);
+          if (!stored) return;
+          stored.error = error instanceof Error ? error.message : String(error);
+          this.changed(projectId);
+        })
+        .finally(() => {
+          this.pickingUp.delete(card.id);
+          this.pickUp(projectId);
+        });
+    }
+  }
+
+  /** Every project's waiting cards, e.g. once the server is up. */
+  pickUpAll(): void {
+    for (const projectId of new Set([...this.cards.values()].map((c) => c.projectId))) this.pickUp(projectId);
+  }
+
+  /** The PM's plan for its card. */
+  setPlan(sessionId: string, plan: string): CardInfo {
+    const card = [...this.cards.values()].find((c) => c.sessionId === sessionId && c.pm);
+    if (!card) throw new KervanError("bad_message", "this session isn't the PM of a card");
+    card.plan = plan.trim().slice(0, MAX_PLAN);
+    card.updatedAt = new Date().toISOString();
+    this.changed(card.projectId);
+    return card;
   }
 
   remove(cardId: string): void {
@@ -226,7 +303,11 @@ export class Board {
     for (const card of this.cards.values()) {
       if (card.sessionId !== session.id || !card.prompted) continue;
       const next = Board.columnFor(session, card.column);
-      if (next !== card.column) this.place(card, next);
+      if (next !== card.column) {
+        this.place(card, next);
+        // A PM session done with its card makes room for the next one.
+        if (card.pm) this.pickUp(card.projectId);
+      }
     }
   }
 
@@ -312,8 +393,19 @@ export function attachBoard(sessions: SessionManager, file: string): Board {
     hasProject: (id) => sessions.projects?.get(id) !== undefined,
     hasAgent: (id) => sessions.agentKinds.includes(id),
     projectRefusal: (agent, projectId) => sessions.projectRefusal(agent, projectId),
-    start: (card, files, choose) =>
-      sessions.runTask({ agent: card.agent, title: card.title, prompt: card.prompt, projectId: card.projectId, files, ...(card.split ? { split: true } : {}), ...(card.autoApprove ? { autoApprove: true } : {}), choose }),
+    start: (card, files, choose, pm) =>
+      sessions.runTask({
+        agent: pm?.agent ?? card.agent,
+        title: card.title,
+        prompt: card.prompt,
+        projectId: card.projectId,
+        files,
+        ...(card.split ? { split: true } : {}),
+        ...(card.autoApprove ? { autoApprove: true } : {}),
+        ...(pm ? { pm: { role: pm, cardId: card.id } } : {}),
+        choose,
+      }),
+    projectPM: (projectId) => sessions.projectPM(projectId),
     session: (id) => sessions.list().find((s) => s.id === id),
     broadcast: (message) => sessions.broadcast(message),
   });
@@ -321,5 +413,6 @@ export function attachBoard(sessions: SessionManager, file: string): Board {
     if (message.type === "session.updated") board.follow(message.session);
   });
   sessions.board = board;
+  board.pickUpAll();
   return board;
 }

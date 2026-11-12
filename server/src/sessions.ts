@@ -37,7 +37,7 @@ import type { SkillLibrary } from "./skills.ts";
 import type { EventStore, IndexedMessage, SearchHit, StoredTeam } from "./store.ts";
 import type { Role, RoleRegistry } from "./roles.ts";
 import type * as acp from "@agentclientprotocol/sdk";
-import { isMemoryCall, isOrchestraCall } from "./orchestra.ts";
+import { isMemoryCall, isOrchestraCall, isPMCall } from "./orchestra.ts";
 import { majorChange } from "./autoapprove.ts";
 import { LOCAL_NODE, nodeOf, type NodeHub } from "./nodes.ts";
 import { PROJECTS_FEATURE, applyBundle, branchTip, bundleBranch, ensureBranch, hasCommitsSync, transferFile } from "./projectcopy.ts";
@@ -128,6 +128,8 @@ interface CreateOptions {
   split?: boolean;
   /** Answer routine permission requests by itself; see setAutoApprove. */
   autoApprove?: boolean;
+  /** The project's PM for this board card. */
+  pmCard?: string;
 }
 
 const AUTO_APPROVE_ON = "Auto-approve is on: the agent only stops to ask before major changes.";
@@ -360,7 +362,17 @@ export class SessionManager {
     if (node !== LOCAL_NODE && role.skills.length > 0) fail(`skills aren't available on node '${node}' yet, so role '${role.name}' can't be a PM there`);
     const refusal = this.projectRefusal(role.agent, projectId);
     if (refusal) fail(refusal);
-    return projects.setPM(projectId, { roleId: role.id, autoPickup: input.autoPickup !== false, startOwnCases: input.startOwnCases === true });
+    const project = projects.setPM(projectId, { roleId: role.id, autoPickup: input.autoPickup !== false, startOwnCases: input.startOwnCases === true });
+    // Cards already waiting go to the new PM.
+    this.board?.pickUp(projectId);
+    return project;
+  }
+
+  /** The PM's plan for its card, shown on the card. */
+  setCasePlan(sessionId: string, plan: string): void {
+    const session = this.require(sessionId);
+    if (!session.info.pmCard || !this.board) throw new KervanError("bad_message", "only a card's PM can write its plan");
+    this.board.setPlan(sessionId, plan);
   }
 
   /** The project's PM and its role; undefined without one, or once its role has been deleted. */
@@ -470,6 +482,7 @@ export class SessionManager {
         ...(options.projectId ? { projectId: options.projectId } : {}),
         ...(options.scheduleId ? { scheduleId: options.scheduleId } : {}),
         ...(options.reviewOf ? { reviewOf: options.reviewOf } : {}),
+        ...(options.pmCard ? { pmCard: options.pmCard } : {}),
       },
       ...(options.instructions ? { instructions: options.instructions } : {}),
       events: [],
@@ -1019,6 +1032,7 @@ export class SessionManager {
           "Messages come from the lead, not the user, and your final answer each turn goes back to it: " +
           "end with a short summary of what you did, which files you changed and anything left open."
         : undefined,
+      session.info.pmCard ? this.pmPreface(session, project) : undefined,
       this.nodeCopyOf(session)
         ? `[Kervan] You work in your own copy of the project's git repository, on branch ${session.info.branch}. After every ` +
           "turn, whatever you changed is committed on that branch and sent to the Kervan server, which keeps the project. " +
@@ -1053,6 +1067,32 @@ export class SessionManager {
       await this.skillPreface(session),
     ].filter(Boolean);
     return parts.length > 0 ? parts.join("\n\n") : undefined;
+  }
+
+  /**
+   * What a PM is told about its job, on top of its role's own instructions: plan with its skills (or without, from the
+   * project itself), hand out, follow up, and stay inside the card.
+   */
+  private pmPreface(session: Session, project: ProjectInfo | undefined): string {
+    const skills = session.info.skills.length > 0;
+    return [
+      `[Kervan] You are the PM of project "${project?.name ?? "this project"}" for this board card. The card's text is the message below. ` +
+        "Plan it, hand the work to the right agents and follow it until it's done:",
+      skills
+        ? "1. Before planning, read the SKILL.md of each of your skills (listed further down) that fits the work, and plan the way they say."
+        : "1. You have no skills. Plan from what the project itself says: its instructions above, " +
+          (this.hasMemory(session.info) ? "its map (map_read), " : "") +
+          "the repository's own documents (README, CONTRIBUTING, AGENTS.md, CLAUDE.md)" +
+          (this.hasMemory(session.info) ? " and earlier work in it (case_read)." : "."),
+      "2. Write the plan with case_plan: the steps, what done means for each, which skill each follows (or that none fitted), " +
+        "and who does it. It shows on the card; call case_plan again when the plan changes.",
+      "3. Small work you do yourself. Otherwise start helpers with start_helper, each with the role or agent whose skills and " +
+        "machine fit its step (list_agents), and a self-contained task with what done means. Start independent steps together.",
+      "4. Follow them up: wait_for_helper, check their work with helper_diff, ask for fixes with message_helper, and merge " +
+        "with merge_helper only what is right.",
+      "5. Stay inside the card: don't widen its scope.",
+      "6. End with a short summary for the user: what was done, by whom, and what is left.",
+    ].join("\n");
   }
 
   /** Only said when the tool is there, so an agent isn't told about something it can't call. */
@@ -1540,11 +1580,23 @@ export class SessionManager {
     split?: boolean;
     autoApprove?: boolean;
     shared?: boolean;
+    /** The session is the project's PM for this card, in this role: its instructions, skills, MCP servers and budget. */
+    pm?: { role: Role; cardId: string };
     files?: { source: string; name: string }[];
     choose?: (config: ConfigOption[]) => Promise<{ configId: string; value: string } | undefined>;
   }): Promise<string> {
-    const info = await this.create(task.agent, [], [], {
+    const role = task.pm?.role;
+    const info = await this.create(task.agent, role?.skills ?? [], role?.mcpServers ?? [], {
       title: task.title,
+      ...(task.pm
+        ? {
+            role: task.pm.role.name,
+            ...(task.pm.role.instructions ? { instructions: task.pm.role.instructions } : {}),
+            orchestrate: true,
+            ...(task.pm.role.budgetUsd ? { budgetUsd: task.pm.role.budgetUsd } : {}),
+            pmCard: task.pm.cardId,
+          }
+        : {}),
       ...(task.split ? { split: true } : {}),
       ...(task.autoApprove ? { autoApprove: true } : {}),
       ...(task.shared ? { shared: true } : {}),
@@ -1688,7 +1740,11 @@ export class SessionManager {
 
   private askPermission(session: Session, request: PermissionRequest): Promise<PermissionDecision> {
     // Choosing "may start helpers" already said yes to Kervan's own tools; don't ask again per call.
-    if ((session.info.orchestrate && isOrchestraCall(request.title, request.toolKind)) || (this.hasMemory(session.info) && isMemoryCall(request.title, request.toolKind))) {
+    if (
+      (session.info.orchestrate && isOrchestraCall(request.title, request.toolKind)) ||
+      (this.hasMemory(session.info) && isMemoryCall(request.title, request.toolKind)) ||
+      (session.info.pmCard !== undefined && isPMCall(request.title, request.toolKind))
+    ) {
       const allow = request.options.find((o) => o.kind === "allow_once") ?? request.options.find((o) => o.kind === "allow_always");
       if (allow) return Promise.resolve(allow.optionId);
     }

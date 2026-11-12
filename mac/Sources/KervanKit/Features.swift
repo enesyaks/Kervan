@@ -338,6 +338,14 @@ public struct CardInfo: Codable, Equatable, Sendable, Identifiable {
     public let modelChoice: CardModelChoice?
     public let createdAt: String
     public let updatedAt: String
+    /// In a project with a PM: goes straight to `agent` instead.
+    public var direct: Bool? = nil
+    /// Its session is the project's PM.
+    public var pm: Bool? = nil
+    /// The PM's plan for it, as it last wrote it.
+    public var plan: String? = nil
+    /// Why the PM couldn't pick it up by itself; it waits to be started.
+    public var error: String? = nil
 }
 
 extension CardInfo {
@@ -357,8 +365,11 @@ public struct CardInput: Encodable, Equatable, Sendable {
     public var split: Bool
     public var autoApprove: Bool
     public var files: [String]
+    /// In a project with a PM: give the card straight to `agent` instead of to the PM.
+    public var direct: Bool
 
-    public init(id: String? = nil, projectId: String, title: String, prompt: String, agent: String, split: Bool = false, autoApprove: Bool = false, files: [String] = []) {
+    public init(id: String? = nil, projectId: String, title: String, prompt: String, agent: String, split: Bool = false, autoApprove: Bool = false, files: [String] = [], direct: Bool = false) {
+        self.direct = direct
         self.split = split
         self.autoApprove = autoApprove
         self.files = files

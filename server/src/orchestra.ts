@@ -122,6 +122,16 @@ export const MEMORY_TOOLS: Tool[] = [
   },
 ];
 
+/** A project's PM for a board card gets these: they only touch the board, so Kervan answers them without asking. */
+export const PM_TOOLS: Tool[] = [
+  {
+    name: "case_plan",
+    description:
+      "Write your plan for this card; it shows on the card. Steps, what done means for each, which skill each follows, and who does it.",
+    inputSchema: { type: "object", properties: { plan: text("The plan, in Markdown.") }, required: ["plan"] },
+  },
+];
+
 /**
  * A session on this server whose machine has a container engine gets this. It is not approved by Kervan the
  * way the others are: it runs commands, so it asks like any command does.
@@ -153,6 +163,7 @@ const toolTitle = (tools: string[]) => {
 // merge_helper changes the lead's files, so the user is still asked about it.
 const TOOL_TITLE = toolTitle(TOOLS.map((tool) => tool.name).filter((name) => name !== "merge_helper"));
 const MEMORY_TITLE = toolTitle(MEMORY_TOOLS.map((tool) => tool.name));
+const PM_TITLE = toolTitle(PM_TOOLS.map((tool) => tool.name));
 const NEVER_AUTO = new Set(["execute", "edit", "delete", "move", "fetch"]);
 
 /**
@@ -166,6 +177,11 @@ export function isOrchestraCall(title: string, toolKind: string): boolean {
 /** The same, for the project memory tools. */
 export function isMemoryCall(title: string, toolKind: string): boolean {
   return !NEVER_AUTO.has(toolKind) && MEMORY_TITLE.test(title.trim());
+}
+
+/** The same, for a PM's board tools. */
+export function isPMCall(title: string, toolKind: string): boolean {
+  return !NEVER_AUTO.has(toolKind) && PM_TITLE.test(title.trim());
 }
 
 type Args = Record<string, unknown>;
@@ -289,6 +305,7 @@ export class OrchestraHub {
       ...(info.orchestrate ? TOOLS : []),
       ...(this.sessions.hasMemory(info) ? MEMORY_TOOLS : []),
       ...(this.sessions.canBuild(info) ? BUILD_TOOLS : []),
+      ...(info.pmCard ? PM_TOOLS : []),
     ];
   }
 
@@ -308,6 +325,9 @@ export class OrchestraHub {
         });
       case "case_read":
         return readCases(sessions, leadId, { id: optional(args, "id"), q: optional(args, "q"), full: args.full === true });
+      case "case_plan":
+        sessions.setCasePlan(leadId, str(args, "plan")!);
+        return "The plan is on the card.";
       case "list_agents":
         return sessions.helperChoices();
       case "start_helper":
