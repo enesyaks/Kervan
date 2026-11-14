@@ -51,6 +51,12 @@ public final class SessionStore {
     public private(set) var boards: [String: [CardInfo]] = [:]
     /// Project maps' text by project, as last asked for.
     public private(set) var projectMaps: [String: String] = [:]
+    /// Each project's branches as last asked for; nil inside means the project isn't a git repository with a commit.
+    public private(set) var projectBranches: [String: ProjectBranches?] = [:]
+    /// What the last prune deleted, per project.
+    public private(set) var prunedBranches: [String: [String]] = [:]
+    /// Why the last team setup didn't start, per project.
+    public private(set) var onboardingErrors: [String: String] = [:]
     /// The server's GitHub sign-in as last reported; nil until asked for.
     public private(set) var github: GitHubStatus?
     /// Why the last GitHub sign-in didn't finish, if it didn't.
@@ -437,6 +443,28 @@ public final class SessionStore {
         await call(.projectMap(id: Self.newID(), projectId: id, agent: agent))
     }
 
+    /// Has the PM set the project's team up, making a PM for `agent` first when there is none; nil, or why not.
+    @discardableResult
+    public func onboardProject(_ projectID: String, agent: String?) async -> String? {
+        onboardingErrors[projectID] = nil
+        let failure = await call(.projectOnboard(id: Self.newID(), projectId: projectID, agent: agent, title: ProjectPM.setupTitle))
+        onboardingErrors[projectID] = failure
+        return failure
+    }
+
+    /// Asks for the project's branches, which land in `projectBranches`; nil, or why not.
+    @discardableResult
+    public func loadBranches(_ projectID: String) async -> String? {
+        await call(.projectBranches(id: Self.newID(), projectId: projectID))
+    }
+
+    /// Deletes Kervan's merged branches that no live session uses; what went lands in `prunedBranches`.
+    @discardableResult
+    public func pruneBranches(_ projectID: String) async -> String? {
+        prunedBranches[projectID] = nil
+        return await call(.projectBranchesPrune(id: Self.newID(), projectId: projectID))
+    }
+
     /// Asks for the map's text, which lands in `projectMaps`; nil, or why not.
     @discardableResult
     public func loadProjectMap(_ id: String) async -> String? {
@@ -709,6 +737,11 @@ public final class SessionStore {
             boards[projectId] = cards
         case .projectMapResult(_, let projectId, let text):
             projectMaps[projectId] = text
+        case .projectOnboardResult(_, _, _, let roles):
+            self.roles = roles
+        case .projectBranchesResult(_, let projectId, let branches, let deleted):
+            projectBranches[projectId] = .some(branches)
+            if !deleted.isEmpty { prunedBranches[projectId] = deleted }
         case .githubStatusResult(_, let status):
             github = status
         case .githubCode(_, let code, let url):

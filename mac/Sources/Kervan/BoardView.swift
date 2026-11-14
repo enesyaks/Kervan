@@ -166,7 +166,7 @@ struct BoardSection: View {
 }
 
 /// A vertical scroll view as tall as its content, up to `maxHeight`; past that it scrolls.
-private struct CappedScroll<Content: View>: View {
+struct CappedScroll<Content: View>: View {
     let maxHeight: CGFloat
     @ViewBuilder let content: Content
     @State private var contentHeight: CGFloat = 0
@@ -183,7 +183,7 @@ private struct CappedScroll<Content: View>: View {
     }
 }
 
-private struct ContentHeight: PreferenceKey {
+struct ContentHeight: PreferenceKey {
     static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }

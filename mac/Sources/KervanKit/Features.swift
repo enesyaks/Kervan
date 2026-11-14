@@ -192,11 +192,14 @@ public struct ProjectPM: Codable, Equatable, Sendable {
     public var autoPickup: Bool
     /// Cards the PM opens itself start without waiting for the user.
     public var startOwnCases: Bool
+    /// Skills the PM picked for itself in this project, given with its role's own from its next card on.
+    public var skills: [String]?
 
-    public init(roleId: String, autoPickup: Bool = true, startOwnCases: Bool = false) {
+    public init(roleId: String, autoPickup: Bool = true, startOwnCases: Bool = false, skills: [String]? = nil) {
         self.roleId = roleId
         self.autoPickup = autoPickup
         self.startOwnCases = startOwnCases
+        self.skills = skills
     }
 }
 
@@ -369,6 +372,8 @@ public struct CardInfo: Codable, Equatable, Sendable, Identifiable {
     public var openedBy: CaseOrigin? = nil
     /// What the PM asked and is waiting to hear; the card waits in Needs you until the user answers in its session.
     public var question: String? = nil
+    /// The card in which the PM sets the project's team up.
+    public var setup: Bool? = nil
 }
 
 /// A skill a PM suggested: nothing uses it until the user accepts it, and then it joins the library.
@@ -430,7 +435,17 @@ extension Array where Element == CardInfo {
     }
 }
 
+extension ProjectInfo {
+    /// The card setting the team up right now, or the last one if it hasn't been looked at yet: not done.
+    public func setupCard(in cards: [CardInfo]) -> CardInfo? {
+        cards.last { $0.setup == true && $0.column != .done }
+    }
+}
+
 extension ProjectPM {
+    /// What the card that sets the team up is called.
+    public static var setupTitle: String { L("Team setup", "Ekip kurulumu") }
+
     /// The card that asks the PM to look the project over and open cards for what's worth doing.
     public static var reviewTitle: String { L("Project review", "Proje gözden geçirme") }
     public static let reviewPrompt =
@@ -896,5 +911,142 @@ public enum HandOff {
             "Start a helper with \(target) and give it the task below. Tell me what it answers; don't do the task yourself.\n\n\(body)",
             "\(target) bir yardımcı başlat ve aşağıdaki görevi ver. Ne cevap verdiğini bana aktar; görevi kendin yapma.\n\n\(body)"
         )
+    }
+}
+
+// MARK: - A project's branches
+
+/// One branch of a project's repository, as the project page lists it.
+public struct BranchInfo: Codable, Equatable, Sendable, Identifiable {
+    public let name: String
+    public let head: String
+    public let subject: String
+    /// ISO 8601.
+    public let date: String
+    public let author: String
+    /// Commits only this branch has, and commits only the base has.
+    public let ahead: Int
+    public let behind: Int
+    public let merged: Bool
+    public var base: Bool?
+    public var current: Bool?
+    public var worktree: Bool?
+    public var remote: Bool?
+    public var kervan: Bool?
+    public var sessionId: String?
+    public var fromNode: String?
+
+    public var id: String { name }
+    public var isBase: Bool { base == true }
+    public var isCurrent: Bool { current == true }
+    public var isRemote: Bool { remote == true }
+    public var isKervan: Bool { kervan == true }
+
+    public init(name: String, head: String = "", subject: String = "", date: String = "", author: String = "", ahead: Int = 0, behind: Int = 0, merged: Bool = false, base: Bool? = nil, current: Bool? = nil, worktree: Bool? = nil, remote: Bool? = nil, kervan: Bool? = nil, sessionId: String? = nil, fromNode: String? = nil) {
+        self.name = name
+        self.head = head
+        self.subject = subject
+        self.date = date
+        self.author = author
+        self.ahead = ahead
+        self.behind = behind
+        self.merged = merged
+        self.base = base
+        self.current = current
+        self.worktree = worktree
+        self.remote = remote
+        self.kervan = kervan
+        self.sessionId = sessionId
+        self.fromNode = fromNode
+    }
+
+    /// The commit's date, for "3 hours ago".
+    public var commitDate: Date? {
+        let full = ISO8601DateFormatter()
+        return full.date(from: date)
+    }
+}
+
+public struct ProjectBranches: Codable, Equatable, Sendable {
+    public let projectId: String
+    public let base: String
+    public var current: String?
+    public let branches: [BranchInfo]
+    public var truncated: Bool?
+
+    public init(projectId: String, base: String, current: String? = nil, branches: [BranchInfo], truncated: Bool? = nil) {
+        self.projectId = projectId
+        self.base = base
+        self.current = current
+        self.branches = branches
+        self.truncated = truncated
+    }
+
+    /// The user's own branches: the base first, then the folder's, then the newest.
+    public var own: [BranchInfo] {
+        branches.filter { !$0.isKervan && !$0.isRemote }
+            .enumerated()
+            .sorted { a, b in
+                let x = a.element.isBase ? 0 : a.element.isCurrent ? 1 : 2
+                let y = b.element.isBase ? 0 : b.element.isCurrent ? 1 : 2
+                return x != y ? x < y : a.offset < b.offset
+            }
+            .map(\.element)
+    }
+
+    /// Kervan's branches: those with work still to merge first, then the merged ones; newest first within each.
+    public func kervan(hidingMerged: Bool = false) -> [BranchInfo] {
+        branches.filter { $0.isKervan && !(hidingMerged && $0.merged) }
+            .enumerated()
+            .sorted { a, b in a.element.merged != b.element.merged ? !a.element.merged : a.offset < b.offset }
+            .map(\.element)
+    }
+
+    public var remoteOnly: [BranchInfo] { branches.filter(\.isRemote) }
+    public var mergedKervanCount: Int { branches.filter { $0.isKervan && $0.merged }.count }
+
+    /// Kervan branches whose session is working right now.
+    public func workingCount(sessions: [SessionInfo]) -> Int {
+        let busy = Set(sessions.filter { $0.status == .running || $0.status == .starting || $0.status == .waiting }.map(\.id))
+        return branches.filter { $0.isKervan && $0.fromNode == nil && $0.sessionId.map(busy.contains) == true }.count
+    }
+
+    /// The widest ahead or behind count among `rows`, for scaling their bars together; at least 1.
+    public static func scale(_ rows: [BranchInfo]) -> Int {
+        max(1, rows.map { max($0.ahead, $0.behind) }.max() ?? 1)
+    }
+}
+
+/// What a Kervan branch's row says about it, from its session and card.
+public enum BranchBadge: Equatable, Sendable {
+    case working, waiting, review, ready, merged, archived, noSession
+    case onNode(String)
+    case saved(String)
+
+    public init(branch: BranchInfo, session: SessionInfo?, card: CardInfo?, node: String?) {
+        if let from = branch.fromNode { self = .saved(from); return }
+        if branch.merged { self = .merged; return }
+        guard let session else { self = .noSession; return }
+        if session.archived { self = .archived; return }
+        switch session.status {
+        case .running, .starting: self = .working
+        case .waiting: self = .waiting
+        default:
+            if card?.column == .review { self = .review } else if let node { self = .onNode(node) } else { self = .ready }
+        }
+    }
+
+    public var title: String {
+        switch self {
+        case .working: L("Working", "Çalışıyor")
+        case .waiting: L("Needs you", "Sizi bekliyor")
+        case .review: L("To review", "İncelemede")
+        case .ready: L("Ready", "Hazır")
+        case .merged: L("Merged", "Birleşti")
+        case .archived: L("Archived", "Arşivde")
+        case .noSession: L("No session", "Oturumu yok")
+        case .onNode(let node): L("On \(node)", "\(node) üzerinde")
+        case .saved(let node): L("Saved from \(node)", "\(node)'dan kurtarıldı")
+        }
     }
 }

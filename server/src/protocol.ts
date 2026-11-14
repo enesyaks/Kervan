@@ -215,6 +215,53 @@ export interface ProjectPM {
   autoPickup: boolean;
   /** Cards the PM opens itself start without waiting for the user. */
   startOwnCases: boolean;
+  /**
+   * Skills from the library the PM picked for itself in this project (`pm_skills`), given to it with its role's own
+   * from its next card on.
+   */
+  skills?: string[];
+}
+
+/** One branch of a project's repository, as the project page lists it (`project.branches`). */
+export interface BranchInfo {
+  /** `main`, `kervan/…`, or `origin/…` for a branch only origin has. */
+  name: string;
+  /** The commit it points at. */
+  head: string;
+  subject: string;
+  /** The commit's date, ISO 8601. */
+  date: string;
+  author: string;
+  /** Commits on this branch that the base doesn't have, and the other way round. */
+  ahead: number;
+  behind: number;
+  /** All of its commits are in the base. */
+  merged: boolean;
+  /** The branch the others are measured against. */
+  base?: boolean;
+  /** The project folder has it checked out. */
+  current?: boolean;
+  /** Another worktree (a session's) has it checked out. */
+  worktree?: boolean;
+  /** Only origin has it, as git last fetched it. */
+  remote?: boolean;
+  /** A branch Kervan made (`kervan/…`). */
+  kervan?: boolean;
+  /** The session it's the branch of. */
+  sessionId?: string;
+  /** Saved from this node when it came back after its session moved to the server. */
+  fromNode?: string;
+}
+
+export interface ProjectBranches {
+  projectId: string;
+  /** The base's name: origin's default branch when known, else the folder's own. */
+  base: string;
+  /** The branch the project folder is on; absent when it's on a detached commit. */
+  current?: string;
+  branches: BranchInfo[];
+  /** There were more than the list holds. */
+  truncated?: boolean;
 }
 
 export interface ProjectMapInfo {
@@ -313,6 +360,8 @@ export interface CardInfo {
   direct?: boolean;
   /** Its session is the project's PM, which plans the card and hands it out. */
   pm?: boolean;
+  /** The card in which the PM puts the project's team together (`project.onboard`). */
+  setup?: boolean;
   /** The PM's plan for the card, as it last wrote it. */
   plan?: string;
   /** Why the PM couldn't pick the card up by itself; it waits for the user to start it. */
@@ -469,6 +518,13 @@ export type ClientMessage =
   /** (Re)builds the project map with `agent`; answered with `project.list.result`. */
   | { type: "project.map"; id: string; projectId: string; agent: string }
   | { type: "project.map.get"; id: string; projectId: string }
+  | { type: "project.branches"; id: string; projectId: string }
+  /**
+   * The PM sets the project's team up by itself: with no PM yet, a PM role is made for `agent` (or the server's first
+   * agent that can be one) first. `title` names the card.
+   */
+  | { type: "project.onboard"; id: string; projectId: string; agent?: string; title?: string }
+  | { type: "project.branches.prune"; id: string; projectId: string }
   | { type: "schedule.list"; id: string }
   | { type: "schedule.save"; id: string; schedule: Record<string, unknown> }
   | { type: "schedule.delete"; id: string; scheduleId: string }
@@ -554,6 +610,10 @@ export type ServerMessage =
   | { type: "skill.drafts.updated"; drafts: SkillDraft[] }
   /** The map's text (Markdown); empty while there is none. */
   | { type: "project.map.result"; id: string; projectId: string; text: string }
+  /** `branches` is absent when the project isn't a git repository with a commit yet. */
+  /** The setup card started; `roles` includes the PM role when one was made. */
+  | { type: "project.onboard.result"; id: string; projectId: string; cardId: string; roles: Role[] }
+  | { type: "project.branches.result"; id: string; projectId: string; branches?: ProjectBranches; deleted?: string[] }
   | { type: "schedule.list.result"; id: string; schedules: ScheduleInfo[] }
   /** Broadcast after a schedule ran or changed. */
   | { type: "schedules.updated"; schedules: ScheduleInfo[] }
@@ -668,6 +728,9 @@ const STRING_FIELDS: Record<string, readonly string[]> = {
   "skill.draft.discard": ["id", "draftId"],
   "project.map": ["id", "projectId", "agent"],
   "project.map.get": ["id", "projectId"],
+  "project.branches": ["id", "projectId"],
+  "project.onboard": ["id", "projectId"],
+  "project.branches.prune": ["id", "projectId"],
   "schedule.list": ["id"],
   "schedule.save": ["id"],
   "schedule.delete": ["id", "scheduleId"],
@@ -729,6 +792,13 @@ export function parseClientMessage(raw: string): ParseResult {
   if (data.type === "project.team") {
     if (!Array.isArray(data.team)) return fail("bad_message", "project.team needs a 'team' list");
     (message as Record<string, unknown>).team = data.team;
+  }
+  if (data.type === "project.onboard") {
+    for (const key of ["agent", "title"] as const) {
+      if (data[key] === undefined) continue;
+      if (typeof data[key] !== "string") return fail("bad_message", `project.onboard's '${key}' must be text`);
+      (message as Record<string, unknown>)[key] = data[key];
+    }
   }
   if (data.type === "session.takeover" && data.agent !== undefined) {
     if (typeof data.agent !== "string") return fail("bad_message", "session.takeover needs a string 'agent'");

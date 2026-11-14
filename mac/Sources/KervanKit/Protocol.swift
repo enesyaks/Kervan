@@ -754,6 +754,11 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
     /// (Re)builds the project map with `agent`; the project's `map` follows how it goes.
     case projectMap(id: String, projectId: String, agent: String)
     case projectMapGet(id: String, projectId: String)
+    /// The project's branches; `projectBranchesPrune` first deletes Kervan's merged ones nothing uses.
+    case projectBranches(id: String, projectId: String)
+    case projectBranchesPrune(id: String, projectId: String)
+    /// The PM sets the team up by itself; with no PM yet, one is made for `agent` first.
+    case projectOnboard(id: String, projectId: String, agent: String?, title: String)
     /// Phone alerts (ntfy, webhook). The app only.
     case alertsGet(id: String)
     case alertsSave(id: String, alerts: AlertInput)
@@ -965,6 +970,20 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
             try c.encode("project.map.get", forKey: .type)
             try c.encode(id, forKey: .id)
             try c.encode(projectId, forKey: .projectId)
+        case .projectBranches(let id, let projectId):
+            try c.encode("project.branches", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(projectId, forKey: .projectId)
+        case .projectBranchesPrune(let id, let projectId):
+            try c.encode("project.branches.prune", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(projectId, forKey: .projectId)
+        case .projectOnboard(let id, let projectId, let agent, let title):
+            try c.encode("project.onboard", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(projectId, forKey: .projectId)
+            try c.encodeIfPresent(agent, forKey: .agent)
+            try c.encode(title, forKey: .title)
         case .scheduleList(let id):
             try c.encode("schedule.list", forKey: .type)
             try c.encode(id, forKey: .id)
@@ -1172,6 +1191,10 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
     case projectsUpdated([ProjectInfo])
     /// The map's text (Markdown); empty while there is none.
     case projectMapResult(id: String, projectId: String, text: String)
+    /// `branches` is nil when the project isn't a git repository with a commit; `deleted` after a prune.
+    case projectBranchesResult(id: String, projectId: String, branches: ProjectBranches?, deleted: [String])
+    /// The setup card started; `roles` includes a PM role made for it.
+    case projectOnboardResult(id: String, projectId: String, cardId: String, roles: [Role])
     case alertsResult(id: String, alerts: AlertSettings)
     case boardResult(id: String, projectId: String, cards: [CardInfo])
     case boardUpdated(projectId: String, cards: [CardInfo])
@@ -1200,7 +1223,7 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
         case nodes, roles, team, teams, name, expiresAt, hubAddresses
         case changes, projects, schedules, report, terminalId, backlog, data, ports, pullRequest, web, github, url, error
         case projectId, cards, alerts, text
-        case agent, needsCode, signedIn, ollama, lmStudio, drafts
+        case agent, needsCode, signedIn, ollama, lmStudio, drafts, branches, deleted, cardId
     }
 
     public init(from decoder: any Decoder) throws {
@@ -1293,6 +1316,20 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
             self = .projectsUpdated(try c.decode([ProjectInfo].self, forKey: .projects))
         case "project.map.result":
             self = .projectMapResult(id: try c.decode(String.self, forKey: .id), projectId: try c.decode(String.self, forKey: .projectId), text: try c.decode(String.self, forKey: .text))
+        case "project.onboard.result":
+            self = .projectOnboardResult(
+                id: try c.decode(String.self, forKey: .id),
+                projectId: try c.decode(String.self, forKey: .projectId),
+                cardId: try c.decode(String.self, forKey: .cardId),
+                roles: try c.decode([Role].self, forKey: .roles)
+            )
+        case "project.branches.result":
+            self = .projectBranchesResult(
+                id: try c.decode(String.self, forKey: .id),
+                projectId: try c.decode(String.self, forKey: .projectId),
+                branches: try c.decodeIfPresent(ProjectBranches.self, forKey: .branches),
+                deleted: try c.decodeIfPresent([String].self, forKey: .deleted) ?? []
+            )
         case "schedules.updated":
             self = .schedulesUpdated(try c.decode([ScheduleInfo].self, forKey: .schedules))
         case "usage.report.result":

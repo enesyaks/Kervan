@@ -62,6 +62,7 @@ struct ProjectView: View {
                     ProjectTeamSection(project: project)
                 }
                 BoardSection(projectID: projectID)
+                ProjectBranchesSection(projectID: projectID)
                 ProjectMapSection(project: project)
                 SettingsCard(title: L("Instructions", "Talimatlar")) {
                     Text(project.instructions.isEmpty
@@ -110,6 +111,8 @@ private struct ProjectPMSection: View {
     @Environment(AppModel.self) private var model
     @State private var error: String?
     @State private var working = false
+    /// The main agent that becomes the PM when Kervan sets the team up for a project with none.
+    @State private var mainAgent = ""
 
     /// Roles whose agent can hand out work: a terminal agent can't.
     private var candidates: [Role] {
@@ -131,6 +134,19 @@ private struct ProjectPMSection: View {
                     .foregroundStyle(Color.kervanSaffron)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            if let setup = project.setupCard(in: model.store.boards[project.id] ?? []) {
+                setupStatus(setup)
+            } else if role == nil {
+                setupOffer
+            }
+            if let failure = model.store.onboardingErrors[project.id] {
+                Label(failure, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(Color.kervanCoral)
+            }
+            if role == nil {
+                Text(L("Or make one of your roles the PM:", "Ya da rollerinizden birini PM yapın:"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             HStack {
                 Picker(L("PM", "PM"), selection: Binding(get: { role?.id }, set: { choose($0) })) {
                     Text(L("None", "Yok")).tag(String?.none)
@@ -139,22 +155,15 @@ private struct ProjectPMSection: View {
                     }
                 }
                 .disabled(working)
-                Button(L("Create a PM role", "PM rolü oluştur")) {
-                    Task {
-                        working = true
-                        defer { working = false }
-                        error = await model.store.createPMRole(for: project.id)
-                    }
-                }
-                .buttonStyle(.kervanQuiet)
-                .disabled(working || !model.connection.state.isConnected)
             }
             if let role, let pm = project.pm {
-                Text(role.skills.isEmpty
+                let own = pm.skills ?? []
+                Text(role.skills.isEmpty && own.isEmpty
                     ? L("No skills: the PM plans from the project's instructions, its map and the repository's own documents, and suggests skills for you to accept in Settings › Skills when the same kind of work keeps coming.", "Skill yok: PM projenin talimatları, haritası ve deponun kendi belgeleriyle planlar; aynı tür iş tekrar ettiğinde Ayarlar › Skill'ler'de kabul etmeniz için skill önerir.")
-                    : L("Skills: \(role.skills.joined(separator: ", "))", "Skill'ler: \(role.skills.joined(separator: ", "))"))
+                    : L("Skills: \((role.skills + own.filter { !role.skills.contains($0) }).joined(separator: ", "))", "Skill'ler: \((role.skills + own.filter { !role.skills.contains($0) }).joined(separator: ", "))"))
                     .font(.callout)
                     .foregroundStyle(.secondary)
+                    .help(own.isEmpty ? "" : L("Picked by the PM for this project: \(own.joined(separator: ", "))", "PM'in bu proje için seçtikleri: \(own.joined(separator: ", "))"))
                 Toggle(isOn: Binding(get: { pm.autoPickup }, set: { on in update { $0.autoPickup = on } })) {
                     Text(L("Pick up new cards by itself", "Yeni kartları kendiliğinden alsın"))
                     Text(L("A new card starts its PM at once, a couple at a time; the rest wait in To do. Off: a card starts when you move it to Working.", "Yeni kart PM'ini hemen başlatır, aynı anda birkaç tane; diğerleri Yapılacak'ta bekler. Kapalıyken kart, Çalışıyor'a taşıyınca başlar."))
@@ -175,10 +184,90 @@ private struct ProjectPMSection: View {
                 .buttonStyle(.kervanQuiet)
                 .disabled(working || !model.connection.state.isConnected)
                 .help(L("Adds a card for the PM: it looks the project over and opens a card for each thing worth doing.", "PM için bir kart ekler: PM projeyi gözden geçirir ve yapılmaya değer her şey için bir kart açar."))
+                if project.setupCard(in: model.store.boards[project.id] ?? []) == nil {
+                    Button((project.team ?? []).isEmpty ? L("Set the team up", "Ekibi kur") : L("Set the team up again", "Ekibi yeniden kur")) {
+                        onboard(agent: nil)
+                    }
+                    .buttonStyle(.kervanQuiet)
+                    .disabled(working || !model.connection.state.isConnected)
+                    .help(L("The PM reads the project and the skill library, defines the roles the project needs and builds the team with the skills that fit each.", "PM projeyi ve skill kütüphanesini okur, projenin ihtiyaç duyduğu rolleri tanımlar ve her birine uyan skill'lerle ekibi kurar."))
+                }
             }
             if let error {
                 Label(error, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(Color.kervanCoral)
             }
+        }
+    }
+
+    /// For a project with no PM: one main agent, and Kervan does the rest.
+    @ViewBuilder
+    private var setupOffer: some View {
+        let agents = ProjectMapSection.agents(model.store)
+        VStack(alignment: .leading, spacing: 8) {
+            Text(L(
+                "Let Kervan set the team up: the main agent becomes the PM, reads the project and the skill library, defines the roles the project needs and builds the team, giving each the skills that fit it.",
+                "Ekibi Kervan kursun: ana ajan PM olur, projeyi ve skill kütüphanesini okur, projenin ihtiyaç duyduğu rolleri tanımlar ve her birine uyan skill'leri vererek ekibi kurar."
+            ))
+            .font(.callout)
+            .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Picker(L("Main agent", "Ana ajan"), selection: $mainAgent) {
+                    ForEach(agents) { Text($0.name).tag($0.id) }
+                }
+                .fixedSize()
+                Button(L("Set the team up", "Ekibi kur")) { onboard(agent: mainAgent.isEmpty ? nil : mainAgent) }
+                    .buttonStyle(.kervanPrimary)
+                    .tint(.kervanLapis)
+                    .disabled(working || agents.isEmpty || !model.connection.state.isConnected)
+            }
+        }
+        .onAppear {
+            if mainAgent.isEmpty || !agents.contains(where: { $0.id == mainAgent }) {
+                mainAgent = (agents.first { $0.id == model.defaultAgent?.id } ?? agents.first)?.id ?? ""
+            }
+        }
+    }
+
+    /// How the team setup goes: starting, at work, asking, or done and waiting to be looked at.
+    @ViewBuilder
+    private func setupStatus(_ card: CardInfo) -> some View {
+        let session = card.sessionId.flatMap { id in model.store.sessions.first { $0.id == id } }
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            if let failure = card.error {
+                Label(L("The team setup didn't start: \(failure)", "Ekip kurulumu başlamadı: \(failure)"), systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(Color.kervanCoral)
+                Spacer()
+                Button(L("Try again", "Yeniden dene")) { onboard(agent: nil) }
+                    .buttonStyle(.kervanQuiet)
+                    .disabled(working || !model.connection.state.isConnected)
+            } else {
+                if card.column == .needs {
+                    Label(L("The PM is asking you something about the team.", "PM ekip hakkında size bir şey soruyor."), systemImage: "questionmark.bubble")
+                        .foregroundStyle(Color.kervanSaffron)
+                } else if card.column == .review || card.column == .done {
+                    Label(L("The team is set up. The PM's summary says who does what and why.", "Ekip kuruldu. PM'in özeti kimin ne yaptığını ve nedenini anlatıyor."), systemImage: "checkmark.circle")
+                        .foregroundStyle(Color.kervanOasis)
+                } else {
+                    ProgressView().controlSize(.small)
+                    Text(L("Setting the team up: the PM is reading the project and the skill library and defining the roles.", "Ekip kuruluyor: PM projeyi ve skill kütüphanesini okuyup rolleri tanımlıyor."))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if let session {
+                    Button(L("Open", "Aç")) { model.selectedSessionID = session.id }
+                        .buttonStyle(.kervanQuiet)
+                }
+            }
+        }
+        .font(.callout)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func onboard(agent: String?) {
+        Task {
+            working = true
+            defer { working = false }
+            await model.store.onboardProject(project.id, agent: agent)
         }
     }
 
@@ -212,13 +301,13 @@ private struct ProjectTeamSection: View {
         SettingsCard(
             title: L("Team", "Ekip"),
             footer: L(
-                "The PM puts the team together as the work needs: for each member an agent and the skills from the library that fit its job. It can't give members MCP servers.",
-                "PM ekibi işin gerektirdiği gibi kurar: her üyeye bir ajan ve kütüphaneden işine uyan skill'ler. Üyelere MCP sunucusu veremez."
+                "The PM puts the team together as the work needs: for each member a role definition, an agent and the skills from the library that fit its job. It can't give members MCP servers, and skills only come from the library you approved.",
+                "PM ekibi işin gerektirdiği gibi kurar: her üyeye bir rol tanımı, bir ajan ve kütüphaneden işine uyan skill'ler. Üyelere MCP sunucusu veremez; skill'ler yalnızca sizin onayladığınız kütüphaneden gelir."
             )
         ) {
             let team = project.team ?? []
             if team.isEmpty {
-                Text(L("No members yet. The PM adds them when a card needs them.", "Henüz üye yok. PM bir kart gerektirdiğinde ekler."))
+                Text(L("No members yet. Set the team up above, or the PM adds them when a card needs them.", "Henüz üye yok. Yukarıdan ekibi kurun ya da PM bir kart gerektirdiğinde ekler."))
                     .foregroundStyle(.secondary)
             }
             ForEach(team) { member in
@@ -229,7 +318,15 @@ private struct ProjectTeamSection: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         if !member.instructions.isEmpty {
-                            Text(member.instructions).font(.caption).foregroundStyle(.secondary).lineLimit(2).help(member.instructions)
+                            DisclosureGroup {
+                                Text(member.instructions)
+                                    .font(.caption)
+                                    .textSelection(.enabled)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            } label: {
+                                Text(L("Role definition", "Rol tanımı")).font(.caption).foregroundStyle(.secondary)
+                            }
                         }
                     }
                     Spacer()
@@ -393,6 +490,7 @@ struct ProjectSheet: View {
     @State private var source = Source.clone
     @State private var location = ""
     @State private var mapAfterAdding = true
+    @State private var teamAfterAdding = true
     @State private var saving = false
     @State private var error: String?
 
@@ -421,6 +519,12 @@ struct ProjectSheet: View {
                         Text(L(
                             "\(mapper.name) reads the repository once, so agents here don't have to read all of it for every task.",
                             "\(mapper.name) depoyu bir kez okur; böylece buradaki ajanlar her görevde hepsini okumak zorunda kalmaz."
+                        ))
+                        .font(.caption).foregroundStyle(.secondary)
+                        Toggle(L("Let Kervan set the team up", "Ekibi Kervan kursun"), isOn: $teamAfterAdding)
+                        Text(L(
+                            "\(mapper.name) becomes the project's PM, reads the skill library, defines the roles the project needs and builds the team.",
+                            "\(mapper.name) projenin PM'i olur, skill kütüphanesine bakar, projenin ihtiyaç duyduğu rolleri tanımlar ve ekibi kurar."
                         ))
                         .font(.caption).foregroundStyle(.secondary)
                     }
@@ -519,6 +623,11 @@ struct ProjectSheet: View {
         }
         if project == nil, let made = model.store.projects.first(where: { !before.contains($0.id) }) {
             model.selectedSessionID = AppModel.projectPage(made.id)
+            // Its outcome shows on the project's PM section, failure included.
+            if source != .empty, teamAfterAdding, let mapper = mapAgent {
+                let store = model.store
+                Task { await store.onboardProject(made.id, agent: mapper.id) }
+            }
         }
         dismiss()
     }

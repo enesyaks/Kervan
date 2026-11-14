@@ -199,6 +199,17 @@ export const PM_TOOLS: Tool[] = [
     },
   },
   {
+    name: "pm_skills",
+    description:
+      "Pick your own skills for this project from list_skills: those that help you plan, split and check its work. Replaces " +
+      "the list; an empty list clears it. They come with your role's skills from your next card on. At most 12.",
+    inputSchema: {
+      type: "object",
+      properties: { skills: { type: "array", items: { type: "string" }, description: "Skill names from list_skills." } },
+      required: ["skills"],
+    },
+  },
+  {
     name: "team_remove",
     description: "Take a member off the project's team.",
     inputSchema: { type: "object", properties: { id: text("The member's id.") }, required: ["id"] },
@@ -426,6 +437,10 @@ export class OrchestraHub {
         return "Suggested. It waits for the user to accept it.";
       case "team_save":
         return sessions.saveTeamMember(leadId, args);
+      case "pm_skills": {
+        const skills = sessions.setPMSkills(leadId, args.skills);
+        return skills.length > 0 ? `Your skills in this project: ${skills.join(", ")}.` : "You have no skills of your own in this project now.";
+      }
       case "team_remove":
         sessions.removeTeamMember(leadId, str(args, "id")!);
         return "Removed.";

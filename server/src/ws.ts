@@ -3,6 +3,7 @@ import type { IncomingMessage, Server } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocketServer, type WebSocket } from "ws";
 import { log } from "./log.ts";
+import { projectBranches, pruneMergedBranches } from "./branches.ts";
 import { KervanError, PROTOCOL_VERSION, parseClientMessage, type ClientMessage, type ServerMessage } from "./protocol.ts";
 import { MAX_NODE_FRAME_BYTES, NODE_PATH } from "./node-agent.ts";
 import { NODE_NAME, LOCAL_NODE } from "./nodes.ts";
@@ -62,6 +63,7 @@ const WEB_ALLOWED = new Set<string>([
   // Projects and their boards, to look at; cards are made and moved from the app.
   "project.list",
   "project.map.get",
+  "project.branches",
   "board.list",
   "session.list",
   "session.history",
@@ -334,6 +336,21 @@ async function handleRequest(
     case "project.map.get":
       if (!requireProjects(sessions).get(message.projectId)) throw new KervanError("bad_message", `no project '${message.projectId}'`);
       return send(ws, { type: "project.map.result", id: message.id, projectId: message.projectId, text: requireProjects(sessions).mapText(message.projectId) });
+    case "project.branches":
+    case "project.branches.prune": {
+      const project = requireProjects(sessions).get(message.projectId) ?? (() => { throw new KervanError("bad_message", `no project '${message.projectId}'`); })();
+      const all = sessions.list().filter((s) => s.projectId === project.id);
+      const deleted = message.type === "project.branches.prune" ? (await pruneMergedBranches(project.path, all)).deleted : undefined;
+      const branches = await projectBranches(project.id, project.path, all);
+      return send(ws, { type: "project.branches.result", id: message.id, projectId: project.id, ...(branches ? { branches } : {}), ...(deleted ? { deleted } : {}) });
+    }
+    case "project.onboard": {
+      const { cardId } = await sessions.onboardProject(message.projectId, {
+        ...(message.agent !== undefined ? { agent: message.agent } : {}),
+        ...(message.title !== undefined ? { title: message.title } : {}),
+      });
+      return send(ws, { type: "project.onboard.result", id: message.id, projectId: message.projectId, cardId, roles: sessions.roles?.list() ?? [] });
+    }
     case "project.pm":
       sessions.setProjectPM(message.projectId, message.pm);
       sessions.broadcast({ type: "projects.updated", projects: requireProjects(sessions).list() });

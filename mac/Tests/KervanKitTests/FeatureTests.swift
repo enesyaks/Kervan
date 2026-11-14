@@ -496,3 +496,93 @@ import Testing
         #expect(card.question == "Jev nedir?" && card.column == .needs)
     }
 }
+
+@Suite struct ProjectBranchTests {
+    private let json = #"""
+    {"type":"project.branches.result","id":"r","projectId":"p","branches":{"projectId":"p","base":"main","current":"main","branches":[
+      {"name":"kervan/done-1","head":"c1","subject":"done","date":"2026-11-14T10:00:00+03:00","author":"K","ahead":0,"behind":2,"merged":true,"kervan":true,"sessionId":"s2"},
+      {"name":"main","head":"c0","subject":"tip","date":"2026-11-14T11:00:00Z","author":"E","ahead":0,"behind":0,"merged":false,"base":true,"current":true},
+      {"name":"kervan/fix-2","head":"c2","subject":"fix","date":"2026-11-14T09:00:00Z","author":"K","ahead":3,"behind":1,"merged":false,"kervan":true,"sessionId":"s1"},
+      {"name":"kervan/fix-2-from-laptop","head":"c3","subject":"left","date":"2026-11-14T08:00:00Z","author":"K","ahead":4,"behind":1,"merged":false,"kervan":true,"sessionId":"s1","fromNode":"laptop"},
+      {"name":"feature/x","head":"c4","subject":"x","date":"2026-11-13T08:00:00Z","author":"E","ahead":12,"behind":0,"merged":false},
+      {"name":"origin/old","head":"c5","subject":"o","date":"2026-11-01T08:00:00Z","author":"E","ahead":1,"behind":9,"merged":false,"remote":true}
+    ]},"deleted":["kervan/gone-3"]}
+    """#
+
+    @Test func decodesAndGroupsBranches() throws {
+        guard case .projectBranchesResult(let id, let projectId, let branches?, let deleted) = try ServerMessage.decode(json) else {
+            Issue.record("not a branches result")
+            return
+        }
+        #expect(id == "r" && projectId == "p" && deleted == ["kervan/gone-3"])
+        #expect(branches.own.map(\.name) == ["main", "feature/x"])
+        // Unmerged first, merged last; and hidden on request.
+        #expect(branches.kervan().map(\.name) == ["kervan/fix-2", "kervan/fix-2-from-laptop", "kervan/done-1"])
+        #expect(branches.kervan(hidingMerged: true).map(\.name) == ["kervan/fix-2", "kervan/fix-2-from-laptop"])
+        #expect(branches.remoteOnly.map(\.name) == ["origin/old"])
+        #expect(branches.mergedKervanCount == 1)
+        #expect(ProjectBranches.scale(branches.own) == 12)
+        #expect(branches.branches[0].commitDate != nil)
+
+        let running = SessionInfo(id: "s1", agent: "a", title: "Fix", status: .running, createdAt: "2026")
+        // The node's leftover doesn't count as a second working branch.
+        #expect(branches.workingCount(sessions: [running]) == 1)
+    }
+
+    @Test func aBranchNoGitIsNil() throws {
+        let message = try ServerMessage.decode(#"{"type":"project.branches.result","id":"r","projectId":"p"}"#)
+        #expect(message == .projectBranchesResult(id: "r", projectId: "p", branches: nil, deleted: []))
+    }
+
+    @Test func badgesFollowTheSessionAndCard() {
+        let open = BranchInfo(name: "kervan/a-1", ahead: 1, kervan: true, sessionId: "s")
+        var session = SessionInfo(id: "s", agent: "a", title: "T", status: .running, createdAt: "2026")
+        #expect(BranchBadge(branch: open, session: session, card: nil, node: nil) == .working)
+        session.status = .waiting
+        #expect(BranchBadge(branch: open, session: session, card: nil, node: nil) == .waiting)
+        session.status = .idle
+        #expect(BranchBadge(branch: open, session: session, card: nil, node: "laptop") == .onNode("laptop"))
+        #expect(BranchBadge(branch: open, session: session, card: nil, node: nil) == .ready)
+        session.archived = true
+        #expect(BranchBadge(branch: open, session: session, card: nil, node: nil) == .archived)
+        #expect(BranchBadge(branch: open, session: nil, card: nil, node: nil) == .noSession)
+        let merged = BranchInfo(name: "kervan/a-1", merged: true, kervan: true, sessionId: "s")
+        #expect(BranchBadge(branch: merged, session: session, card: nil, node: nil) == .merged)
+        let saved = BranchInfo(name: "kervan/a-1-from-laptop", merged: true, kervan: true, sessionId: "s", fromNode: "laptop")
+        #expect(BranchBadge(branch: saved, session: session, card: nil, node: nil) == .saved("laptop"))
+    }
+}
+
+@Suite struct TeamSetupTests {
+    @Test func decodesTheResultWithItsRoles() throws {
+        let message = try ServerMessage.decode(#"{"type":"project.onboard.result","id":"r","projectId":"p","cardId":"c","roles":[{"id":"pm","name":"PM","agent":"claude","instructions":"","skills":[],"mcpServers":[],"lead":true}]}"#)
+        guard case .projectOnboardResult(let id, let projectId, let cardId, let roles) = message else {
+            Issue.record("not an onboard result")
+            return
+        }
+        #expect([id, projectId, cardId] == ["r", "p", "c"])
+        #expect(roles.map(\.id) == ["pm"])
+    }
+
+    @Test func sendsTheAgentOnlyWhenChosen() throws {
+        let chosen = String(decoding: try JSONEncoder().encode(ClientMessage.projectOnboard(id: "1", projectId: "p", agent: "claude", title: "Ekip kurulumu")), as: UTF8.self)
+        #expect(chosen.contains(#""type":"project.onboard""#) && chosen.contains(#""agent":"claude""#) && chosen.contains(#""title":"Ekip kurulumu""#))
+        let any = String(decoding: try JSONEncoder().encode(ClientMessage.projectOnboard(id: "1", projectId: "p", agent: nil, title: "T")), as: UTF8.self)
+        #expect(!any.contains("agent"))
+    }
+
+    @Test func findsTheSetupCardAndKeepsThePMsSkills() throws {
+        let cards = try JSONDecoder().decode([CardInfo].self, from: Data(#"""
+        [{"id":"a","projectId":"p","title":"Old","prompt":"x","agent":"claude","column":"done","setup":true,"createdAt":"","updatedAt":""},
+         {"id":"b","projectId":"p","title":"Ekip kurulumu","prompt":"x","agent":"claude","column":"working","setup":true,"pm":true,"createdAt":"","updatedAt":""},
+         {"id":"c","projectId":"p","title":"Other","prompt":"x","agent":"claude","column":"todo","createdAt":"","updatedAt":""}]
+        """#.utf8))
+        let project = ProjectInfo(id: "p", name: "P", path: "/p", pm: ProjectPM(roleId: "pm", skills: ["plan"]))
+        #expect(project.setupCard(in: cards)?.id == "b")
+        #expect(project.setupCard(in: [cards[0], cards[2]]) == nil, "a done setup isn't shown")
+
+        var pm = try JSONDecoder().decode(ProjectPM.self, from: Data(#"{"roleId":"pm","autoPickup":true,"startOwnCases":false,"skills":["plan"]}"#.utf8))
+        pm.autoPickup = false
+        #expect(String(decoding: try JSONEncoder().encode(pm), as: UTF8.self).contains(#""skills":["plan"]"#), "flipping a switch sends the skills back")
+    }
+}

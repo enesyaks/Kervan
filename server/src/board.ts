@@ -231,20 +231,60 @@ export class Board {
     );
     for (const card of waiting) {
       if (free-- <= 0) break;
-      this.pickingUp.add(card.id);
-      void this.move(card.id, "working")
-        .catch((error: unknown) => {
-          // It waits for the user to start it rather than being tried again and again.
-          const stored = this.cards.get(card.id);
-          if (!stored) return;
-          stored.error = error instanceof Error ? error.message : String(error);
-          this.changed(projectId);
-        })
-        .finally(() => {
-          this.pickingUp.delete(card.id);
-          this.pickUp(projectId);
-        });
+      this.begin(card);
     }
+  }
+
+  /** Starts a card without waiting for it; a card that fails to start keeps the reason and waits for the user. */
+  private begin(card: CardInfo): void {
+    this.pickingUp.add(card.id);
+    void this.move(card.id, "working")
+      .catch((error: unknown) => {
+        // It waits for the user to start it rather than being tried again and again.
+        const stored = this.cards.get(card.id);
+        if (!stored) return;
+        stored.error = error instanceof Error ? error.message : String(error);
+        this.changed(card.projectId);
+      })
+      .finally(() => {
+        this.pickingUp.delete(card.id);
+        this.pickUp(card.projectId);
+      });
+  }
+
+  /**
+   * The card in which the project's PM sets its team up. It starts at once, whether or not the PM picks cards up by
+   * itself: the user asked for it just now. One at a time per project; one that couldn't start is tried again.
+   */
+  startSetup(projectId: string, input: { title: string; prompt: string; agent: string }): CardInfo {
+    if (!this.deps.projectPM?.(projectId)) throw new KervanError("bad_message", "this project has no PM to set its team up");
+    const open = this.list(projectId).find((c) => c.setup && c.column !== "done");
+    if (open && (open.sessionId || this.pickingUp.has(open.id))) {
+      throw new KervanError("bad_message", `the team is already being set up on the card '${open.title}'`);
+    }
+    if (open) {
+      delete open.error;
+      this.changed(projectId);
+      this.begin(open);
+      return open;
+    }
+    this.refuseProjectWork(input.agent, projectId);
+    const now = new Date().toISOString();
+    const card: CardInfo = {
+      id: randomUUID(),
+      projectId,
+      title: input.title.trim().slice(0, MAX_TITLE) || "Team setup",
+      prompt: input.prompt,
+      agent: input.agent,
+      setup: true,
+      column: "todo",
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.cards.set(card.id, card);
+    this.changed(projectId);
+    this.begin(card);
+    return card;
   }
 
   /** Every project's waiting cards, e.g. once the server is up. */

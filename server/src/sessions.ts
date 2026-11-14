@@ -77,6 +77,29 @@ export const HELPER_IDLE_MINUTES = 10;
 export const NODE_TAKEOVER_MINUTES = 10;
 /** A project's team: enough for real work, few enough that a PM can't fill the server with agents. */
 export const MAX_TEAM = 8;
+/** Skills a PM may pick for itself in one project (`pm_skills`). */
+export const MAX_PM_SKILLS = 12;
+
+/** What the PM is told on the card that sets a project's team up (`project.onboard`). */
+export const ONBOARD_PROMPT = [
+  "Set up this project's team. Don't change any files and don't start helpers: this card only decides who works on the project and how.",
+  "1. Learn what the project is: its instructions, its map (map_read) if it has one, and the repository itself: README, the " +
+    "languages and frameworks, how it builds and is tested, CI, deployment, and anything security-sensitive.",
+  "2. See what you have to work with: list_skills (the skill library), list_agents (the agents and the machines they run on) and team_list (the team so far).",
+  "3. Decide which roles this project really needs: usually 2 to 5, never more than 8. Add a role only when the repository gives a reason for it.",
+  "4. Save each member with team_save:",
+  "   - a short id and a name for the role;",
+  "   - the agent that fits it: one on this server unless the work needs another machine;",
+  "   - from list_skills only the skills that fit its job (a skill can go to several members; give none rather than a wrong one);",
+  "   - instructions that define the role for this project: what it's responsible for, what it must not touch, the folders, " +
+    "commands and conventions it works with, how it checks its own work, and what done means.",
+  "5. If the team already has members, keep the ones that fit, change the others with team_save, and remove the rest with team_remove.",
+  "6. Pick your own skills for this project with pm_skills: those that help you plan, split and check the work here; none if none fit.",
+  "7. If the library has no skills, or none fit a role the project needs, build the team on instructions alone and suggest at " +
+    "most two skills with skill_draft for the work that matters most. They wait for the user; no agent uses them before that.",
+  "8. Don't ask the user anything unless the repository is empty or you can't tell what it is (then case_ask).",
+  "9. End with a table: each member, its agent and skills, and why; then your own skills, and what you'd add to the library.",
+].join("\n");
 const MEMBER_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const MAX_MEMBER_INSTRUCTIONS = 4_000;
 
@@ -373,7 +396,15 @@ export class SessionManager {
     if (role.skills.length > 0) this.refuseSkillsOn(node);
     const refusal = this.projectRefusal(role.agent, projectId);
     if (refusal) fail(refusal);
-    const project = projects.setPM(projectId, { roleId: role.id, autoPickup: input.autoPickup !== false, startOwnCases: input.startOwnCases === true });
+    // The PM's own skills stay with it while it stays the same role, unless the app sends a new list.
+    const kept = projects.get(projectId)!.pm;
+    const skills = input.skills === undefined ? (kept?.roleId === role.id ? kept.skills : undefined) : this.pmSkillList(input.skills, node);
+    const project = projects.setPM(projectId, {
+      roleId: role.id,
+      autoPickup: input.autoPickup !== false,
+      startOwnCases: input.startOwnCases === true,
+      ...(skills && skills.length > 0 ? { skills } : {}),
+    });
     // Cards already waiting go to the new PM.
     this.board?.pickUp(projectId);
     return project;
@@ -410,6 +441,67 @@ export class SessionManager {
     const team = input.map((member) => this.member(projectId, member));
     if (new Set(team.map((m) => m.id)).size !== team.length) fail("two members have the same id");
     return projects.setTeam(projectId, team);
+  }
+
+  /** Skill names for a PM, checked against the library and against the machine its agent runs on. */
+  private pmSkillList(input: unknown, node: string): string[] {
+    if (!Array.isArray(input) || !input.every((s) => typeof s === "string")) fail("skills must be a list of skill names (see list_skills)");
+    const skills = [...new Set(input as string[])];
+    if (skills.length > MAX_PM_SKILLS) fail(`a PM can pick at most ${MAX_PM_SKILLS} skills`);
+    const missing = skills.find((s) => !this.skills?.has(s));
+    if (missing) fail(`no skill named '${missing}' (see list_skills)`);
+    if (skills.length > 0) this.refuseSkillsOn(node);
+    return skills;
+  }
+
+  /**
+   * The PM sets the project's team up by itself, on a card of its own that starts at once. A project with no PM gets
+   * one first: a PM role for `agent`, or for the server's first agent that can be one. A project with no map gets one
+   * built alongside, so later cards don't each read the whole repository.
+   */
+  async onboardProject(projectId: string, options: { agent?: string; title?: string } = {}): Promise<{ cardId: string }> {
+    const projects = this.projects ?? fail("this server has no projects");
+    const board = this.board ?? fail("this server has no board");
+    const project = projects.get(projectId) ?? fail(`no project '${projectId}'`);
+    let lead = this.projectPM(projectId);
+    if (!lead) {
+      const roles = this.roles ?? fail("this server keeps no roles");
+      const agent =
+        options.agent ??
+        [...this.agents].find(([id, definition]) => definition.protocol !== "pty" && nodeOf(definition) === LOCAL_NODE && !this.projectRefusal(id, projectId))?.[0] ??
+        fail("this server has no agent that can be a PM; add one in Settings");
+      const taken = new Set(roles.list().map((r) => r.id));
+      const id = ["pm", ...Array.from({ length: 98 }, (_, i) => `pm-${i + 2}`)].find((candidate) => !taken.has(candidate)) ?? fail("too many PM roles");
+      roles.save({ id, name: "PM", agent, lead: true });
+      try {
+        this.setProjectPM(projectId, { roleId: id, autoPickup: true, startOwnCases: false });
+      } catch (error) {
+        roles.remove(id);
+        throw error;
+      }
+      lead = this.projectPM(projectId)!;
+    }
+    const card = board.startSetup(projectId, { title: options.title ?? "Team setup", prompt: ONBOARD_PROMPT, agent: lead.role.agent });
+    if (!project.map && this.maps && nodeOf(this.agents.get(lead.role.agent)) === LOCAL_NODE && (await hasCommits(project.path))) {
+      void this.maps.build(projectId, lead.role.agent).catch((error) => log("warn", "couldn't map the project", { projectId, error: String(error) }));
+    }
+    this.broadcast({ type: "projects.updated", projects: projects.list() });
+    return { cardId: card.id };
+  }
+
+  /** The PM picks its own skills for this project; they come with its role's from its next card on. */
+  setPMSkills(sessionId: string, input: unknown): string[] {
+    const project = this.pmProject(sessionId);
+    const lead = this.projectPM(project.id) ?? fail("this project has no PM any more");
+    const skills = this.pmSkillList(input, nodeOf(this.agents.get(lead.role.agent)));
+    const { skills: _old, ...rest } = lead.pm;
+    this.projects!.setPM(project.id, { ...rest, ...(skills.length > 0 ? { skills } : {}) });
+    this.broadcast({ type: "projects.updated", projects: this.projects!.list() });
+    this.record(this.require(sessionId), {
+      kind: "notice",
+      text: skills.length > 0 ? `The PM's own skills in this project: ${skills.join(", ")}.` : "The PM has no skills of its own in this project now.",
+    });
+    return skills;
   }
 
   /** The project a PM session works for; it has to be one. */
@@ -1255,7 +1347,7 @@ export class SessionManager {
         "skills and machine fit its step (list_agents), and a self-contained task with what done means. Start independent steps together.",
       "   The project's team (team_list) is who you hand work to. Shape it as the work needs with team_save and team_remove: " +
         "for each member pick the agent (list_agents) and, from list_skills, only the skills that make sense for its job. " +
-        "You can't give members MCP servers; ask the user if one needs them.",
+        "You can't give members MCP servers; ask the user if one needs them. Your own skills for this project you pick with pm_skills.",
       "4. Follow them up: wait_for_helper, check their work with helper_diff, ask for fixes with message_helper, and merge " +
         "with merge_helper only what is right.",
       "   If you can't go on without the user (the card is unclear, or a decision is theirs), ask with case_ask, write the " +
@@ -1762,7 +1854,9 @@ export class SessionManager {
     choose?: (config: ConfigOption[]) => Promise<{ configId: string; value: string } | undefined>;
   }): Promise<string> {
     const role = task.pm?.role;
-    const info = await this.create(task.agent, role?.skills ?? [], role?.mcpServers ?? [], {
+    // A PM gets its role's skills and those it picked for itself in this project (still in the library).
+    const own = task.pm && task.projectId ? (this.projects?.get(task.projectId)?.pm?.skills ?? []).filter((s) => this.skills?.has(s)) : [];
+    const info = await this.create(task.agent, [...new Set([...(role?.skills ?? []), ...own])], role?.mcpServers ?? [], {
       title: task.title,
       ...(task.pm
         ? {
