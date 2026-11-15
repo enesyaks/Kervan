@@ -435,6 +435,16 @@ private struct CardSheet: View {
                         Toggle(L("Give it straight to an agent instead", "Bunun yerine doğrudan bir ajana ver"), isOn: $draft.direct)
                     }
                 }
+                if pmRole == nil, !(model.store.project(draft.projectID)?.team ?? []).isEmpty {
+                    Label(
+                        L("This project has a team but no PM, so the card goes straight to the agent below and the team isn't used. Choose a PM on the project page.",
+                          "Bu projenin ekibi var ama PM'i yok; kart aşağıdaki ajana doğrudan gider ve ekip kullanılmaz. Proje sayfasından bir PM seçin."),
+                        systemImage: "exclamationmark.triangle"
+                    )
+                    .font(.callout)
+                    .foregroundStyle(Color.kervanSaffron)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
                 if pmRole == nil || draft.direct {
                     AgentPicker(agent: $draft.agent, forProject: true)
                     Toggle(L("Split into helpers when the work is large", "İş büyük olduğunda yardımcılara böl"), isOn: $draft.split)

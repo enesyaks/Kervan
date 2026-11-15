@@ -529,8 +529,8 @@ export function attachBoard(sessions: SessionManager, file: string): Board {
     hasProject: (id) => sessions.projects?.get(id) !== undefined,
     hasAgent: (id) => sessions.agentKinds.includes(id),
     projectRefusal: (agent, projectId) => sessions.projectRefusal(agent, projectId),
-    start: (card, files, choose, pm) =>
-      sessions.runTask({
+    start: async (card, files, choose, pm) => {
+      const id = await sessions.runTask({
         agent: pm?.agent ?? card.agent,
         title: card.title,
         prompt: card.prompt,
@@ -540,7 +540,10 @@ export function attachBoard(sessions: SessionManager, file: string): Board {
         ...(card.autoApprove ? { autoApprove: true } : {}),
         ...(pm ? { pm: { role: pm, cardId: card.id } } : {}),
         choose,
-      }),
+      });
+      if (!pm) sessions.noteCardWithoutPM(id, card);
+      return id;
+    },
     projectPM: (projectId) => sessions.projectPM(projectId),
     session: (id) => sessions.list().find((s) => s.id === id),
     broadcast: (message) => sessions.broadcast(message),

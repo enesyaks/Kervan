@@ -116,9 +116,12 @@ private struct ProjectPMSection: View {
     /// The main agent that becomes the PM when Kervan sets the team up for a project with none.
     @State private var mainAgent = ""
 
-    /// Roles whose agent can hand out work: a terminal agent can't.
+    /// Roles whose agent can hand out work: a terminal agent can't. The current PM always stays in the list: a picker
+    /// whose selection has no item may fall back to "None", and that would take the PM away on the server.
     private var candidates: [Role] {
-        model.store.roles.filter { role in model.store.agents.first { $0.id == role.agent }.map { !$0.terminal } ?? false }
+        model.store.roles.filter { role in
+            role.id == project.pm?.roleId || (model.store.agents.first { $0.id == role.agent }.map { !$0.terminal } ?? false)
+        }
     }
 
     private var role: Role? { project.pm.flatMap { pm in model.store.roles.first { $0.id == pm.roleId } } }
@@ -274,6 +277,8 @@ private struct ProjectPMSection: View {
     }
 
     private func choose(_ roleID: String?) {
+        // Only what the user really changed goes to the server.
+        guard roleID != project.pm?.roleId else { return }
         let pm = roleID.map { ProjectPM(roleId: $0, autoPickup: project.pm?.autoPickup ?? true, startOwnCases: project.pm?.startOwnCases ?? false) }
         Task {
             working = true

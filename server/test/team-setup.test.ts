@@ -133,6 +133,27 @@ describe("setting a project's team up", () => {
     assert.equal(sessions.projects!.get(project.id)!.pm!.skills, undefined);
   });
 
+  it("says in a card's session why it didn't go to the PM, when the project has a team or a PM", async () => {
+    const project = await sessions.projects!.save({ name: "PM'siz ekip" });
+    sessions.projects!.setTeam(project.id, [{ id: "dev", name: "Dev", agent: "fake", instructions: "", skills: [] }]);
+    const start = async (card: object) => {
+      const saved = await call({ type: "card.save", card: { projectId: project.id, agent: "fake", prompt: "merhaba", ...card } });
+      const id = saved.cards.at(-1).id;
+      await call({ type: "card.move", cardId: id, column: "working" });
+      return (await until(() => sessions.board!.list(project.id).find((c) => c.id === id && c.sessionId)))!.sessionId!;
+    };
+    const notices = (id: string) => sessions.history(id).filter((e) => e.kind === "notice").map((e: any) => e.text as string);
+    const orphan = await start({ title: "pm yok" });
+    assert.ok(notices(orphan).some((t) => /This project has no PM, so this card went straight to Fake and its team wasn't used/.test(t)));
+
+    await call({ type: "role.save", role: { id: "pmn", name: "PM", agent: "fake", lead: true } });
+    await call({ type: "project.pm", projectId: project.id, pm: { roleId: "pmn", autoPickup: false } });
+    const direct = await start({ title: "doğrudan", direct: true });
+    assert.ok(notices(direct).some((t) => /given straight to Fake, as chosen on it/.test(t)));
+    const planned = await start({ title: "pm'li" });
+    assert.ok(!notices(planned).some((t) => /straight to/.test(t)), "a PM card says nothing");
+  });
+
   it("makes the PM hand work to a team member, not a bare agent, once the project has a team", async () => {
     const project = await sessions.projects!.save({ name: "Ekipli" });
     repository(project.path);

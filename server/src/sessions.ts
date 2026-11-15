@@ -391,7 +391,11 @@ export class SessionManager {
   setProjectPM(projectId: string, input: Record<string, unknown> | null | undefined): ProjectInfo {
     const projects = this.projects ?? fail("this server has no projects");
     if (!projects.get(projectId)) fail(`no project '${projectId}'`);
-    if (input === null || input === undefined) return projects.setPM(projectId, undefined);
+    if (input === null || input === undefined) {
+      // Worth a line: cards go straight to their agents from now on, and the team isn't used.
+      log("info", "project PM removed", { projectId, was: projects.get(projectId)!.pm?.roleId });
+      return projects.setPM(projectId, undefined);
+    }
     const roleId = input.roleId;
     if (typeof roleId !== "string") fail("pm needs a 'roleId'");
     const role = this.roles?.get(roleId as string) ?? fail(`no role named '${String(roleId)}'`);
@@ -945,6 +949,22 @@ export class SessionManager {
     this.record(session, { kind: "notice", text: `Asked the user for env variables: ${names.join(", ")}.` });
     this.broadcast({ type: "projects.updated", projects: this.projects!.list() });
     return names;
+  }
+
+  /**
+   * Says in a card's session why it isn't the PM's, when the project has a PM or a team and the user would expect it
+   * to be: the card was meant for its own agent, the PM's role is gone, or the project has no PM (any more).
+   */
+  noteCardWithoutPM(sessionId: string, card: { projectId: string; direct?: boolean }): void {
+    const session = this.sessions.get(sessionId);
+    const project = this.projects?.get(card.projectId);
+    if (!session || !project) return;
+    const agent = this.agentDetails.find((a) => a.id === session.info.agent)?.name ?? session.info.agent;
+    let text: string | undefined;
+    if (card.direct) text = `This card was given straight to ${agent}, as chosen on it; the PM didn't plan it.`;
+    else if (project.pm) text = `The project's PM role '${project.pm.roleId}' no longer exists, so this card went straight to ${agent}. Choose a PM on the project page.`;
+    else if ((project.team?.length ?? 0) > 0) text = `This project has no PM, so this card went straight to ${agent} and its team wasn't used. Choose a PM on the project page.`;
+    if (text) this.record(session, { kind: "notice", text });
   }
 
   /** A lead agent starts a helper in its own folder and gives it its first task. */
