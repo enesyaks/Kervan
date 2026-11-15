@@ -293,6 +293,8 @@ struct SessionRow: View {
     let session: SessionInfo
     @Environment(AppModel.self) private var model
     private var agentName: String { model.store.agentName(session.agent) }
+    /// A helper started as a team member says which one, so you can see the PM handing work to its team.
+    private var who: String { session.role.map { "\($0) · \(agentName)" } ?? agentName }
 
     var body: some View {
         // A session that needs you is the one row that should stand out in a long list.
@@ -318,7 +320,7 @@ struct SessionRow: View {
                             .accessibilityLabel(L("lead", "ana ajan"))
                     }
                 }
-                (Text("\(agentName), ").foregroundStyle(.secondary)
+                (Text("\(who), ").foregroundStyle(.secondary)
                     + Text(state)
                         .fontWeight(asks || stopped ? .semibold : .regular)
                         .foregroundStyle(asks ? Color.kervanSaffron : stopped ? Color.kervanCoral : Color.secondary))

@@ -45,7 +45,7 @@ export const TOOLS: Tool[] = [
         name: text("Short name shown to the user, e.g. 'Test writer'."),
         task: text("Everything the helper needs to know; it can't see your conversation."),
         agent: text("Agent id from list_agents, which also decides the machine it runs on. Give this or role."),
-        role: text("Role id from list_agents; uses the role's agent and instructions."),
+        role: text("A team member's or role's id from list_agents; uses its agent, instructions and skills. In a project with a team, use a member."),
         isolate: {
           type: "boolean",
           description: "In a git repository (default true): work on its own branch in a separate worktree, merged later with merge_helper.",

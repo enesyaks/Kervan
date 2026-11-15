@@ -914,6 +914,14 @@ export class SessionManager {
       throw new KervanError("bad_message", `at most ${max} helpers; message or reuse one you have`);
     }
     const role = request.role === undefined ? undefined : (this.helperRole(lead, request.role) ?? fail(`no role or team member named '${request.role}'`));
+    // A PM hands work to the project's team; a bare agent would skip the roles and skills it was set up with.
+    const team = lead.info.pmCard ? (this.memoryProject(lead.info)?.team ?? []) : [];
+    if (!role && team.length > 0) {
+      fail(
+        `this project has a team: give role, one of ${team.map((m) => `'${m.id}' (${m.name})`).join(", ")}. ` +
+          "If no member fits this step, add or change one with team_save first.",
+      );
+    }
     const agent = role?.agent ?? request.agent ?? fail("give an agent or a role (see list_agents)");
     const remoteNode = nodeOf(this.agents.get(agent));
     const leadNode = this.nodeFor(lead.info);
@@ -1309,6 +1317,11 @@ export class SessionManager {
           "with a commit, each helper works on its own branch in a separate worktree: look at its work with helper_diff " +
           "and bring it in with merge_helper. Otherwise helpers work in your folder."
         : undefined,
+      // A lead in a project with a team (a card split into helpers, say) should use it too; the PM is told in its own preface.
+      session.info.orchestrate && !session.info.pmCard && !lead && (project?.team?.length ?? 0) > 0
+        ? `[Kervan] This project has a team: ${project!.team!.map((m) => `${m.name} (id '${m.id}')`).join(", ")}. ` +
+          "Hand each part to the member whose job fits it: start_helper with `role` set to its id, so it works with its role and skills."
+        : undefined,
       session.info.split
         ? "[Kervan] Before you start, judge the size of the task. If it has independent parts that are each substantial, " +
           "first show your plan as a short list, then hand each part to a helper with start_helper (in parallel where " +
@@ -1343,9 +1356,11 @@ export class SessionManager {
           (this.hasMemory(session.info) ? " and earlier work in it (case_read)." : "."),
       "2. Write the plan with case_plan: the steps, what done means for each, which skill each follows (or that none fitted), " +
         "and who does it. It shows on the card; call case_plan again when the plan changes.",
-      "3. Small work you do yourself. Otherwise start helpers with start_helper, each with the team member, role or agent whose " +
-        "skills and machine fit its step (list_agents), and a self-contained task with what done means. Start independent steps together.",
-      "   The project's team (team_list) is who you hand work to. Shape it as the work needs with team_save and team_remove: " +
+      "3. Small work you do yourself. Otherwise hand each step to the team member whose job and skills fit it: start_helper " +
+        "with `role` set to the member's id from team_list, and a self-contained task with what done means. Start independent " +
+        "steps together. While the project has a team, a helper without a member's role is refused.",
+      "   The project's team (team_list) is who you hand work to. If no member fits a step, add or change one with team_save first; " +
+        "shape the team as the work needs with team_save and team_remove: " +
         "for each member pick the agent (list_agents) and, from list_skills, only the skills that make sense for its job. " +
         "You can't give members MCP servers; ask the user if one needs them. Your own skills for this project you pick with pm_skills.",
       "4. Follow them up: wait_for_helper, check their work with helper_diff, ask for fixes with message_helper, and merge " +

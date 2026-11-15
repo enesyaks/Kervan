@@ -132,4 +132,31 @@ describe("setting a project's team up", () => {
     await ask("temizle", `memcall: pm_skills {"skills":[]}`);
     assert.equal(sessions.projects!.get(project.id)!.pm!.skills, undefined);
   });
+
+  it("makes the PM hand work to a team member, not a bare agent, once the project has a team", async () => {
+    const project = await sessions.projects!.save({ name: "Ekipli" });
+    repository(project.path);
+    await call({ type: "role.save", role: { id: "pmt", name: "PM", agent: "fake", lead: true } });
+    await call({ type: "project.pm", projectId: project.id, pm: { roleId: "pmt" } });
+    const ask = async (title: string, prompt: string) => {
+      const saved = await call({ type: "card.save", card: { projectId: project.id, agent: "fake", title, prompt } });
+      const id = saved.cards.find((c: any) => c.title === title).id;
+      const sessionId = (await until(() => sessions.board!.list(project.id).find((c) => c.id === id && c.sessionId)))!.sessionId!;
+      return { sessionId, text: await until(() => said(sessionId, "agent_message_chunk") || undefined) };
+    };
+
+    // With no team yet a bare agent is fine.
+    const free = await ask("boş ekip", `memcall: start_helper {"name":"Yardımcı","task":"merhaba","agent":"fake"}`);
+    assert.doesNotMatch(free.text, /refused/);
+
+    const member = await ask("üye ekle", `memcall: team_save {"id":"backend","name":"Backend Developer","agent":"fake","skills":["test-yaz"]}`);
+    assert.doesNotMatch(member.text, /refused/);
+    const bare = await ask("çıplak ajan", `memcall: start_helper {"name":"i18n çevirmen","task":"çevir","agent":"fake"}`);
+    assert.match(bare.text, /refused: this project has a team: give role, one of 'backend' \(Backend Developer\)/);
+
+    const handed = await ask("üyeye ver", `memcall: start_helper {"name":"API düzelt","task":"düzelt","role":"backend"}`);
+    assert.doesNotMatch(handed.text, /refused/);
+    const helper = await until(() => sessions.list().find((s) => s.parentId === handed.sessionId));
+    assert.deepEqual([helper.role, helper.skills], ["Backend Developer", ["test-yaz"]]);
+  });
 });
