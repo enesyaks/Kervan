@@ -111,7 +111,7 @@ describe("project memory in a session", () => {
     const preface = await say(session.id, "prefacecheck");
     assert.match(preface, /1a Services — what each reaches/);
     assert.doesNotMatch(preface, /Uses SQLite/);
-    assert.equal(await say(session.id, "mcptools"), "map_read,case_read");
+    assert.equal(await say(session.id, "mcptools"), "map_read,case_read,env_need");
     assert.match(await say(session.id, `memcall: map_read {"ids":"1a"}`), /Uses SQLite/);
     assert.match(await say(session.id, `memcall: start_helper {"name":"x","task":"y"}`), /refused: no tool named 'start_helper'/);
   });
@@ -148,6 +148,6 @@ describe("project memory in a session", () => {
     const lead = await create({ projectId, orchestrate: true });
     const { helperId } = await sessions.startHelper(lead.id, { name: "Yardım", task: "mcptools", agent: "fake" });
     const summary = await sessions.waitForHelper(lead.id, helperId, 15_000);
-    assert.equal(summary.reply, "map_read,case_read");
+    assert.equal(summary.reply, "map_read,case_read,env_need");
   });
 });

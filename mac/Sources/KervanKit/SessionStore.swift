@@ -57,6 +57,8 @@ public final class SessionStore {
     public private(set) var prunedBranches: [String: [String]] = [:]
     /// Why the last team setup didn't start, per project.
     public private(set) var onboardingErrors: [String: String] = [:]
+    /// The env file each project's Env section last loaded or saved.
+    public private(set) var projectEnvs: [String: ProjectEnv] = [:]
     /// The server's GitHub sign-in as last reported; nil until asked for.
     public private(set) var github: GitHubStatus?
     /// Why the last GitHub sign-in didn't finish, if it didn't.
@@ -452,6 +454,18 @@ public final class SessionStore {
         return failure
     }
 
+    /// Loads one of the project's env files (nil: the one the server picks) into `projectEnvs`; nil, or why not.
+    @discardableResult
+    public func loadEnv(_ projectID: String, file: String? = nil) async -> String? {
+        await call(.projectEnv(id: Self.newID(), projectId: projectID, file: file))
+    }
+
+    /// Writes an env file on the server, and in the folders of the project's live sessions; nil, or why not.
+    @discardableResult
+    public func saveEnv(_ projectID: String, file: String, entries: [ProjectEnv.Entry]) async -> String? {
+        await call(.projectEnvSave(id: Self.newID(), projectId: projectID, file: file, entries: entries))
+    }
+
     /// Asks for the project's branches, which land in `projectBranches`; nil, or why not.
     @discardableResult
     public func loadBranches(_ projectID: String) async -> String? {
@@ -739,6 +753,8 @@ public final class SessionStore {
             projectMaps[projectId] = text
         case .projectOnboardResult(_, _, _, let roles):
             self.roles = roles
+        case .projectEnvResult(_, let env):
+            projectEnvs[env.projectId] = env
         case .projectBranchesResult(_, let projectId, let branches, let deleted):
             projectBranches[projectId] = .some(branches)
             if !deleted.isEmpty { prunedBranches[projectId] = deleted }

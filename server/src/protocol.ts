@@ -180,6 +180,44 @@ export interface ProjectInfo {
   pm?: ProjectPM;
   /** Who the PM hands work to: members it (or the user) put together, each an agent with skills. */
   team?: ProjectMember[];
+  /** What no agent in the project may do: files it may never touch, and rules it is told it must never break. */
+  redLines?: RedLines;
+  /** Env variables agents said the project needs and couldn't find; the user fills them in the app. */
+  envRequests?: EnvRequest[];
+}
+
+/**
+ * A project's red lines. `paths` are enforced: Claude Code gets them as deny rules, a permission request that names
+ * one is refused, and a tool call that touches one stops the turn. `rules` are told to every agent as hard rules.
+ */
+export interface RedLines {
+  paths: string[];
+  rules: string[];
+}
+
+/** An agent's request for env variables: their names only (never values), why, and from which session. */
+export interface EnvRequest {
+  keys: string[];
+  reason: string;
+  sessionId: string;
+  at: string;
+}
+
+/** A project's env files as the app edits them. Values only ever go to the app, never to an agent. */
+export interface ProjectEnv {
+  projectId: string;
+  /** Env files at the project's top: `.env`, `.env.local`, `.env.example`, … */
+  files: string[];
+  /** The file shown, and its entries in order. */
+  file: string;
+  exists: boolean;
+  entries: { key: string; value: string }[];
+  /** Keys an example file (`.env.example`, …) or an agent's request lists that the file doesn't have yet. */
+  missing: string[];
+  /** The example file `missing` comes from. */
+  example?: string;
+  /** The patterns of the project's red lines that cover this file, so the app can say agents can't read it. */
+  protectedBy?: string;
 }
 
 /** A member of a project's team: like a role, but the project's own, and with no MCP servers (those are the user's to give). */
@@ -525,6 +563,8 @@ export type ClientMessage =
    */
   | { type: "project.onboard"; id: string; projectId: string; agent?: string; title?: string }
   | { type: "project.branches.prune"; id: string; projectId: string }
+  | { type: "project.env"; id: string; projectId: string; file?: string }
+  | { type: "project.env.save"; id: string; projectId: string; file: string; entries: unknown[] }
   | { type: "schedule.list"; id: string }
   | { type: "schedule.save"; id: string; schedule: Record<string, unknown> }
   | { type: "schedule.delete"; id: string; scheduleId: string }
@@ -614,6 +654,7 @@ export type ServerMessage =
   /** The setup card started; `roles` includes the PM role when one was made. */
   | { type: "project.onboard.result"; id: string; projectId: string; cardId: string; roles: Role[] }
   | { type: "project.branches.result"; id: string; projectId: string; branches?: ProjectBranches; deleted?: string[] }
+  | { type: "project.env.result"; id: string; env: ProjectEnv }
   | { type: "schedule.list.result"; id: string; schedules: ScheduleInfo[] }
   /** Broadcast after a schedule ran or changed. */
   | { type: "schedules.updated"; schedules: ScheduleInfo[] }
@@ -731,6 +772,8 @@ const STRING_FIELDS: Record<string, readonly string[]> = {
   "project.branches": ["id", "projectId"],
   "project.onboard": ["id", "projectId"],
   "project.branches.prune": ["id", "projectId"],
+  "project.env": ["id", "projectId"],
+  "project.env.save": ["id", "projectId", "file"],
   "schedule.list": ["id"],
   "schedule.save": ["id"],
   "schedule.delete": ["id", "scheduleId"],
@@ -792,6 +835,14 @@ export function parseClientMessage(raw: string): ParseResult {
   if (data.type === "project.team") {
     if (!Array.isArray(data.team)) return fail("bad_message", "project.team needs a 'team' list");
     (message as Record<string, unknown>).team = data.team;
+  }
+  if (data.type === "project.env" && data.file !== undefined) {
+    if (typeof data.file !== "string") return fail("bad_message", "project.env's 'file' must be text");
+    (message as Record<string, unknown>).file = data.file;
+  }
+  if (data.type === "project.env.save") {
+    if (!Array.isArray(data.entries)) return fail("bad_message", "project.env.save needs an 'entries' list");
+    (message as Record<string, unknown>).entries = data.entries;
   }
   if (data.type === "project.onboard") {
     for (const key of ["agent", "title"] as const) {

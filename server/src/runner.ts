@@ -53,6 +53,11 @@ export interface StartOptions {
   onUsage?: (usage: { used: number; size: number; costUsd?: number }) => void;
   /** The agent's session settings (model, effort, mode) whenever they are first known or change. */
   onConfig?: (options: ConfigOption[]) => void;
+  /**
+   * Settings for Claude Code (claude-agent-acp), on top of the user's and the project's own: the project's red lines
+   * as `permissions.deny`. Other agents ignore them.
+   */
+  claudeSettings?: Record<string, unknown>;
 }
 
 /**
@@ -93,7 +98,7 @@ export async function probeAgent(runner: AgentRunner, command: AgentCommand, tim
 export class LocalAcpRunner implements AgentRunner {
   async start(options: StartOptions): Promise<AgentProcess> {
     if (options.command.protocol === "pty") return startPty(options);
-    const { command, cwd, onEvent, onPermission, resumeSessionId, mcpServers, onUsage, onConfig } = options;
+    const { command, cwd, onEvent, onPermission, resumeSessionId, mcpServers, onUsage, onConfig, claudeSettings } = options;
     const child = spawnAgent(command.command, command.args, { cwd, env: agentEnv(command) });
     child.stderr.on("data", (chunk: Buffer) => log("debug", "agent stderr", { text: chunk.toString().slice(0, 500) }));
 
@@ -159,14 +164,16 @@ export class LocalAcpRunner implements AgentRunner {
       }
 
       const servers = mcpServers?.(init.agentCapabilities?.mcpCapabilities?.http === true) ?? [];
+      // An extension field: agents that don't know it leave it alone.
+      const meta = claudeSettings ? { _meta: { claudeCode: { options: { settings: claudeSettings } } } } : {};
       let sessionId: string;
       if (resumeSessionId) {
         if (!init.agentCapabilities?.sessionCapabilities?.resume) throw new Error("agent cannot resume sessions");
-        const resumed = await agent.request("session/resume", { sessionId: resumeSessionId, cwd, mcpServers: servers });
+        const resumed = await agent.request("session/resume", { sessionId: resumeSessionId, cwd, mcpServers: servers, ...meta });
         sessionId = resumeSessionId;
         settings.started(resumed);
       } else {
-        const created = await agent.request("session/new", { cwd, mcpServers: servers });
+        const created = await agent.request("session/new", { cwd, mcpServers: servers, ...meta });
         sessionId = created.sessionId;
         settings.started(created);
       }

@@ -4,6 +4,7 @@ import type { Duplex } from "node:stream";
 import { WebSocketServer, type WebSocket } from "ws";
 import { log } from "./log.ts";
 import { projectBranches, pruneMergedBranches } from "./branches.ts";
+import { projectEnv } from "./projectenv.ts";
 import { KervanError, PROTOCOL_VERSION, parseClientMessage, type ClientMessage, type ServerMessage } from "./protocol.ts";
 import { MAX_NODE_FRAME_BYTES, NODE_PATH } from "./node-agent.ts";
 import { NODE_NAME, LOCAL_NODE } from "./nodes.ts";
@@ -343,6 +344,14 @@ async function handleRequest(
       const deleted = message.type === "project.branches.prune" ? (await pruneMergedBranches(project.path, all)).deleted : undefined;
       const branches = await projectBranches(project.id, project.path, all);
       return send(ws, { type: "project.branches.result", id: message.id, projectId: project.id, ...(branches ? { branches } : {}), ...(deleted ? { deleted } : {}) });
+    }
+    case "project.env": {
+      const project = requireProjects(sessions).get(message.projectId) ?? (() => { throw new KervanError("bad_message", `no project '${message.projectId}'`); })();
+      return send(ws, { type: "project.env.result", id: message.id, env: await projectEnv(project, message.file) });
+    }
+    case "project.env.save": {
+      const project = await sessions.saveProjectEnv(message.projectId, message.file, message.entries);
+      return send(ws, { type: "project.env.result", id: message.id, env: await projectEnv(project, message.file) });
     }
     case "project.onboard": {
       const { cardId } = await sessions.onboardProject(message.projectId, {

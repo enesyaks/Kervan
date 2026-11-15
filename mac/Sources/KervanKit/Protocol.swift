@@ -757,6 +757,9 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
     /// The project's branches; `projectBranchesPrune` first deletes Kervan's merged ones nothing uses.
     case projectBranches(id: String, projectId: String)
     case projectBranchesPrune(id: String, projectId: String)
+    /// One of the project's env files (nil: `.env`, or the first that isn't an example); values come only to the app.
+    case projectEnv(id: String, projectId: String, file: String?)
+    case projectEnvSave(id: String, projectId: String, file: String, entries: [ProjectEnv.Entry])
     /// The PM sets the team up by itself; with no PM yet, one is made for `agent` first.
     case projectOnboard(id: String, projectId: String, agent: String?, title: String)
     /// Phone alerts (ntfy, webhook). The app only.
@@ -814,6 +817,7 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
         case skills, mcpServers, server, name, agentId, role, roleId, roles, orchestrate, budgetUsd, configId, value
         case projectId, since, seq, paths, project, schedule, scheduleId, days, timeZone, terminalId, data, message, body
         case autoApprove, enabled, deviceId, shared, removeWorktree, card, cardId, column, alerts, split, code, ollamaModel, node, lmStudioModel, useDefault, pm, team, draftId
+        case file, entries
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -978,6 +982,17 @@ public enum ClientMessage: Encodable, Equatable, Sendable {
             try c.encode("project.branches.prune", forKey: .type)
             try c.encode(id, forKey: .id)
             try c.encode(projectId, forKey: .projectId)
+        case .projectEnv(let id, let projectId, let file):
+            try c.encode("project.env", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(projectId, forKey: .projectId)
+            try c.encodeIfPresent(file, forKey: .file)
+        case .projectEnvSave(let id, let projectId, let file, let entries):
+            try c.encode("project.env.save", forKey: .type)
+            try c.encode(id, forKey: .id)
+            try c.encode(projectId, forKey: .projectId)
+            try c.encode(file, forKey: .file)
+            try c.encode(entries, forKey: .entries)
         case .projectOnboard(let id, let projectId, let agent, let title):
             try c.encode("project.onboard", forKey: .type)
             try c.encode(id, forKey: .id)
@@ -1195,6 +1210,7 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
     case projectBranchesResult(id: String, projectId: String, branches: ProjectBranches?, deleted: [String])
     /// The setup card started; `roles` includes a PM role made for it.
     case projectOnboardResult(id: String, projectId: String, cardId: String, roles: [Role])
+    case projectEnvResult(id: String, env: ProjectEnv)
     case alertsResult(id: String, alerts: AlertSettings)
     case boardResult(id: String, projectId: String, cards: [CardInfo])
     case boardUpdated(projectId: String, cards: [CardInfo])
@@ -1223,7 +1239,7 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
         case nodes, roles, team, teams, name, expiresAt, hubAddresses
         case changes, projects, schedules, report, terminalId, backlog, data, ports, pullRequest, web, github, url, error
         case projectId, cards, alerts, text
-        case agent, needsCode, signedIn, ollama, lmStudio, drafts, branches, deleted, cardId
+        case agent, needsCode, signedIn, ollama, lmStudio, drafts, branches, deleted, cardId, env
     }
 
     public init(from decoder: any Decoder) throws {
@@ -1323,6 +1339,8 @@ public enum ServerMessage: Decodable, Equatable, Sendable {
                 cardId: try c.decode(String.self, forKey: .cardId),
                 roles: try c.decode([Role].self, forKey: .roles)
             )
+        case "project.env.result":
+            self = .projectEnvResult(id: try c.decode(String.self, forKey: .id), env: try c.decode(ProjectEnv.self, forKey: .env))
         case "project.branches.result":
             self = .projectBranchesResult(
                 id: try c.decode(String.self, forKey: .id),

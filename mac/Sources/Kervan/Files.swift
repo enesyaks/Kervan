@@ -120,6 +120,13 @@ struct FilesPanel: View {
     @State private var listing: WorkspaceListing?
     @State private var error: String?
     @State private var downloading: Set<String> = []
+    @State private var editingEnv: String?
+
+    /// The project an env file here belongs to: the session's own, or for a helper its lead's.
+    private var projectID: String? {
+        guard let session = model.store.session(sessionID) else { return nil }
+        return session.projectId ?? session.parentId.flatMap { model.store.session($0)?.projectId }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -166,6 +173,14 @@ struct FilesPanel: View {
         }
         .frame(maxHeight: .infinity, alignment: .top)
         .task(id: refreshKey) { await load() }
+        .sheet(item: Binding(get: { editingEnv.map(EnvTarget.init) }, set: { editingEnv = $0?.file })) { target in
+            if let projectID { EnvEditorSheet(projectID: projectID, file: target.file).environment(model) }
+        }
+    }
+
+    private struct EnvTarget: Identifiable {
+        let file: String
+        var id: String { file }
     }
 
     /// Reload whenever the session's status changes: a finished turn may have written files.
@@ -181,6 +196,16 @@ struct FilesPanel: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 8)
+            if entry.type == .file && entry.depth == 0 && projectID != nil && EnvEditor.isEnvName(entry.name) {
+                Button {
+                    editingEnv = entry.name
+                } label: {
+                    Image(systemName: "pencil.circle")
+                }
+                .buttonStyle(.borderless)
+                .help(L("Edit the project's \(entry.name) in Kervan", "Projenin \(entry.name) dosyasını Kervan'da düzenle"))
+                .accessibilityLabel(L("Edit \(entry.name)", "\(entry.name) dosyasını düzenle"))
+            }
             if entry.type == .file {
                 Text(ByteCountFormatter.string(fromByteCount: entry.size, countStyle: .file))
                     .font(.caption)

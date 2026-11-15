@@ -270,7 +270,7 @@ export class NodeAgent {
   private serve(rpc: Rpc): void {
     const root = this.options.workspacesDir;
     rpc
-      .on("start", async (params: { processId: string; command: AgentDefinition; key: string; resumeSessionId?: string; mcpServers: acp.McpServer[] }) => {
+      .on("start", async (params: { processId: string; command: AgentDefinition; key: string; resumeSessionId?: string; mcpServers: acp.McpServer[]; claudeSettings?: Record<string, unknown> }) => {
         const { processId } = params;
         const cwd = await this.workspace(params.key);
         const mcpServers = await this.localise(params.mcpServers, rpc);
@@ -278,6 +278,7 @@ export class NodeAgent {
           command: params.command,
           cwd,
           ...(params.resumeSessionId ? { resumeSessionId: params.resumeSessionId } : {}),
+          ...(params.claudeSettings ? { claudeSettings: params.claudeSettings } : {}),
           onEvent: (event) => rpc.notify("event", { processId, event }),
           onPermission: (request) => rpc.call("permission", { processId, request }),
           onUsage: (usage) => rpc.notify("usage", { processId, usage }),

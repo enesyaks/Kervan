@@ -586,3 +586,46 @@ import Testing
         #expect(String(decoding: try JSONEncoder().encode(pm), as: UTF8.self).contains(#""skills":["plan"]"#), "flipping a switch sends the skills back")
     }
 }
+
+@Suite struct RedLinesAndEnvTests {
+    @Test func readsAProjectsRedLinesAndAgentsEnvRequests() throws {
+        let project = try JSONDecoder().decode(ProjectInfo.self, from: Data(#"""
+        {"id":"p","name":"P","path":"/p","instructions":"","createdAt":"","redLines":{"paths":[".env",".env.*","secrets"],"rules":["Never push"]},
+         "envRequests":[{"keys":["OPENAI_API_KEY"],"reason":"summaries","sessionId":"s","at":""}]}
+        """#.utf8))
+        #expect(project.redLines?.protectsEnv == true)
+        #expect(project.redLines?.rules == ["Never push"])
+        #expect(project.envRequests?.first?.keys == ["OPENAI_API_KEY"])
+        #expect(RedLines(paths: [".env"]).protectsEnv == false, "both env patterns, or it isn't the preset")
+        #expect(RedLines.lines(" a \n\n b\n") == ["a", "b"])
+        #expect(RedLines().isEmpty)
+    }
+
+    @Test func sendsRedLinesOnlyWhenSet() throws {
+        var input = ProjectInput(id: "p", name: "P")
+        #expect(!String(decoding: try JSONEncoder().encode(input), as: UTF8.self).contains("redLines"), "left out, the server keeps them")
+        input.redLines = RedLines()
+        let sent = try JSONSerialization.jsonObject(with: JSONEncoder().encode(input)) as? [String: Any]
+        let lines = sent?["redLines"] as? [String: [String]]
+        #expect(lines == ["paths": [], "rules": []], "empty lists clear them")
+    }
+
+    @Test func loadsAndSavesEnvFiles() throws {
+        let load = String(decoding: try JSONEncoder().encode(ClientMessage.projectEnv(id: "1", projectId: "p", file: nil)), as: UTF8.self)
+        #expect(load.contains(#""type":"project.env""#) && !load.contains("file"))
+        let save = String(decoding: try JSONEncoder().encode(ClientMessage.projectEnvSave(id: "2", projectId: "p", file: ".env", entries: [ProjectEnv.Entry(key: "A", value: "1")])), as: UTF8.self)
+        #expect(save.contains(#""type":"project.env.save""#) && save.contains(#""file":".env""#))
+        let body = try JSONSerialization.jsonObject(with: Data(save.utf8)) as? [String: Any]
+        #expect((body?["entries"] as? [[String: String]]) == [["key": "A", "value": "1"]], "an entry's own id stays in the app")
+
+        let message = try ServerMessage.decode(#"{"type":"project.env.result","id":"2","env":{"projectId":"p","files":[".env",".env.example"],"file":".env","exists":true,"entries":[{"key":"A","value":"1"}],"missing":["B"],"example":".env.example","protectedBy":".env"}}"#)
+        guard case .projectEnvResult(_, let env) = message else {
+            Issue.record("not an env result")
+            return
+        }
+        #expect(env.entries.map(\.key) == ["A"])
+        #expect(env.missing == ["B"])
+        #expect(env.protectedBy == ".env")
+        #expect(ProjectEnv.looksSecret("STRIPE_SECRET_KEY") && ProjectEnv.looksSecret("DATABASE_URL") && !ProjectEnv.looksSecret("PORT"))
+    }
+}

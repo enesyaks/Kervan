@@ -155,6 +155,10 @@ public struct ProjectInfo: Codable, Equatable, Sendable, Identifiable {
     public let pm: ProjectPM?
     /// Who the PM hands work to: each an agent with the skills that fit its job.
     public var team: [ProjectMember]? = nil
+    /// What no agent in the project may do: files it may never touch, and rules it must never break.
+    public var redLines: RedLines? = nil
+    /// Env variables agents asked for and couldn't find; filled in the project's Env section.
+    public var envRequests: [EnvRequest]? = nil
 
     public init(id: String, name: String, path: String, instructions: String = "", buildImage: String? = nil, createdAt: String = "", map: ProjectMapInfo? = nil, pm: ProjectPM? = nil) {
         self.id = id
@@ -165,6 +169,66 @@ public struct ProjectInfo: Codable, Equatable, Sendable, Identifiable {
         self.createdAt = createdAt
         self.map = map
         self.pm = pm
+    }
+}
+
+/// A project's red lines. `paths` are enforced by Kervan (and by Claude Code itself); `rules` are told to every agent.
+public struct RedLines: Codable, Equatable, Sendable {
+    public var paths: [String]
+    public var rules: [String]
+
+    public init(paths: [String] = [], rules: [String] = []) {
+        self.paths = paths
+        self.rules = rules
+    }
+
+    public var isEmpty: Bool { paths.isEmpty && rules.isEmpty }
+
+    /// What the env-file preset adds.
+    public static let envPaths = [".env", ".env.*"]
+    public var protectsEnv: Bool { Self.envPaths.allSatisfy(paths.contains) }
+
+    /// One item per line, blank lines dropped.
+    public static func lines(_ text: String) -> [String] {
+        text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+}
+
+/// Env variables an agent asked for: their names only, why, and which session asked.
+public struct EnvRequest: Codable, Equatable, Sendable, Identifiable {
+    public let keys: [String]
+    public let reason: String
+    public let sessionId: String
+    public let at: String
+    public var id: String { "\(sessionId)-\(keys.joined(separator: ","))" }
+}
+
+/// One of a project's env files as the app edits it.
+public struct ProjectEnv: Codable, Equatable, Sendable {
+    public struct Entry: Codable, Equatable, Sendable, Identifiable {
+        public var id = UUID()
+        public var key: String
+        public var value: String
+        private enum CodingKeys: String, CodingKey { case key, value }
+        public init(key: String, value: String) {
+            self.key = key
+            self.value = value
+        }
+    }
+
+    public let projectId: String
+    public let files: [String]
+    public let file: String
+    public let exists: Bool
+    public var entries: [Entry]
+    public let missing: [String]
+    public let example: String?
+    public let protectedBy: String?
+
+    /// Env-ish names that look like secrets, so the editor hides their values until asked.
+    public static func looksSecret(_ key: String) -> Bool {
+        let upper = key.uppercased()
+        return ["KEY", "SECRET", "TOKEN", "PASSWORD", "PASS", "PRIVATE", "CREDENTIAL", "AUTH", "DSN", "DATABASE_URL"].contains { upper.contains($0) }
     }
 }
 
@@ -497,6 +561,8 @@ public struct ProjectInput: Encodable, Equatable, Sendable {
     public var gitUrl: String?
     /// A new project only: the agent that maps it right after it's added.
     public var mapAgent: String?
+    /// nil leaves an existing project's as they are; empty lists take them away.
+    public var redLines: RedLines?
 
     public init(id: String? = nil, name: String, instructions: String = "", buildImage: String? = nil, path: String? = nil, gitUrl: String? = nil, mapAgent: String? = nil) {
         self.id = id

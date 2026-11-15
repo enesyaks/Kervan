@@ -36,6 +36,8 @@ let current = "";
 let cwd = process.cwd();
 let authenticated = "none";
 let mcpNames: string[] = [];
+/** What the client sent in `_meta` on session/new or resume, for "metacheck". */
+let meta: unknown;
 let mcpServers: acp.McpServer[] = [];
 // With --tiered, models named like real ones, for the board's model suggestions.
 const tiered = process.argv.includes("--tiered");
@@ -118,6 +120,7 @@ acp
   })
   .onRequest("session/new", ({ params, client }) => {
     cwd = params.cwd;
+    meta = params._meta;
     // Agents announce their slash commands right after the session starts.
     setTimeout(() => {
       void client.notify("session/update", {
@@ -138,6 +141,7 @@ acp
   })
   .onRequest("session/resume", ({ params }) => {
     cwd = params.cwd;
+    meta = params._meta;
     mcpServers = params.mcpServers ?? [];
     mcpNames = mcpServers.map((server) => server.name);
     current = params.sessionId;
@@ -164,6 +168,18 @@ acp
     if (text.includes("crash")) process.exit(1);
     if (text.includes("mcpcheck")) {
       await update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `mcp: ${mcpNames.join(",")}` } });
+      return { stopReason: "end_turn" };
+    }
+    if (text.includes("metacheck")) {
+      await update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `meta: ${JSON.stringify(meta ?? null)}` } });
+      return { stopReason: "end_turn" };
+    }
+    // "tool: <kind> <title>": reports a tool call it runs without asking, then takes a moment before it answers.
+    if (text.startsWith("tool: ")) {
+      const [kind, ...rest] = text.slice("tool: ".length).split(" ");
+      await update({ sessionUpdate: "tool_call", toolCallId: "t1", title: rest.join(" "), kind: kind as acp.ToolKind, status: "in_progress" });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "ran it" } });
       return { stopReason: "end_turn" };
     }
     if (text.includes("modecheck")) {

@@ -22,6 +22,7 @@ import {
   type SessionEvent,
   type SessionEventBody,
   type SessionInfo,
+  type RedLines,
   type UsageReport,
 } from "./protocol.ts";
 import { commitAll, repositoryBranch, type Checkpoints } from "./checkpoints.ts";
@@ -43,6 +44,8 @@ import type { Role, RoleRegistry } from "./roles.ts";
 import type * as acp from "@agentclientprotocol/sdk";
 import { isMemoryCall, isOrchestraCall, isPMCall } from "./orchestra.ts";
 import { majorChange } from "./autoapprove.ts";
+import { checkEntries, claudeDenyRules, parseEnv, redLinesPreface, renderEnv, touchesForbidden } from "./redlines.ts";
+import { copyEnvFiles, envFileName, readEnvFile, writeEnvFile } from "./projectenv.ts";
 import { LOCAL_NODE, nodeOf, type NodeHub } from "./nodes.ts";
 import { PROJECTS_FEATURE, SKILLS_FEATURE, applyBundle, branchTip, bundleBranch, ensureBranch, hasCommitsSync, transferFile } from "./projectcopy.ts";
 import {
@@ -180,6 +183,8 @@ interface Session {
   agentSessionId?: string;
   /** Unanswered permission requests by requestId. They wait for as long as the user is away. */
   pending: Map<string, PendingPermission>;
+  /** Tool calls already stopped for crossing a red line, so one isn't stopped twice. */
+  redLineStops?: Set<string>;
   /** The agent message currently streaming, kept whole for the search index. */
   streaming?: IndexedMessage;
   /** Role instructions given to the agent before the first message. */
@@ -732,7 +737,10 @@ export class SessionManager {
     };
     session.cwd = this.cwdFor(this.workspacesDir, session.info);
     // A node makes its own workspace folder when the agent starts there.
-    if (worktreeFrom) await addWorktree(worktreeFrom, session.cwd, session.info.branch!);
+    if (worktreeFrom) {
+      await addWorktree(worktreeFrom, session.cwd, session.info.branch!);
+      await this.giveEnvFiles(worktreeFrom, session);
+    }
     else if (nodeCopy) await ensureBranch(project.path, session.info.branch!).catch((error) => gitError(`couldn't make branch ${session.info.branch}`, error));
     else if (node === LOCAL_NODE) await mkdir(session.cwd, { recursive: true });
     // On a node `cwd` is a key there, not a folder here: its skills go over when its agent starts (ensureNodeSkills).
@@ -899,6 +907,44 @@ export class SessionManager {
     const member = this.memoryProject(lead.info)?.team?.find((m) => m.id === id);
     if (member) return { ...member, mcpServers: [] };
     return this.roles?.get(id);
+  }
+
+  /**
+   * Writes one of the project's env files from the app, then the same file in the folders of the project's live
+   * sessions that have one of their own (worktrees), so what an agent runs sees the new values. Keys that now have a
+   * value drop out of the agents' requests.
+   */
+  async saveProjectEnv(projectId: string, file: string, input: unknown): Promise<ProjectInfo> {
+    const project = this.projects?.get(projectId) ?? fail(`no project '${projectId}'`);
+    const name = envFileName(file);
+    const entries = checkEntries(input);
+    const text = renderEnv((await readEnvFile(project.path, name)) ?? "", entries);
+    await writeEnvFile(project.path, name, text);
+    for (const session of this.sessions.values()) {
+      if (session.info.archived || !session.info.branch || this.nodeFor(session.info) !== LOCAL_NODE) continue;
+      if (this.memoryProject(session.info)?.id !== projectId || session.cwd === project.path || !existsSync(session.cwd)) continue;
+      // The worktree's own copy follows the project's, values and all; its other lines go with it.
+      await writeEnvFile(session.cwd, name, text).catch((error) => log("warn", "couldn't update a worktree's env file", { id: session.info.id, error: String(error) }));
+      this.record(session, { kind: "notice", text: `The user updated ${name}; this folder has the new values.` });
+    }
+    this.projects!.settleEnvRequests(projectId, new Set(parseEnv(text).filter((e) => e.value !== "").map((e) => e.key)));
+    this.broadcast({ type: "projects.updated", projects: this.projects!.list() });
+    return this.projects!.get(projectId)!;
+  }
+
+  /** An agent asks for env variables it needs; only their names are kept, for the user to fill in the app. */
+  requestEnv(sessionId: string, input: { keys?: unknown; reason?: unknown }): string[] {
+    const session = this.require(sessionId);
+    const project = this.memoryProject(session.info) ?? fail("only a session in a project can ask for env variables");
+    const keys = Array.isArray(input.keys) ? input.keys : fail("keys must be a list of variable names");
+    if (keys.length === 0 || keys.length > 20) fail("ask for 1–20 variables");
+    const names = [...new Set(keys.map((k) => (typeof k === "string" && /^[A-Za-z_][A-Za-z0-9_.]*$/.test(k.trim()) ? k.trim() : fail(`'${String(k)}' isn't a variable name`))))];
+    const reason = typeof input.reason === "string" ? input.reason.trim().slice(0, 300) : "";
+    if (!reason) fail("say why the project needs them");
+    this.projects!.addEnvRequest(project.id, { keys: names, reason, sessionId, at: new Date().toISOString() });
+    this.record(session, { kind: "notice", text: `Asked the user for env variables: ${names.join(", ")}.` });
+    this.broadcast({ type: "projects.updated", projects: this.projects!.list() });
+    return names;
   }
 
   /** A lead agent starts a helper in its own folder and gives it its first task. */
@@ -1236,6 +1282,17 @@ export class SessionManager {
     const repo = this.worktreeRepo(session);
     if (!repo || existsSync(session.cwd)) return;
     await restoreWorktree(repo, session.cwd, session.info.branch!);
+    await this.giveEnvFiles(repo, session);
+  }
+
+  /** A worktree gets the env files git leaves out, so the app its agent runs there finds them. Never fatal. */
+  private async giveEnvFiles(from: string, session: Session): Promise<void> {
+    try {
+      const copied = await copyEnvFiles(from, session.cwd);
+      if (copied.length > 0) this.record(session, { kind: "notice", text: `Copied the project's ${copied.join(", ")} into this session's folder.` });
+    } catch (error) {
+      log("warn", "couldn't copy env files into a worktree", { id: session.info.id, error: String(error) });
+    }
   }
 
   search(query: string, limit?: number): SearchHit[] {
@@ -1290,6 +1347,12 @@ export class SessionManager {
     const project = session.info.projectId ? this.projects?.get(session.info.projectId) : undefined;
     const parts = [
       project?.instructions ? `[Kervan] Project "${project.name}" — instructions from the user:\n${project.instructions}` : undefined,
+      redLinesPreface(this.redLines(session.info)),
+      this.hasMemory(session.info)
+        ? "[Kervan] If the project needs an env variable (an API key, a database address) that isn't set, don't make one up " +
+          "and don't ask for its value in chat: call env_need with the variable names and why. The user fills them in Kervan, " +
+          "and they reach your folder's env file; you are never told the values."
+        : undefined,
       this.mapPreface(session),
       this.buildPreface(session),
       lead
@@ -1964,7 +2027,10 @@ export class SessionManager {
       const process = await this.runner.start({
         command: this.agents.get(session.info.agent)!,
         cwd: session.cwd,
-        onEvent: (event) => this.record(session, event),
+        onEvent: (event) => {
+          this.record(session, event);
+          this.guardRedLines(session, event);
+        },
         onPermission: (request) => this.askPermission(session, request),
         onUsage: (usage) => this.updateUsage(session, usage),
         onConfig: (options) => this.updateConfig(session, options),
@@ -1979,6 +2045,7 @@ export class SessionManager {
           return servers;
         },
         ...(resume ? { resumeSessionId: session.agentSessionId } : {}),
+        ...(this.claudeSettings(session.info) ? { claudeSettings: this.claudeSettings(session.info) } : {}),
       });
       if (this.shuttingDown) {
         // closeAll ran while this agent was still starting; don't leave it running on its own.
@@ -2024,7 +2091,50 @@ export class SessionManager {
     }
   }
 
+  /** The red lines a session works under: its project's, or for a helper its lead's. */
+  private redLines(info: SessionInfo): RedLines | undefined {
+    return this.memoryProject(info)?.redLines;
+  }
+
+  /** Claude Code enforces forbidden paths itself when it gets them as deny rules. */
+  private enforcesDeny(info: SessionInfo): boolean {
+    const command = this.agents.get(info.agent);
+    return command !== undefined && command.protocol !== "pty" && /claude-agent-acp/.test([command.command, ...command.args].join(" "));
+  }
+
+  private claudeSettings(info: SessionInfo): Record<string, unknown> | undefined {
+    const deny = this.enforcesDeny(info) ? claudeDenyRules(this.redLines(info)) : [];
+    return deny.length > 0 ? { permissions: { deny } } : undefined;
+  }
+
+  /**
+   * The last line of defence: a tool call that touches a forbidden path without asking first stops the turn. Claude
+   * Code refuses its own reads and edits of them (deny rules), so for it only commands are watched.
+   */
+  private guardRedLines(session: Session, event: SessionEventBody): void {
+    if (event.kind !== "tool_call" && event.kind !== "tool_call_update") return;
+    const title = event.title;
+    if (!title) return;
+    const lines = this.redLines(session.info);
+    if (!lines) return;
+    const kind = event.kind === "tool_call" ? event.toolKind : undefined;
+    if (this.enforcesDeny(session.info) && kind !== undefined && kind !== "execute" && kind !== "other") return;
+    if (this.enforcesDeny(session.info) && event.kind === "tool_call_update") return;
+    const crossed = touchesForbidden(lines, title, session.cwd);
+    if (!crossed || session.redLineStops?.has(event.toolCallId)) return;
+    (session.redLineStops ??= new Set()).add(event.toolCallId);
+    this.record(session, { kind: "notice", text: `Red line: "${title}" touches ${crossed}. Kervan stopped the turn.` });
+    void this.cancel(session.info.id).catch(() => {});
+  }
+
   private askPermission(session: Session, request: PermissionRequest): Promise<PermissionDecision> {
+    // A red line is never the user's to wave through one call at a time: refused before anyone is asked.
+    const crossed = touchesForbidden(this.redLines(session.info), `${request.title}\n${request.detail ?? ""}`, session.cwd);
+    if (crossed) {
+      this.record(session, { kind: "notice", text: `Red line: refused "${request.title}", which touches ${crossed}.` });
+      const reject = request.options.find((o) => o.kind === "reject_once") ?? request.options.find((o) => o.kind === "reject_always");
+      return Promise.resolve(reject ? reject.optionId : null);
+    }
     // Choosing "may start helpers" already said yes to Kervan's own tools; don't ask again per call.
     if (
       (session.info.orchestrate && isOrchestraCall(request.title, request.toolKind)) ||

@@ -6,10 +6,13 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writ
 import { mkdir } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { KervanError, type ProjectInfo, type ProjectMapInfo, type ProjectMember, type ProjectPM } from "./protocol.ts";
+import { KervanError, type EnvRequest, type ProjectInfo, type ProjectMapInfo, type ProjectMember, type ProjectPM } from "./protocol.ts";
+import { parseRedLines } from "./redlines.ts";
 
 const run = promisify(execFile);
 const MAX_INSTRUCTIONS = 20_000;
+/** How many agents' env requests a project keeps. */
+const MAX_ENV_REQUESTS = 10;
 /** git clone of a large repository can take a while; past this it is given up. */
 const CLONE_TIMEOUT_MS = 10 * 60_000;
 /** A map is read by every session in the project before its first message, so it has to stay short. */
@@ -86,11 +89,17 @@ export class ProjectRegistry {
     if (input.buildImage !== undefined && typeof input.buildImage !== "string") bad("buildImage must be text");
     if (image && !validImage(image)) bad(`'${image}' isn't an image name`);
     const buildImage = image ? { buildImage: image } : {};
+    // Left out, a project keeps its red lines; empty lists take them away.
+    const redLines = input.redLines === undefined ? undefined : parseRedLines(input.redLines);
     if (id !== undefined) {
       const existing = typeof id === "string" ? this.projects.get(id) : undefined;
       if (!existing) return bad(`no project '${String(id)}'`);
       const { buildImage: _old, ...kept } = existing;
-      const updated = { ...(image === undefined ? existing : kept), name: (name as string).trim(), instructions: (instructions as string).trim(), ...buildImage };
+      const updated: ProjectInfo = { ...(image === undefined ? existing : kept), name: (name as string).trim(), instructions: (instructions as string).trim(), ...buildImage };
+      if (input.redLines !== undefined) {
+        if (redLines) updated.redLines = redLines;
+        else delete updated.redLines;
+      }
       this.projects.set(updated.id, updated);
       this.persist();
       return updated;
@@ -127,6 +136,7 @@ export class ProjectRegistry {
       path: folder,
       instructions: (instructions as string).trim(),
       ...buildImage,
+      ...(redLines ? { redLines } : {}),
       createdAt: new Date().toISOString(),
     };
     this.projects.set(project.id, project);
@@ -148,6 +158,28 @@ export class ProjectRegistry {
     else delete project.pm;
     this.persist();
     return project;
+  }
+
+  /**
+   * Notes env variables an agent asked for. A request for the same keys replaces the older one; at most
+   * MAX_ENV_REQUESTS stay, newest last.
+   */
+  addEnvRequest(id: string, request: EnvRequest): ProjectInfo {
+    const project = this.projects.get(id) ?? bad(`no project '${id}'`);
+    const same = (r: EnvRequest) => r.keys.length === request.keys.length && r.keys.every((k) => request.keys.includes(k));
+    project.envRequests = [...(project.envRequests ?? []).filter((r) => !same(r)), request].slice(-MAX_ENV_REQUESTS);
+    this.persist();
+    return project;
+  }
+
+  /** Drops the keys that now have a value from the agents' requests, and requests left with none. */
+  settleEnvRequests(id: string, filled: Set<string>): void {
+    const project = this.projects.get(id);
+    if (!project?.envRequests) return;
+    const left = project.envRequests.map((r) => ({ ...r, keys: r.keys.filter((k) => !filled.has(k)) })).filter((r) => r.keys.length > 0);
+    if (left.length > 0) project.envRequests = left;
+    else delete project.envRequests;
+    this.persist();
   }
 
   /** The project's team, as checked by the session manager. */

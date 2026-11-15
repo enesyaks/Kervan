@@ -63,6 +63,8 @@ struct ProjectView: View {
                 }
                 BoardSection(projectID: projectID)
                 ProjectBranchesSection(projectID: projectID)
+                ProjectEnvSection(project: project)
+                ProjectRedLinesSection(project: project) { editing = true }
                 ProjectMapSection(project: project)
                 SettingsCard(title: L("Instructions", "Talimatlar")) {
                     Text(project.instructions.isEmpty
@@ -491,6 +493,10 @@ struct ProjectSheet: View {
     @State private var location = ""
     @State private var mapAfterAdding = true
     @State private var teamAfterAdding = true
+    /// The red lines as edited: env files by a switch, other paths and the rules one per line.
+    @State private var protectEnv = true
+    @State private var redPaths = ""
+    @State private var redRules = ""
     @State private var saving = false
     @State private var error: String?
 
@@ -537,6 +543,7 @@ struct ProjectSheet: View {
                 } footer: {
                     Text(L("Told to every agent in this project before its first message: code style, test command, things to watch out for.", "Bu projedeki her ajana ilk mesajdan önce söylenir: kod stili, test komutu, dikkat edilecekler."))
                 }
+                redLinesSection
                 Section {
                     TextField(L("Build image", "Derleme imajı"), text: $buildImage, prompt: Text(verbatim: "mcr.microsoft.com/dotnet/sdk:9.0"))
                         .font(.body.monospaced())
@@ -581,13 +588,70 @@ struct ProjectSheet: View {
             }
             .padding(16)
         }
-        .frame(width: 500, height: 540) // fits a window at its smallest; the form scrolls
+        .frame(width: 520, height: 600) // fits a window at its smallest; the form scrolls
         .sheet(isPresented: $settingUpPodman) { ServerUpdateSheet(access: .podman).environment(model) }
         .background(Color.kervanCanvas)
         .onAppear {
             name = project?.name ?? ""
             instructions = project?.instructions ?? ""
             buildImage = project?.buildImage ?? ""
+            // A new project keeps agents out of its env files unless you say otherwise.
+            let lines = project?.redLines ?? (project == nil ? RedLines(paths: RedLines.envPaths) : RedLines())
+            protectEnv = lines.protectsEnv
+            redPaths = lines.paths.filter { !(protectEnv && RedLines.envPaths.contains($0)) }.joined(separator: "\n")
+            redRules = lines.rules.joined(separator: "\n")
+        }
+    }
+
+    /// Common rules, one click away.
+    private static let suggestedRules = [
+        L("Never push to main or master.", "main ya da master dalına asla push etme."),
+        L("Never run database migrations or change the production database.", "Veritabanı migration'ı çalıştırma, canlı veritabanına dokunma."),
+        L("Never delete files outside your task.", "Görevin dışındaki dosyaları silme."),
+        L("Never add a new dependency without asking.", "Sormadan yeni bağımlılık ekleme."),
+    ]
+
+    private var redLines: RedLines {
+        let paths = (protectEnv ? RedLines.envPaths : []) + RedLines.lines(redPaths)
+        var unique: [String] = []
+        for path in paths where !unique.contains(path) { unique.append(path) }
+        return RedLines(paths: unique, rules: RedLines.lines(redRules))
+    }
+
+    private var redLinesSection: some View {
+        Section {
+            Toggle(L("Agents can't read env files (.env, .env.*)", "Ajanlar env dosyalarını okuyamasın (.env, .env.*)"), isOn: $protectEnv)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(L("Other files agents can't touch, one per line", "Ajanların dokunamayacağı diğer dosyalar, her satıra bir tane"))
+                    .font(.caption).foregroundStyle(.secondary)
+                TextEditor(text: $redPaths)
+                    .font(.body.monospaced())
+                    .frame(minHeight: 50)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text(L("Rules agents must never break, one per line", "Ajanların asla çiğnemeyeceği kurallar, her satıra bir tane"))
+                    .font(.caption).foregroundStyle(.secondary)
+                TextEditor(text: $redRules)
+                    .frame(minHeight: 60)
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(Self.suggestedRules.filter { !RedLines.lines(redRules).contains($0) }, id: \.self) { rule in
+                        Button {
+                            redRules = (RedLines.lines(redRules) + [rule]).joined(separator: "\n")
+                        } label: {
+                            Label(rule, systemImage: "plus.circle").font(.caption)
+                        }
+                        .buttonStyle(.borderless)
+                        .help(L("Add this rule", "Bu kuralı ekle"))
+                    }
+                }
+            }
+        } header: {
+            Text(L("Red lines", "Kırmızı çizgiler"))
+        } footer: {
+            Text(L(
+                "Files: like .gitignore (secrets/, config/*.key). Agents can't read or change them: Kervan refuses and stops them, and Claude Code refuses them by itself. Apps they run still load them. Rules are told to every agent, its helpers included, as rules it must never break.",
+                "Dosyalar .gitignore gibi yazılır (secrets/, config/*.key). Ajanlar bunları okuyamaz ve değiştiremez: Kervan reddeder ve durdurur, Claude Code da kendi başına reddeder. Çalıştırdıkları uygulamalar yine yükler. Kurallar her ajana, yardımcıları dahil, asla çiğnenmeyecek kurallar olarak söylenir."
+            ))
         }
     }
 
@@ -606,7 +670,7 @@ struct ProjectSheet: View {
         saving = true
         defer { saving = false }
         let place = location.trimmingCharacters(in: .whitespacesAndNewlines)
-        let input = ProjectInput(
+        var input = ProjectInput(
             id: project?.id,
             name: name.trimmingCharacters(in: .whitespaces),
             instructions: instructions,
@@ -616,6 +680,7 @@ struct ProjectSheet: View {
             gitUrl: project == nil && source == .clone ? place : nil,
             mapAgent: project == nil && source != .empty && mapAfterAdding ? mapAgent?.id : nil
         )
+        input.redLines = redLines
         let before = Set(model.store.projects.map(\.id))
         if let failure = await model.store.saveProject(input) {
             error = failure

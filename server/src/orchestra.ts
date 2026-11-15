@@ -120,6 +120,18 @@ export const MEMORY_TOOLS: Tool[] = [
       },
     },
   },
+  {
+    name: "env_need",
+    description: "Ask the user for env variables the project needs and doesn't have. Names only; you never get the values.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        keys: { type: "array", items: { type: "string" }, description: "Variable names, e.g. ['STRIPE_SECRET_KEY']." },
+        reason: text("Why: what fails without them."),
+      },
+      required: ["keys", "reason"],
+    },
+  },
 ];
 
 /** A project's PM for a board card gets these: they only touch the board, so Kervan answers them without asking. */
@@ -407,6 +419,10 @@ export class OrchestraHub {
           image: optional(args, "image"),
           ...(typeof args.timeoutSec === "number" ? { timeoutSec: args.timeoutSec } : {}),
         });
+      case "env_need": {
+        const keys = sessions.requestEnv(leadId, { keys: args.keys, reason: args.reason });
+        return `Asked the user for ${keys.join(", ")}. They fill them in Kervan; the values reach your folder's env file. Go on with what you can meanwhile.`;
+      }
       case "case_read":
         return readCases(sessions, leadId, { id: optional(args, "id"), q: optional(args, "q"), full: args.full === true });
       case "case_plan":

@@ -452,6 +452,7 @@ export class NodeHub {
         // server's, which means nothing on the node, so it gets a throwaway one there.
         key: isAbsolute(options.cwd) ? `.kervan-probe/${processId}` : options.cwd,
         ...(options.resumeSessionId ? { resumeSessionId: options.resumeSessionId } : {}),
+        ...(options.claudeSettings ? { claudeSettings: options.claudeSettings } : {}),
         mcpServers,
       });
     } catch (error) {
